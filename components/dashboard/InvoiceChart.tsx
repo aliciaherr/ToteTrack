@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useReducedMotion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { ChevronDown } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -123,6 +124,7 @@ function ChartBody({ points, animationDuration }: { points: ChartPoint[]; animat
  */
 export default function InvoiceChart({ data }: InvoiceChartProps) {
   const shouldReduceMotion = useReducedMotion()
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const [timeScale, setTimeScale] = useState<TimeScale>('monthly')
   const [totalShape, setTotalShape] = useState<TotalShape>('per_period')
   const today = useMemo(() => new Date(), [])
@@ -131,14 +133,29 @@ export default function InvoiceChart({ data }: InvoiceChartProps) {
     [data, timeScale, totalShape, today],
   )
   const animationDuration = shouldReduceMotion ? 0 : CHART_ANIMATION_DURATION_MS
+  const collapseTransition = shouldReduceMotion
+    ? { duration: 0 }
+    : { duration: 0.2, ease: 'easeInOut' as const }
   return (
-    <section
-      aria-label="Invoice trend"
-      className="rounded-xl bg-card border border-border p-4 space-y-4"
-    >
-      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Invoice Trend</h2>
-        {data.length > 0 && (
+    <section aria-label="Invoice trend" className="rounded-xl bg-card border border-border">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4">
+        <button
+          type="button"
+          onClick={() => setIsCollapsed((prev) => !prev)}
+          aria-expanded={!isCollapsed}
+          aria-controls="invoice-chart-body"
+          className="flex items-center gap-2 min-h-[44px] -mx-2 px-2 rounded-lg hover:bg-muted transition-colors"
+        >
+          <h2 className="text-sm font-semibold text-foreground">Invoice Trend</h2>
+          <motion.span
+            animate={{ rotate: isCollapsed ? 0 : 180 }}
+            transition={collapseTransition}
+            className="inline-flex"
+          >
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          </motion.span>
+        </button>
+        {!isCollapsed && data.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <PillToggle<TimeScale>
               ariaLabel="Time scale"
@@ -161,11 +178,27 @@ export default function InvoiceChart({ data }: InvoiceChartProps) {
           </div>
         )}
       </header>
-      {data.length === 0 ? (
-        <ChartEmptyState />
-      ) : (
-        <ChartBody points={points} animationDuration={animationDuration} />
-      )}
+      <AnimatePresence initial={false}>
+        {!isCollapsed && (
+          <motion.div
+            key="chart-body"
+            id="invoice-chart-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={collapseTransition}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="px-4 pb-4">
+              {data.length === 0 ? (
+                <ChartEmptyState />
+              ) : (
+                <ChartBody points={points} animationDuration={animationDuration} />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   )
 }

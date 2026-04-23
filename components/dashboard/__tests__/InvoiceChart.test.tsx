@@ -7,6 +7,29 @@ const reducedMotionRef = vi.hoisted(() => ({ value: false }))
 
 vi.mock('framer-motion', () => ({
   useReducedMotion: () => reducedMotionRef.value,
+  AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  motion: {
+    div: ({
+      children,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      transition: _transition,
+      ...rest
+    }: { children?: React.ReactNode; [k: string]: unknown }) => (
+      <div {...(rest as React.HTMLAttributes<HTMLDivElement>)}>{children}</div>
+    ),
+    span: ({
+      children,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      transition: _transition,
+      ...rest
+    }: { children?: React.ReactNode; [k: string]: unknown }) => (
+      <span {...(rest as React.HTMLAttributes<HTMLSpanElement>)}>{children}</span>
+    ),
+  },
 }))
 
 // Minimal Recharts mock: renders the bar-series data points as simple spans
@@ -46,6 +69,10 @@ const multiYearData: InvoiceTrendRow[] = [
   { billing_month: '2026-04-01', total_amount: '7000.00' },
 ]
 
+function expandChart() {
+  fireEvent.click(screen.getByRole('button', { name: /invoice trend/i }))
+}
+
 beforeEach(() => {
   reducedMotionRef.value = false
   vi.useFakeTimers()
@@ -57,25 +84,50 @@ afterEach(() => {
 })
 
 describe('InvoiceChart', () => {
+  it('is collapsed by default — chart body and pill toggles hidden', () => {
+    render(<InvoiceChart data={multiYearData} />)
+    expect(screen.queryByTestId('bar-chart')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /annual/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /invoice trend/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+  })
+
+  it('expands when the header button is clicked and collapses on second click', () => {
+    render(<InvoiceChart data={multiYearData} />)
+    const toggle = screen.getByRole('button', { name: /invoice trend/i })
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('bar-chart')).toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+    expect(screen.queryByTestId('bar-chart')).not.toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('renders the empty state when data is empty', () => {
     render(<InvoiceChart data={emptyData} />)
+    expandChart()
     expect(screen.getByText(/no invoice data yet/i)).toBeInTheDocument()
     expect(screen.queryByTestId('bar-chart')).not.toBeInTheDocument()
   })
 
   it('renders exactly 12 bars in Per-Period Monthly mode', () => {
     render(<InvoiceChart data={multiYearData} />)
+    expandChart()
     expect(screen.getByTestId('bar-chart').dataset.pointCount).toBe('12')
   })
 
   it('switches to Annual mode and renders one bar per year with data', () => {
     render(<InvoiceChart data={multiYearData} />)
+    expandChart()
     fireEvent.click(screen.getByRole('tab', { name: /annual/i }))
     expect(screen.getByTestId('bar-chart').dataset.pointCount).toBe('3')
   })
 
   it('cumulative monthly: each bar value is greater than or equal to the previous', () => {
     render(<InvoiceChart data={multiYearData} />)
+    expandChart()
     fireEvent.click(screen.getByRole('tab', { name: /cumulative/i }))
     const bars = screen.getAllByTestId('bar-point')
     const values = bars.map((el) => Number(el.textContent))
@@ -86,12 +138,14 @@ describe('InvoiceChart', () => {
 
   it('passes animationDuration=300 to the bar series when motion is enabled', () => {
     render(<InvoiceChart data={multiYearData} />)
+    expandChart()
     expect(screen.getByTestId('bar-series').dataset.animationDuration).toBe('300')
   })
 
   it('passes animationDuration=0 to the bar series when useReducedMotion is true', () => {
     reducedMotionRef.value = true
     render(<InvoiceChart data={multiYearData} />)
+    expandChart()
     expect(screen.getByTestId('bar-series').dataset.animationDuration).toBe('0')
   })
 })

@@ -44,8 +44,10 @@ export default function NeedToContactWidget({ rows }: NeedToContactWidgetProps) 
       aria-label="Customers who need contact"
       className="rounded-xl bg-card border border-border flex flex-col"
     >
-      <header className="px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-semibold text-foreground">Need to Contact</h2>
+      <header className="px-4 py-2.5 border-b border-border bg-muted/50">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Need to Contact
+        </h2>
       </header>
       {rows.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground p-8 text-center">

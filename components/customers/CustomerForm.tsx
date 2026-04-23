@@ -39,13 +39,10 @@ const PANEL_ANIMATION = {
   transition: { duration: 0.18, ease: 'easeOut' as const },
 }
 
-function FormHeader({ title, onClose }: { title: string; onClose: () => void }) {
+function FormHeader({ title }: { title: string }) {
   return (
-    <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+    <div className="flex items-center px-6 py-4 border-b border-border">
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      <Button type="button" variant="ghost" onClick={onClose} className="min-h-[44px]">
-        Cancel
-      </Button>
     </div>
   )
 }
@@ -188,7 +185,7 @@ export default function CustomerForm({
       className="h-full flex flex-col"
       aria-label={title}
     >
-      <FormHeader title={title} onClose={onClose} />
+      <FormHeader title={title} />
       <FormBody form={form} fieldArray={fieldArray} isEdit={isEdit} serverError={serverError} />
       <FormFooter
         isEdit={isEdit}

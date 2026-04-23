@@ -35,13 +35,10 @@ const PANEL_ANIMATION = {
   transition: { duration: 0.18, ease: 'easeOut' as const },
 }
 
-function FormHeader({ title, onClose }: { title: string; onClose: () => void }) {
+function FormHeader({ title }: { title: string }) {
   return (
-    <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+    <div className="flex items-center px-6 py-4 border-b border-border">
       <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      <Button type="button" variant="ghost" onClick={onClose} className="min-h-[44px]">
-        Cancel
-      </Button>
     </div>
   )
 }
@@ -98,7 +95,7 @@ export default function LeadForm({ mode, initialDetail, onClose, onSaved }: Lead
       className="h-full flex flex-col bg-card"
       {...animation}
     >
-      <FormHeader title={isEdit ? `Edit ${initialDetail?.name ?? 'Lead'}` : 'New Lead'} onClose={onClose} />
+      <FormHeader title={isEdit ? `Edit ${initialDetail?.name ?? 'Lead'}` : 'New Lead'} />
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
         {serverError && (
           <div role="alert" className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2">

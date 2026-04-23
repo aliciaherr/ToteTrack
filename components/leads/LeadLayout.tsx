@@ -78,7 +78,7 @@ export default function LeadLayout({
   }, [router, selectedId])
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] lg:grid lg:grid-cols-[minmax(320px,38%)_1fr]">
+    <div className="h-[calc(100vh-3.5rem)] lg:grid lg:grid-cols-[minmax(320px,38%)_1fr] lg:grid-rows-[minmax(0,1fr)]">
       <LeadList
         leads={leads}
         selectedId={selectedId}

@@ -141,6 +141,7 @@ export default function DashboardView({
         <PeriodToggle period={stats.period} onSelect={handlePeriodSelect} isPending={isPending} />
       </header>
       <HeroCards stats={stats} />
+      <InvoiceChart data={invoiceTrend} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <NeedToContactWidget rows={needToContact} />
         <OpenOrdersWidget rows={openOrders} />
@@ -148,7 +149,6 @@ export default function DashboardView({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <LeadsFollowUpWidget rows={leadsFollowUp} />
       </div>
-      <InvoiceChart data={invoiceTrend} />
     </div>
   )
 }
