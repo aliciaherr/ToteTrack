@@ -1,0 +1,58 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { z } from 'zod'
+import type { AuthError } from '@supabase/supabase-js'
+
+const PASSWORD_MAX_LENGTH = 72 // bcrypt effective maximum
+
+const passwordSchema = z.string().min(1).max(PASSWORD_MAX_LENGTH)
+
+/**
+ * Signs in using the admin password. Email is always read from ADMIN_EMAIL env var — never from the client.
+ * @param password - Password entered by the user. Validated against PASSWORD_MAX_LENGTH before use.
+ * @returns `{ error: null }` on success (followed by redirect to /dashboard). `{ error: string }` on failure — user-facing message.
+ */
+export async function signIn(password: string): Promise<{ error: string | null }> {
+  const parsed = passwordSchema.safeParse(password)
+  if (!parsed.success) {
+    return { error: 'Incorrect password. Please try again.' }
+  }
+
+  const adminEmail = process.env.ADMIN_EMAIL
+  if (!adminEmail) {
+    console.error('signIn: ADMIN_EMAIL env var is not set')
+    return { error: 'Unable to connect. Check your internet connection.' }
+  }
+
+  let authError: AuthError | null = null
+
+  try {
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithPassword({ email: adminEmail, password: parsed.data })
+    authError = error
+  } catch (cause) {
+    console.error('signIn: network error', { cause })
+    return { error: 'Unable to connect. Check your internet connection.' }
+  }
+
+  if (!authError) {
+    redirect('/dashboard')
+    return { error: null } // unreachable in production; returned in tests when redirect is mocked
+  }
+
+  if (authError.status === 400) {
+    return { error: 'Incorrect password. Please try again.' }
+  }
+
+  console.error('signIn: unexpected auth error', { message: authError.message, status: authError.status })
+  return { error: 'Unable to connect. Check your internet connection.' }
+}
+
+/** Signs out the current session and redirects to /login. */
+export async function signOut(): Promise<void> {
+  const supabase = createClient()
+  await supabase.auth.signOut()
+  redirect('/login')
+}

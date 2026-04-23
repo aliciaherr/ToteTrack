@@ -1,0 +1,117 @@
+'use client'
+
+import { useEffect } from 'react'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import {
+  LayoutDashboard,
+  Users,
+  Package,
+  Target,
+  Receipt,
+  HelpCircle,
+} from 'lucide-react'
+
+const DRAWER_WIDTH = 280 // px — must match the w-[280px] class on the panel
+
+const NAV_ITEMS = [
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Customers', href: '/customers', icon: Users },
+  { label: 'Orders', href: '/orders', icon: Package },
+  { label: 'Leads', href: '/leads', icon: Target },
+  { label: 'Invoices', href: '/invoices', icon: Receipt },
+  { label: 'Support', href: '/support', icon: HelpCircle },
+]
+
+interface NavDrawerProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+function buildVariants(shouldReduceMotion: boolean | null) {
+  return {
+    drawer: {
+      hidden: { x: shouldReduceMotion ? 0 : -DRAWER_WIDTH },
+      visible: { x: 0, transition: { duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' as const } },
+      exit: { x: shouldReduceMotion ? 0 : -DRAWER_WIDTH, transition: { duration: shouldReduceMotion ? 0 : 0.15, ease: 'easeIn' as const } },
+    },
+    backdrop: {
+      hidden: { opacity: 0 },
+      visible: { opacity: 0.4, transition: { duration: shouldReduceMotion ? 0 : 0.2 } },
+      exit: { opacity: 0, transition: { duration: shouldReduceMotion ? 0 : 0.15 } },
+    },
+  }
+}
+
+function NavItemList({ pathname, onClose }: { pathname: string; onClose: () => void }) {
+  return (
+    <ul className="flex-1 py-4 overflow-y-auto" role="list">
+      {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+        const isActive = pathname === href || pathname.startsWith(`${href}/`)
+        return (
+          <li key={href}>
+            <Link
+              href={href}
+              onClick={onClose}
+              className={`flex items-center gap-3 py-3 min-h-[44px] text-sm transition-colors ${
+                isActive
+                  ? 'border-l-2 border-primary font-medium text-primary bg-primary/5 pl-[14px] pr-4'
+                  : 'pl-4 pr-4 text-secondary hover:bg-muted'
+              }`}
+            >
+              <Icon className="h-5 w-5 shrink-0" />
+              {label}
+            </Link>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+export default function NavDrawer({ isOpen, onClose }: NavDrawerProps) {
+  const pathname = usePathname()
+  const shouldReduceMotion = useReducedMotion()
+  const { drawer: drawerVariants, backdrop: backdropVariants } = buildVariants(shouldReduceMotion)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isOpen, onClose])
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            key="drawer-backdrop"
+            className="fixed inset-0 z-40 bg-black"
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            variants={backdropVariants}
+            onClick={onClose}
+            aria-hidden="true"
+          />
+          <motion.nav
+            key="drawer-panel"
+            className="fixed top-0 left-0 z-50 h-full w-[280px] bg-card shadow-xl flex flex-col"
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            variants={drawerVariants}
+            aria-label="Navigation drawer"
+          >
+            <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
+              <span className="font-semibold text-foreground text-lg tracking-tight">ToteTrack</span>
+            </div>
+            <NavItemList pathname={pathname} onClose={onClose} />
+          </motion.nav>
+        </>
+      )}
+    </AnimatePresence>
+  )
+}

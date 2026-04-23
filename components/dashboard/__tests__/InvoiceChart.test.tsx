@@ -1,0 +1,97 @@
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import InvoiceChart from '../InvoiceChart'
+import type { InvoiceTrendRow } from '@/db/queries/dashboard'
+
+const reducedMotionRef = vi.hoisted(() => ({ value: false }))
+
+vi.mock('framer-motion', () => ({
+  useReducedMotion: () => reducedMotionRef.value,
+}))
+
+// Minimal Recharts mock: renders the bar-series data points as simple spans
+// plus a data attribute for animation duration. Keeps the test focused on
+// the chart's behavior (mode routing, empty state, reduced-motion handling)
+// without booting a full chart renderer in jsdom.
+vi.mock('recharts', () => {
+  const pass = ({ children }: { children?: React.ReactNode }) => <>{children}</>
+  return {
+    ResponsiveContainer: pass,
+    CartesianGrid: () => null,
+    XAxis: () => null,
+    YAxis: () => null,
+    Tooltip: () => null,
+    BarChart: ({ data, children }: { data: Array<{ label: string; value: number }>; children: React.ReactNode }) => (
+      <div data-testid="bar-chart" data-point-count={data.length}>
+        {data.map((point) => (
+          <span key={point.label} data-testid="bar-point" data-label={point.label}>
+            {point.value}
+          </span>
+        ))}
+        {children}
+      </div>
+    ),
+    Bar: ({ animationDuration }: { animationDuration: number }) => (
+      <span data-testid="bar-series" data-animation-duration={animationDuration} />
+    ),
+  }
+})
+
+const emptyData: InvoiceTrendRow[] = []
+
+const multiYearData: InvoiceTrendRow[] = [
+  { billing_month: '2024-06-01', total_amount: '1000.00' },
+  { billing_month: '2025-03-01', total_amount: '3000.00' },
+  { billing_month: '2026-02-01', total_amount: '5500.00' },
+  { billing_month: '2026-04-01', total_amount: '7000.00' },
+]
+
+beforeEach(() => {
+  reducedMotionRef.value = false
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-04-15T12:00:00.000Z'))
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+describe('InvoiceChart', () => {
+  it('renders the empty state when data is empty', () => {
+    render(<InvoiceChart data={emptyData} />)
+    expect(screen.getByText(/no invoice data yet/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('bar-chart')).not.toBeInTheDocument()
+  })
+
+  it('renders exactly 12 bars in Per-Period Monthly mode', () => {
+    render(<InvoiceChart data={multiYearData} />)
+    expect(screen.getByTestId('bar-chart').dataset.pointCount).toBe('12')
+  })
+
+  it('switches to Annual mode and renders one bar per year with data', () => {
+    render(<InvoiceChart data={multiYearData} />)
+    fireEvent.click(screen.getByRole('tab', { name: /annual/i }))
+    expect(screen.getByTestId('bar-chart').dataset.pointCount).toBe('3')
+  })
+
+  it('cumulative monthly: each bar value is greater than or equal to the previous', () => {
+    render(<InvoiceChart data={multiYearData} />)
+    fireEvent.click(screen.getByRole('tab', { name: /cumulative/i }))
+    const bars = screen.getAllByTestId('bar-point')
+    const values = bars.map((el) => Number(el.textContent))
+    for (let i = 1; i < values.length; i += 1) {
+      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!)
+    }
+  })
+
+  it('passes animationDuration=300 to the bar series when motion is enabled', () => {
+    render(<InvoiceChart data={multiYearData} />)
+    expect(screen.getByTestId('bar-series').dataset.animationDuration).toBe('300')
+  })
+
+  it('passes animationDuration=0 to the bar series when useReducedMotion is true', () => {
+    reducedMotionRef.value = true
+    render(<InvoiceChart data={multiYearData} />)
+    expect(screen.getByTestId('bar-series').dataset.animationDuration).toBe('0')
+  })
+})

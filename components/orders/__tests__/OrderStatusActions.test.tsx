@@ -1,0 +1,149 @@
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import OrderStatusActions from '../OrderStatusActions'
+
+const mockUpdateOrderStatus = vi.hoisted(() => vi.fn())
+const mockRevertOrderToScheduled = vi.hoisted(() => vi.fn())
+const mockRefresh = vi.hoisted(() => vi.fn())
+const mockToast = vi.hoisted(() => vi.fn())
+
+vi.mock('@/lib/actions/orders', () => ({
+  updateOrderStatus: mockUpdateOrderStatus,
+}))
+
+vi.mock('@/lib/actions/orders.revert', () => ({
+  revertOrderToScheduled: mockRevertOrderToScheduled,
+}))
+
+vi.mock('@/lib/hooks/useToast', () => ({
+  useToast: () => ({ toast: mockToast }),
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh }),
+}))
+
+vi.mock('framer-motion', () => ({
+  motion: new Proxy(
+    {},
+    {
+      get:
+        () =>
+        ({ children, ...rest }: { children?: React.ReactNode }) => (
+          <div {...rest}>{children}</div>
+        ),
+    },
+  ),
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useReducedMotion: () => true,
+}))
+
+const ORDER_ID = '33333333-3333-3333-3333-333333333333'
+const PO_NUMBER = 'PO-2001'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('OrderStatusActions', () => {
+  it('renders "Mark as Complete" and "Cancel Order" for a scheduled order', () => {
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="scheduled"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /mark as complete/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /cancel order/i })).toBeInTheDocument()
+  })
+
+  it('renders "Revert to Scheduled" for a completed order', () => {
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="completed"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /revert to scheduled/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /mark as complete/i })).toBeNull()
+  })
+
+  it('renders "Revert to Scheduled" for a cancelled order', () => {
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="cancelled"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /revert to scheduled/i })).toBeInTheDocument()
+  })
+
+  it('renders "Revert to Scheduled" for an invoiced order', () => {
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="invoiced"
+      />,
+    )
+    expect(screen.getByRole('button', { name: /revert to scheduled/i })).toBeInTheDocument()
+  })
+
+  it('invokes revertOrderToScheduled and notifies the parent when the user confirms the revert dialog', async () => {
+    mockRevertOrderToScheduled.mockResolvedValueOnce({ success: true })
+    const onStatusChange = vi.fn()
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="invoiced"
+        onStatusChange={onStatusChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /revert to scheduled/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /yes, revert/i }))
+    await vi.waitFor(() => {
+      expect(mockRevertOrderToScheduled).toHaveBeenCalledWith(ORDER_ID)
+    })
+    await vi.waitFor(() => expect(onStatusChange).toHaveBeenCalledOnce())
+  })
+
+  it('invokes updateOrderStatus(completed) and notifies the parent on a successful advance', async () => {
+    mockUpdateOrderStatus.mockResolvedValueOnce({ success: true })
+    const onStatusChange = vi.fn()
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="scheduled"
+        onStatusChange={onStatusChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /mark as complete/i }))
+    await vi.waitFor(() => {
+      expect(mockUpdateOrderStatus).toHaveBeenCalledWith(ORDER_ID, 'completed')
+    })
+    await vi.waitFor(() => expect(onStatusChange).toHaveBeenCalledOnce())
+  })
+
+  it('surfaces a server error inline and does not notify the parent on failure', async () => {
+    mockUpdateOrderStatus.mockResolvedValueOnce({ error: 'Something went wrong.' })
+    const onStatusChange = vi.fn()
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="scheduled"
+        onStatusChange={onStatusChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /mark as complete/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /something went wrong/i,
+    )
+    expect(onStatusChange).not.toHaveBeenCalled()
+  })
+})
