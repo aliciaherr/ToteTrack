@@ -1030,3 +1030,123 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 1
 
 **Status:** [x] Done (2026-04-22) — see `docs/session-log.md` for decisions (documented all three migrations via SQL-Editor paste flow instead of the spec's `drizzle-kit push` — manual 0002_rls_policies + 0003_storage_buckets aren't tracked by drizzle-kit; listed 6 env vars instead of spec's 5 — `DATABASE_URL` is required by `db/index.ts` and `drizzle.config.ts`; cron-job.org schedule suggested as `0 12 */5 * *`). No `@code-review` needed — documentation-only, verified against codebase reality.
+
+---
+
+## Task 34: Remove top bar; ship pill hamburger on authenticated routes
+
+> Added 2026-04-23 via `@create-plan`. Source: `docs/prd.md` Cross-cutting: App Shell Chrome (D10).
+
+**Files:**
+- `components/shell/TopBar.tsx` — **delete** (component removed per PRD acceptance)
+- `components/shell/PillHamburger.tsx` — create (`'use client'`)
+- `components/shell/AppShell.tsx` — modify (remove TopBar render; mount PillHamburger; drawer state unchanged)
+- `components/shell/__tests__/PillHamburger.test.tsx` — create
+- `components/shell/__tests__/AppShell.test.tsx` — modify (replace TopBar assertions with PillHamburger assertions; regression-guard the 6 nav items + Sign Out)
+- `docs/design-decisions.md` — modify (add 2nd row to the "Deliberate Deviations from Mockup" table; update Global Shell section to reflect chrome-less + pill hamburger)
+
+**Functions / components to implement:**
+- `PillHamburger({ onClick })` — renders a 44×44px white pill (rounded-full, shadow-sm matching Card elevation) containing a hamburger icon. `position: fixed`, `top-6 left-6` (24px from edges). Tap fires `onClick` (mounts to AppShell's drawer-open handler). Static component — no motion.
+
+**Acceptance criteria:**
+- [ ] `components/shell/TopBar.tsx` deleted; zero remaining imports across `src`, `components`, `app`, `lib`
+- [ ] `AppShell.tsx` mounts `PillHamburger` in place of the prior `TopBar`; drawer open/close/backdrop/Esc behaviors identical to pre-change
+- [ ] `PillHamburger` renders top-left of viewport on every authenticated screen (Dashboard, Customers, Orders, Leads, Invoices, Support) — verified via Playwright/DevTools MCP across the six routes
+- [ ] `position: fixed` — pill stays visible on scroll
+- [ ] Touch target ≥44×44px; hamburger icon centered
+- [ ] White background with subtle shadow matching Card elevation (reuse shadcn Card shadow token or equivalent)
+- [ ] Login (`/login`) unchanged — no hamburger, no PillHamburger import in login route
+- [ ] No global search, no logo, no notification bell, no avatar rendered on any authenticated screen
+- [ ] Nav drawer internals unchanged — 6 nav items + Sign Out button (regression-guarded in AppShell tests)
+- [ ] No page-title row added on Customers/Leads/Invoices/Support — orientation relies on drawer active-state + content self-titling (per PRD Cross-cutting: App Shell Chrome > Page Orientation)
+- [ ] `PillHamburger` has `aria-label="Open navigation"`; keyboard-activatable (Enter/Space)
+- [ ] [CQ-01] `PillHamburger` function body ≤ 50 lines (or ≤ 80 under CONSTRAINT-14 if JSX-dominant)
+- [ ] [CQ-02] `AppShell.tsx` stays under 300 lines; no dead imports after TopBar removal
+
+**Tests required:**
+- `PillHamburger` → `renders with correct size, shape, and fixed positioning classes`
+- `PillHamburger` → `has aria-label="Open navigation"`
+- `PillHamburger` → `fires onClick on tap`
+- `PillHamburger` → `fires onClick on Enter/Space keypress`
+- `AppShell` → `mounts PillHamburger (not TopBar)`
+- `AppShell` → `tapping PillHamburger opens NavDrawer`
+- `AppShell` → `NavDrawer retains 6 nav items + Sign Out button (regression guard)`
+
+**Depends on:** None
+**Specialist:** @ui-totetrack
+
+**Status:** [x] Done (2026-04-23) — see `docs/session-log.md` for decisions (added Sign Out to NavDrawer to close a pre-existing UI gap — `signOut` server action existed but had no caller; pill at `fixed top-6 left-6 w-11 h-11 bg-card shadow-md` z-40; `<main>` `pt-14` → `pt-16` to clear pill bottom edge; `<form action={signOut}>` over `onClick` for native server-action form integration). 12 new tests (375 → 387). TypeScript + browser verification clean. No Security Trigger — presentational chrome, no user-data CRUD.
+
+---
+
+## Task 35: Dashboard Quick-Add FAB + `?new=1` handling on Customers/Leads
+
+> Added 2026-04-23 via `@create-plan`. Source: `docs/prd.md` Feature 8: Quick-Add FAB (D11).
+
+**Files:**
+- `components/dashboard/QuickAddFab.tsx` — create (`'use client'`)
+- `components/dashboard/__tests__/QuickAddFab.test.tsx` — create
+- `components/dashboard/DashboardView.tsx` — modify (mount `QuickAddFab` as child)
+- `components/shell/drawer-state.ts` — create (React Context + `useAppShellDrawerState` hook). @dev may pick an alternative shared-state pattern; this is the default
+- `components/shell/AppShell.tsx` — modify (provide drawer-state context to children)
+- `components/customers/CustomerLayout.tsx` — modify (read `?new=1` on mount → open New Customer form; clear `?id` if both present)
+- `components/leads/LeadLayout.tsx` — modify (same for Leads)
+- `components/customers/__tests__/CustomerLayout.test.tsx` — modify (`?new=1` tests)
+- `components/leads/__tests__/LeadLayout.test.tsx` — modify (`?new=1` tests)
+- `components/orders/__tests__/OrderLayout.test.tsx` — modify (regression test: `?new=1` without `customerId` still opens OrderForm)
+- `lib/animations.ts` — modify (add speed-dial expand/collapse variants)
+- `docs/design-decisions.md` — modify (append Quick-Add FAB rows to the Animation Specs table)
+
+> **Orders note:** `/orders?new=1` already works (per PRD Feature 3 line 124 / Task 17). Verify handler tolerates absence of `customerId` — likely no code change; add the regression test only.
+
+**Functions / components to implement:**
+- `QuickAddFab()` — client component
+  - 52×52px teal "+" button fixed bottom-right (24px margin)
+  - Tap → rotate 45° to "×"; three options fan upward with 30ms stagger, 150ms scale 0.8→1 + upward translate per option (variants in `lib/animations.ts`)
+  - Options top-to-bottom: **Add Purchase Order** → `/orders?new=1`, **Add Customer** → `/customers?new=1`, **Add Lead** → `/leads?new=1` (via `next/navigation` `router.push`)
+  - Each option: 44×44px circular icon button + label pill to its left
+  - Dismiss: tap "×", tap outside option column, or Esc → 130ms reverse animation
+  - Returns null when `useAppShellDrawerState().isOpen` is true
+  - `useReducedMotion()` → instant show/hide
+- `useAppShellDrawerState()` hook — subscribes to drawer open/close state from the AppShell context provider
+
+**Acceptance criteria:**
+- [ ] FAB renders ONLY on `/dashboard` — verified via Playwright/DevTools MCP across all authenticated routes + `/login`
+- [ ] Collapsed state: 52×52px, teal primary (`#007A8A`), "+" icon, `position: fixed`, bottom-right 24px margin
+- [ ] Expanded state: "+" rotates 45° (to "×"); 3 options fan upward with 30ms stagger, 150ms scale 0.8→1 + upward translate per option
+- [ ] Option order top-to-bottom: Purchase Order, Customer, Lead
+- [ ] Each option: 44×44px circular icon + label pill ("Add Purchase Order" / "Add Customer" / "Add Lead"); combined tap area ≥44px
+- [ ] Tap option → navigates to destination URL; destination opens its New X form on mount when `?new=1` is present
+- [ ] `/customers?new=1` opens the CustomerForm (no customer pre-selected). If `?id=[uuid]` is also present, `?new=1` takes precedence and `?id` is cleared from URL on mount
+- [ ] `/leads?new=1` opens the LeadForm — same precedence behavior
+- [ ] `/orders?new=1` (no `customerId`) opens OrderForm with no pre-selected customer — regression-guarded in test
+- [ ] Tap "×" or tap outside option column → 130ms reverse collapse
+- [ ] Tap-outside dismisses without activating the tapped element
+- [ ] Esc key dismisses
+- [ ] FAB hides (returns null) when NavDrawer is open
+- [ ] Keyboard: Tab focuses FAB → Enter/Space opens → Tab or Arrow Down/Up cycles options → Enter activates → focus trap while open → focus returns to FAB on close
+- [ ] ARIA: FAB has `aria-expanded`, `aria-haspopup="menu"`; options exposed with `role="menu"` + `role="menuitem"` each (exact ARIA pattern at impl discretion)
+- [ ] `useReducedMotion()` respected — instant show/hide
+- [ ] [CQ-01] `QuickAddFab` function body ≤ 50 lines, or ≤ 80 if JSX-dominant per CONSTRAINT-14 (OptionButton sub-component extraction expected)
+- [ ] [CQ-02] No new file crosses the 300-line cap
+- [ ] [SEC-01] No secrets; navigation-only surface with no user input
+
+**Tests required:**
+- `QuickAddFab` → `renders collapsed "+" button in bottom-right with fixed positioning`
+- `QuickAddFab` → `tap toggles to expanded state with 3 options`
+- `QuickAddFab` → `options render in order: Purchase Order, Customer, Lead`
+- `QuickAddFab` → `tap option navigates to expected URL` (parameterized × 3)
+- `QuickAddFab` → `tap outside collapses without activating element behind`
+- `QuickAddFab` → `Esc key collapses`
+- `QuickAddFab` → `returns null when drawer state is open`
+- `QuickAddFab` → `respects useReducedMotion (instant show/hide)`
+- `CustomerLayout` → `opens New Customer form on mount when ?new=1 is present`
+- `CustomerLayout` → `clears ?id when ?new=1 is also present (precedence)`
+- `LeadLayout` → `opens New Lead form on mount when ?new=1 is present`
+- `LeadLayout` → `clears ?id when ?new=1 is also present (precedence)`
+- `OrderLayout` → `opens New Order form on mount when ?new=1 without customerId (regression)`
+
+**Depends on:** Task 34 (both tasks modify `AppShell.tsx`; sequencing Task 34 → Task 35 avoids merge conflict; Task 35 also adds drawer-state context to AppShell, which assumes Task 34's refactor is already in place)
+**Specialist:** @ui-totetrack
+
+**Status:** [x] Done (2026-04-23) — see `docs/session-log.md` for decisions (drawer state shared via `components/shell/drawer-state.tsx` Context + `useAppShellDrawerState` hook; `?new=1` precedence over `?id` resolved server-side in customers/leads page parsers; tap-outside via mousedown capture + `preventDefault` to suppress activation behind; `useDismissOnOutsideOrEsc` extracted as a sibling hook to keep QuickAddFab under CONSTRAINT-14's 80-line cap; `LucideIcon` typed for FAB option icons; design-decisions.md Animation Specs extended with 3 speed-dial rows). 18 new tests (387 → 405). Browser-verified end-to-end on `/dashboard` + `/customers?new=1` + `/leads?new=1` + drawer-open hides FAB. No Security Trigger — presentational + URL routing only. **Feature complete (Task 34 + 35) — `@code-review` next.**

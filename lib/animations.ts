@@ -101,3 +101,35 @@ export const toastVariants = {
     transition: { duration: 0.2, ease: EASE_OUT },
   },
 }
+
+// Speed-dial FAB: 45° rotation when expanded ("+" → "×"), 150ms ease-in-out.
+export const speedDialFabVariants = {
+  closed: { rotate: 0, transition: { duration: 0.15, ease: EASE_IN_OUT } },
+  open: { rotate: 45, transition: { duration: 0.15, ease: EASE_IN_OUT } },
+}
+
+// Speed-dial container: orchestrates per-option staggered entry/exit.
+// 30ms stagger between options. Reverse direction so the option closest to
+// the FAB animates first on open (bottom-up fan), matching the visual
+// "fan upward" intent in PRD Feature 8.
+export const speedDialContainerVariants = {
+  closed: { transition: { staggerChildren: 0.03, staggerDirection: -1 } },
+  open: { transition: { staggerChildren: 0.03, staggerDirection: -1 } },
+}
+
+// Speed-dial option: scale 0.8→1 + upward translate 8px→0, 150ms ease-out.
+// Reverse on close (130ms ease-in).
+export const speedDialOptionVariants = {
+  closed: {
+    opacity: 0,
+    scale: 0.8,
+    y: 8,
+    transition: { duration: 0.13, ease: EASE_IN },
+  },
+  open: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { duration: 0.15, ease: EASE_OUT },
+  },
+}

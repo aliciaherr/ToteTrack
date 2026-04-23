@@ -12,6 +12,7 @@ import {
   type VolumeOverview,
 } from '@/db/queries/customers'
 import { CustomerNotFoundError } from '@/lib/errors'
+import { parseInitialMode } from '@/lib/parse-initial-mode'
 import CustomerLayout from '@/components/customers/CustomerLayout'
 import PageTransition from '@/components/shell/PageTransition'
 
@@ -30,6 +31,7 @@ interface CustomersPageProps {
     search?: string
     sort?: string
     window?: string
+    new?: string
   }
 }
 
@@ -85,17 +87,23 @@ async function loadCustomerDetail(
 }
 
 /**
- * Customers list route. Reads filter state from query params (`status`, `search`,
- * `sort`, `id`, `window`), validates them, fetches list rows server-side, and
- * — when an `id` is selected — also fetches the customer detail and the orders
- * for the selected time window. Unknown values fall back to defaults.
+ * Customers list route. Reads filter + selection + form-deep-link state from
+ * query params (`status`, `search`, `sort`, `id`, `window`, `new`), validates
+ * each, and fetches list rows + (when an `id` is selected) detail + orders +
+ * volume overview in parallel. `?new=1` opens the create form on mount and
+ * takes precedence over `?id=` (selectedId is dropped when both are present).
+ * Unknown values fall back to defaults.
  */
 export default async function CustomersPage({ searchParams }: CustomersPageProps) {
   const status = parseStatus(searchParams.status)
   const search = searchParams.search ?? ''
   const sort = parseSort(searchParams.sort)
   const window = parseWindow(searchParams.window)
-  const selectedId = parseSelectedId(searchParams.id)
+  const initialMode = parseInitialMode(searchParams.new, 'new-customer')
+  // `?new=1` takes precedence over `?id=` per PRD Feature 8 — when both are
+  // present, the New Customer form opens and the existing selection is dropped.
+  const selectedId =
+    initialMode === 'new-customer' ? null : parseSelectedId(searchParams.id)
 
   const [customers, detailResult] = await Promise.all([
     getCustomers({ status, search, sort }),
@@ -114,6 +122,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         orders={detailResult.orders}
         window={window}
         volumeOverview={detailResult.volumeOverview}
+        initialMode={initialMode}
       />
     </PageTransition>
   )

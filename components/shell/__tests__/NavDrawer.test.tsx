@@ -32,6 +32,10 @@ vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
 }))
 
+vi.mock('@/lib/actions/auth', () => ({
+  signOut: vi.fn(),
+}))
+
 describe('NavDrawer', () => {
   it('renders all 6 nav items with correct href values', () => {
     render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
@@ -68,5 +72,21 @@ describe('NavDrawer', () => {
 
     const dashboardLink = screen.getByRole('link', { name: /dashboard/i })
     expect(dashboardLink.className).toContain('border-primary')
+  })
+
+  it('renders a Sign Out button at the bottom of the drawer', () => {
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
+  })
+
+  it('Sign Out is a submit button wired to the signOut server action via form', () => {
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    const signOutButton = screen.getByRole('button', { name: /sign out/i })
+    expect(signOutButton).toHaveAttribute('type', 'submit')
+    // Server-action forms attach the action at runtime; verifying the button is a form submit
+    // target (has a parent <form>) is the meaningful check here.
+    expect(signOutButton.closest('form')).not.toBeNull()
   })
 })

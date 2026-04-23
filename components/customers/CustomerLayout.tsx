@@ -16,6 +16,8 @@ import type {
   VolumeOverview,
 } from '@/db/queries/customers'
 
+export type CustomerLayoutInitialMode = 'detail' | 'new-customer'
+
 interface CustomerLayoutProps {
   customers: CustomerListRow[]
   selectedId: string | null
@@ -26,6 +28,7 @@ interface CustomerLayoutProps {
   orders: CustomerOrderRow[]
   window: CustomerOrdersWindow
   volumeOverview: VolumeOverview
+  initialMode?: CustomerLayoutInitialMode
 }
 
 type RightPanelMode = 'detail' | 'new-customer' | 'edit-customer'
@@ -47,9 +50,10 @@ export default function CustomerLayout({
   orders,
   window,
   volumeOverview,
+  initialMode = 'detail',
 }: CustomerLayoutProps) {
   const router = useRouter()
-  const [mode, setMode] = useState<RightPanelMode>('detail')
+  const [mode, setMode] = useState<RightPanelMode>(initialMode)
   const openNewCustomer = useCallback(() => setMode('new-customer'), [])
   const openEditCustomer = useCallback(() => setMode('edit-customer'), [])
   const closePanel = useCallback(() => setMode('detail'), [])

@@ -8,6 +8,7 @@ import NeedToContactWidget from './NeedToContactWidget'
 import OpenOrdersWidget from './OpenOrdersWidget'
 import LeadsFollowUpWidget from './LeadsFollowUpWidget'
 import InvoiceChart from './InvoiceChart'
+import QuickAddFab from './QuickAddFab'
 import type {
   DashboardPeriod,
   DashboardStats,
@@ -149,6 +150,7 @@ export default function DashboardView({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <LeadsFollowUpWidget rows={leadsFollowUp} />
       </div>
+      <QuickAddFab />
     </div>
   )
 }

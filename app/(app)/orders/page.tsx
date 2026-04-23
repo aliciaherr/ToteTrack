@@ -6,9 +6,8 @@ import {
 } from '@/db/queries/orders'
 import { getActiveCustomersForSelect } from '@/db/queries/customers'
 import { OrderNotFoundError } from '@/lib/errors'
-import OrderLayout, {
-  type OrderLayoutInitialMode,
-} from '@/components/orders/OrderLayout'
+import { parseInitialMode } from '@/lib/parse-initial-mode'
+import OrderLayout from '@/components/orders/OrderLayout'
 import PageTransition from '@/components/shell/PageTransition'
 
 // `pending` is gone (v2 model). `invoiced` is folded into the `completed`
@@ -51,10 +50,6 @@ function parseUuid(value: string | undefined): string | null {
   return value && UUID_RE.test(value) ? value : null
 }
 
-function parseInitialMode(value: string | undefined): OrderLayoutInitialMode {
-  return value === '1' ? 'new-order' : 'detail'
-}
-
 async function loadOrderDetail(orderId: string): Promise<OrderDetail | null> {
   try {
     return await getOrderDetail(orderId)
@@ -78,7 +73,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const page = parsePage(searchParams.page)
   const selectedId = parseUuid(searchParams.id)
   const lockedCustomerId = parseUuid(searchParams.customerId)
-  const initialMode = parseInitialMode(searchParams.new)
+  const initialMode = parseInitialMode(searchParams.new, 'new-order')
 
   const [listResult, detail, customers] = await Promise.all([
     getOrders({ status, page }),

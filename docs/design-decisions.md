@@ -54,9 +54,11 @@
 ## Screen-by-Screen Design Reference
 
 ### Global Shell
-- **Top bar:** App logo/name ("Atelier CRM" / "Logistics Command" in mockup — replace with ToteTrack branding), search bar, notification bell, user avatar
-- **Navigation:** Hamburger button (top left, ≥44px) opens a slide-over drawer overlay with the 6 nav items + user info at bottom. Drawer closes on nav item tap or tap-outside. Resting state: hidden.
-- **Active nav item:** Left border teal accent + slightly bold label
+- **No top bar** on authenticated routes — chrome reduced to the pill hamburger only (see Deliberate Deviations table). No logo, no global search, no notification bell, no user avatar.
+- **Pill hamburger:** white pill (44×44px, `rounded-full`, `shadow-md`), fixed top-left at `top-6 left-6` (24px from viewport edges, aligned with page content gutter). Tapping opens the Nav Drawer.
+- **Navigation drawer:** slide-over overlay containing 6 nav items + a Sign Out button pinned at the bottom. Closes on nav item tap, backdrop tap, or Esc. Resting state: hidden.
+- **Active nav item:** Left border teal accent + semi-bold label
+- **Login screen exempt:** `/login` does not render the pill hamburger or any chrome — centered ToteTrack wordmark + password field only.
 
 ### Dashboard
 - Page title: "Command Overview" / subtitle: "Real-time logistics matrix."
@@ -128,6 +130,9 @@
 | Badge / status change | Color crossfade in place | 200ms | ease-in-out |
 | Collapsible section open/close | Height expand/collapse + chevron rotation | 200ms | ease-in-out |
 | Chart data toggle (per-period ↔ cumulative) | Bar height animate to new values | 300ms | ease-in-out |
+| Speed-dial FAB toggle (collapsed ↔ expanded) | "+" icon rotates 45° to "×" | 150ms | ease-in-out |
+| Speed-dial FAB option fan-out (open) | Each option scale 0.8→1 + upward translate 8px→0; 30ms stagger between options, fan from FAB upward | 150ms per option | ease-out |
+| Speed-dial FAB option fan-in (close) | Reverse of fan-out; 30ms stagger, options collapse back toward FAB | 130ms per option | ease-in |
 
 **Rules:**
 - Never animate layout shifts that move other content unexpectedly
@@ -141,6 +146,7 @@
 | Deviation | Mockup | Build | Reason |
 |-----------|--------|-------|--------|
 | Navigation | Persistent left sidebar (always visible) | Hamburger slide-over drawer (hidden by default) | iPad landscape: persistent 200px sidebar = 20% of viewport permanently consumed. Slide-over gives full screen real estate to content. User explicitly requested this change. |
+| Top bar | Full bar with logo, search, notification bell, user avatar | No top bar — pill-contained hamburger top-left only | Single-user internal tool — no need for avatar/notifications/branding inside the app. Global search would either be inert (Dashboard) or duplicate scoped per-screen search (list screens). Removing it recovers ~56–64px of vertical real estate (8–9% of iPad-landscape viewport). Decided 2026-04-23, see PRD Cross-cutting: App Shell Chrome (D10). |
 
 All other visual decisions — colors, typography, layout, spacing, component shapes, density — must match the Stitch mockup as closely as possible.
 

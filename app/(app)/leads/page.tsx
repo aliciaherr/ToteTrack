@@ -6,6 +6,7 @@ import {
 } from '@/db/queries/leads'
 import { LeadNotFoundError } from '@/lib/errors'
 import { isUuid } from '@/lib/validators/uuid'
+import { parseInitialMode } from '@/lib/parse-initial-mode'
 import LeadLayout from '@/components/leads/LeadLayout'
 import PageTransition from '@/components/shell/PageTransition'
 
@@ -16,6 +17,7 @@ interface LeadsPageProps {
     id?: string
     status?: string
     search?: string
+    new?: string
   }
 }
 
@@ -39,13 +41,18 @@ async function loadLeadDetail(leadId: string) {
 }
 
 /**
- * Leads list route. Validates `status`, `search`, and `id` from searchParams,
- * then fetches the lead list and (when selected) the detail + notes in parallel.
+ * Leads list route. Reads `status`, `search`, `id`, and `new` from searchParams,
+ * validates each, then fetches the lead list and (when selected) the detail +
+ * notes in parallel. `?new=1` opens the create form on mount and takes
+ * precedence over `?id=` (selectedId is dropped when both are present).
  */
 export default async function LeadsPage({ searchParams }: LeadsPageProps) {
   const status = parseStatus(searchParams.status)
   const search = searchParams.search ?? ''
-  const selectedId = parseUuid(searchParams.id)
+  const initialMode = parseInitialMode(searchParams.new, 'new-lead')
+  // `?new=1` takes precedence over `?id=` per PRD Feature 8 — when both are
+  // present, the New Lead form opens and the existing selection is dropped.
+  const selectedId = initialMode === 'new-lead' ? null : parseUuid(searchParams.id)
 
   const [leads, detail, notes] = await Promise.all([
     getLeads({ status, search }),
@@ -62,6 +69,7 @@ export default async function LeadsPage({ searchParams }: LeadsPageProps) {
         search={search}
         detail={detail}
         notes={notes}
+        initialMode={initialMode}
       />
     </PageTransition>
   )

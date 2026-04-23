@@ -11,7 +11,9 @@ import {
   Target,
   Receipt,
   HelpCircle,
+  LogOut,
 } from 'lucide-react'
+import { signOut } from '@/lib/actions/auth'
 
 const DRAWER_WIDTH = 280 // px — must match the w-[280px] class on the panel
 
@@ -70,6 +72,20 @@ function NavItemList({ pathname, onClose }: { pathname: string; onClose: () => v
   )
 }
 
+function SignOutRow() {
+  return (
+    <form action={signOut} className="border-t border-border shrink-0">
+      <button
+        type="submit"
+        className="flex items-center gap-3 w-full py-3 px-4 min-h-[44px] text-sm text-secondary hover:bg-muted transition-colors"
+      >
+        <LogOut className="h-5 w-5 shrink-0" />
+        Sign Out
+      </button>
+    </form>
+  )
+}
+
 export default function NavDrawer({ isOpen, onClose }: NavDrawerProps) {
   const pathname = usePathname()
   const shouldReduceMotion = useReducedMotion()
@@ -109,6 +125,7 @@ export default function NavDrawer({ isOpen, onClose }: NavDrawerProps) {
               <span className="font-semibold text-foreground text-lg tracking-tight">ToteTrack</span>
             </div>
             <NavItemList pathname={pathname} onClose={onClose} />
+            <SignOutRow />
           </motion.nav>
         </>
       )}

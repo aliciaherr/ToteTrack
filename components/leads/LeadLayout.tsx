@@ -9,6 +9,8 @@ import ConvertLeadDialog from './ConvertLeadDialog'
 import DetailDrawer from '@/components/shell/DetailDrawer'
 import type { LeadDetail as LeadDetailType, LeadListRow, LeadListStatus, LeadNote } from '@/db/queries/leads'
 
+export type LeadLayoutInitialMode = 'detail' | 'new-lead'
+
 interface LeadLayoutProps {
   leads: LeadListRow[]
   selectedId: string | null
@@ -16,6 +18,7 @@ interface LeadLayoutProps {
   search: string
   detail: LeadDetailType | null
   notes: LeadNote[]
+  initialMode?: LeadLayoutInitialMode
 }
 
 type RightPanelMode = 'detail' | 'new-lead' | 'edit-lead'
@@ -32,9 +35,10 @@ export default function LeadLayout({
   search,
   detail,
   notes,
+  initialMode = 'detail',
 }: LeadLayoutProps) {
   const router = useRouter()
-  const [mode, setMode] = useState<RightPanelMode>('detail')
+  const [mode, setMode] = useState<RightPanelMode>(initialMode)
   const [showConvertDialog, setShowConvertDialog] = useState(false)
 
   const openNew = useCallback(() => setMode('new-lead'), [])
