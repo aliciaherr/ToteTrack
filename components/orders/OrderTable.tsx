@@ -100,7 +100,7 @@ export default function OrderTable({
 
   return (
     <div className="flex flex-col h-full bg-card">
-      <div className="px-4 pt-4 pb-3 border-b border-border space-y-3">
+      <div className="pl-20 pr-4 pt-4 pb-3 border-b border-border space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-lg font-semibold text-foreground">Active Shipments</h1>
           <Button

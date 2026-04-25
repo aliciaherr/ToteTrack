@@ -14,9 +14,11 @@ import { DrawerStateProvider } from './drawer-state'
  * (e.g., the dashboard QuickAddFab) can read drawer-open state without
  * prop-drilling.
  *
- * The `pt-16` on main provides clearance for the pill (which sits at
- * top-6/left-6, 44×44px → ends at y=68px) so page content below it doesn't
- * collide with the button on its first heading.
+ * The `pt-3` on main keeps a thin 12px buffer at the very top so content
+ * shares the same horizontal band as the pill (which sits at top-6/left-6,
+ * 44×44px → occupies y=24–68px). Pages are responsible for left-padding
+ * their first row enough to clear the pill horizontally (~80px from the
+ * viewport edge).
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
@@ -28,7 +30,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <PillHamburger onClick={openDrawer} />
       <NavDrawer isOpen={isDrawerOpen} onClose={closeDrawer} />
       <DrawerStateProvider isOpen={isDrawerOpen}>
-        <main className="pt-16">{children}</main>
+        <main className="pt-3">{children}</main>
       </DrawerStateProvider>
     </div>
   )

@@ -131,7 +131,7 @@ export default function DashboardView({
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="pl-20 pr-6 py-6 space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">

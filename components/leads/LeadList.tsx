@@ -99,7 +99,7 @@ interface LeadListHeaderProps {
 
 function LeadListHeader({ search, status, onSearchChange, onTabChange, onNew }: LeadListHeaderProps) {
   return (
-    <div className="p-4 border-b border-border space-y-3">
+    <div className="pl-20 pr-4 py-4 border-b border-border space-y-3">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />

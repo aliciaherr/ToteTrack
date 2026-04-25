@@ -25,7 +25,7 @@ export default function SupportLayout({ tickets, selectedId, detail }: SupportLa
   const handleNew = () => router.push('/support')
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] grid grid-cols-1 lg:grid-cols-[minmax(320px,38%)_1fr]">
+    <div className="h-[calc(100vh-0.75rem)] grid grid-cols-1 lg:grid-cols-[minmax(320px,38%)_1fr]">
       <aside aria-label="Support tickets">
         <TicketList tickets={tickets} selectedId={selectedId} onNew={handleNew} />
       </aside>

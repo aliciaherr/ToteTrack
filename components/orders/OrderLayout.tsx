@@ -94,7 +94,7 @@ export default function OrderLayout({
   }, [router, selectedId])
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] lg:grid lg:grid-cols-[1fr_minmax(320px,35%)] lg:grid-rows-[minmax(0,1fr)]">
+    <div className="h-[calc(100vh-0.75rem)] lg:grid lg:grid-cols-[1fr_minmax(320px,35%)] lg:grid-rows-[minmax(0,1fr)]">
       <OrderTable
         orders={orders}
         totalCount={totalCount}

@@ -92,7 +92,7 @@ function EmptyState() {
 
 function ListHeader({ onNew }: { onNew?: () => void }) {
   return (
-    <div className="p-4 border-b border-border flex items-center justify-between gap-2">
+    <div className="pl-20 pr-4 py-4 border-b border-border flex items-center justify-between gap-2">
       <h2 className="text-sm font-semibold text-foreground">Issues</h2>
       {onNew && (
         <Button

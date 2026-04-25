@@ -89,7 +89,7 @@ export default function GenerateInvoice({ orders, billingMonth }: GenerateInvoic
   const hasOrders = orders.length > 0
 
   return (
-    <div className={`p-6 space-y-4 transition-opacity ${isPending ? 'opacity-60' : 'opacity-100'}`}>
+    <div className={`pl-20 pr-6 py-6 space-y-4 transition-opacity ${isPending ? 'opacity-60' : 'opacity-100'}`}>
       <h2 className="text-lg font-semibold text-foreground">Generate Invoice</h2>
       <InvoiceFilters
         billingMonth={billingMonth}
