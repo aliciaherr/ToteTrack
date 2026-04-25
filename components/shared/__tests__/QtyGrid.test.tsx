@@ -54,11 +54,11 @@ describe('QtyGrid — display mode', () => {
 
   it('exposes correct row + column header labels for accessibility', () => {
     render(<QtyGrid mode="display" values={MIXED_VALUES} />)
-    expect(screen.getByRole('rowheader', { name: '275 gal' })).toBeInTheDocument()
-    expect(screen.getByRole('rowheader', { name: '330 gal' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Rebottled' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Reconditioned' })).toBeInTheDocument()
-    expect(screen.getByRole('columnheader', { name: 'Brand New' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '275 gal' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '330 gal' })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: 'Rebottled' })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: 'Reconditioned' })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: 'Brand New' })).toBeInTheDocument()
   })
 })
 

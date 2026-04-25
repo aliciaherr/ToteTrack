@@ -32,13 +32,13 @@ type QtyGridProps = QtyGridDisplayProps | QtyGridInputProps
 // Mirrors QUANTITY_MAX in lib/actions/orders.validation.ts.
 const QTY_INPUT_MAX = 100_000
 
-const SIZE_ROWS: ReadonlyArray<{ label: string; sizeKey: '275' | '330' }> = [
+const SIZE_COLS: ReadonlyArray<{ label: string; sizeKey: '275' | '330' }> = [
   { label: '275 gal', sizeKey: '275' },
   { label: '330 gal', sizeKey: '330' },
 ]
 
 // Order matches db/schema/enums.ts and existing VolumeOverview presentation.
-const TYPE_COLS: ReadonlyArray<{ label: string; typeKey: 'rebot' | 'recon' | 'new' }> = [
+const TYPE_ROWS: ReadonlyArray<{ label: string; typeKey: 'rebot' | 'recon' | 'new' }> = [
   { label: 'Rebottled', typeKey: 'rebot' },
   { label: 'Reconditioned', typeKey: 'recon' },
   { label: 'Brand New', typeKey: 'new' },
@@ -108,7 +108,7 @@ function InputCell({
 }
 
 /**
- * 2×3 quantity grid for the 6 fixed (size × type) PO combinations
+ * 3×2 quantity grid for the 6 fixed (size × type) PO combinations
  * (CONSTRAINT-09). Two modes:
  *  - `display`: read-only — renders qty as a number, or `—` when 0 and
  *    `showEmptyAsDash` is true (default). Used by OrderDetail and any list
@@ -117,8 +117,8 @@ function InputCell({
  *    QTY_INPUT_MAX). Controlled component: `onChange` receives the full
  *    updated `QtyGridValues` object on every keystroke.
  *
- * Layout: rows = 275 gal / 330 gal; columns = Rebottled / Reconditioned /
- * Brand New. Each cell is ≥ 44px tall to satisfy the project iPad-touch
+ * Layout: rows = Rebottled / Reconditioned / Brand New; columns = 275 gal
+ * / 330 gal. Each cell is ≥ 44px tall to satisfy the project iPad-touch
  * standard.
  */
 export function QtyGrid(props: QtyGridProps) {
@@ -135,14 +135,14 @@ export function QtyGrid(props: QtyGridProps) {
       role="grid"
       aria-label="Quantities by container size and type"
       className={cn(
-        'grid grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-2 items-center',
+        'grid grid-cols-[auto_repeat(2,minmax(0,1fr))] gap-2 items-center',
         props.className,
       )}
     >
       <div role="presentation" />
-      {TYPE_COLS.map(({ label, typeKey }) => (
+      {SIZE_COLS.map(({ label, sizeKey }) => (
         <div
-          key={`header-${typeKey}`}
+          key={`header-${sizeKey}`}
           role="columnheader"
           className="text-xs uppercase tracking-wide text-muted-foreground text-center px-1"
         >
@@ -150,15 +150,15 @@ export function QtyGrid(props: QtyGridProps) {
         </div>
       ))}
 
-      {SIZE_ROWS.map(({ label: sizeLabel, sizeKey }) => (
-        <div key={sizeKey} role="row" className="contents">
+      {TYPE_ROWS.map(({ label: typeLabel, typeKey }) => (
+        <div key={typeKey} role="row" className="contents">
           <div
             role="rowheader"
             className="text-sm font-medium text-foreground pr-2 whitespace-nowrap"
           >
-            {sizeLabel}
+            {typeLabel}
           </div>
-          {TYPE_COLS.map(({ label: typeLabel, typeKey }) => {
+          {SIZE_COLS.map(({ label: sizeLabel, sizeKey }) => {
             const key = cellKey(sizeKey, typeKey)
             const value = props.values[key]
             const ariaLabel = `${sizeLabel} ${typeLabel} quantity`
