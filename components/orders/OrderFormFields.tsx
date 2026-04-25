@@ -3,6 +3,7 @@
 import {
   type FieldErrors,
   type UseFormRegister,
+  type UseFormSetValue,
   type UseFormWatch,
 } from 'react-hook-form'
 import {
@@ -19,7 +20,9 @@ interface OrderFormFieldsProps {
   lockedCustomerId: string | null
   register: UseFormRegister<OrderFormValues>
   watch: UseFormWatch<OrderFormValues>
+  setValue: UseFormSetValue<OrderFormValues>
   errors: FieldErrors<OrderFormValues>
+  qtyError: string | null
 }
 
 const LABEL_CLASS = 'text-xs uppercase tracking-wide text-muted-foreground'
@@ -103,7 +106,9 @@ export default function OrderFormFields({
   lockedCustomerId,
   register,
   watch,
+  setValue,
   errors,
+  qtyError,
 }: OrderFormFieldsProps) {
   return (
     <>
@@ -123,7 +128,13 @@ export default function OrderFormFields({
         error={errors.customer_id?.message}
       />
 
-      <OrderContainerFields register={register} errors={errors} />
+      <OrderContainerFields
+        register={register}
+        watch={watch}
+        setValue={setValue}
+        errors={errors}
+        qtyError={qtyError}
+      />
 
       <FieldRow
         label="Requested Delivery Date (optional)"

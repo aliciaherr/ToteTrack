@@ -129,20 +129,22 @@ export const customerContactsQuery = (customerId: string) => sql`
 `
 
 /**
- * Per-(size, type) average order quantity for a single customer's completed
- * orders. One row per (container_size, container_type) combination that has
- * at least one matching completed order. The caller fills in missing
- * combinations with zeroes. Scope is narrow enough that a single GROUP BY
- * aggregate is the entire query.
+ * Per-combo average order quantity for a single customer's completed/invoiced
+ * orders. Returns ONE row with 6 average columns — one per (size × type)
+ * combo. Each AVG uses a FILTER clause so the denominator is "POs that had a
+ * non-zero quantity for this combo," not "all POs." Combos with no matching
+ * POs return NULL, which the assembler treats as 0.
  */
 export const customerVolumeAveragesQuery = (customerId: string) => sql`
   SELECT
-    container_size,
-    container_type,
-    AVG(quantity)::numeric AS avg_quantity
+    (AVG(qty_275_recon) FILTER (WHERE qty_275_recon > 0))::text AS avg_275_recon,
+    (AVG(qty_275_rebot) FILTER (WHERE qty_275_rebot > 0))::text AS avg_275_rebot,
+    (AVG(qty_275_new) FILTER (WHERE qty_275_new > 0))::text AS avg_275_new,
+    (AVG(qty_330_recon) FILTER (WHERE qty_330_recon > 0))::text AS avg_330_recon,
+    (AVG(qty_330_rebot) FILTER (WHERE qty_330_rebot > 0))::text AS avg_330_rebot,
+    (AVG(qty_330_new) FILTER (WHERE qty_330_new > 0))::text AS avg_330_new
   FROM orders
   WHERE customer_id = ${customerId} AND status IN ('completed', 'invoiced')
-  GROUP BY container_size, container_type
 `
 
 /**
@@ -154,11 +156,15 @@ export const customerOrdersQuery = (customerId: string, startDate: string) => sq
     id,
     po_number,
     status,
-    container_size,
-    container_type,
-    quantity,
-    price,
-    requested_delivery_date
+    qty_275_recon,
+    qty_275_rebot,
+    qty_275_new,
+    qty_330_recon,
+    qty_330_rebot,
+    qty_330_new,
+    price::text AS price,
+    requested_delivery_date,
+    backhaul
   FROM orders
   WHERE customer_id = ${customerId}
     AND requested_delivery_date >= ${startDate}

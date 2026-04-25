@@ -123,3 +123,33 @@
 **Check before approving:** The auto-delete of an emptied invoice has a subtle implication — the invoice's INV-#### number can be reused later (since `nextInvoiceNumber` uses `MAX(suffix)+1`), specifically when the deleted invoice was the most recent one. Acceptable for an internal draft-only invoice system; would not be acceptable for a system that emits formal sequential invoices to external parties.
 
 **What this closes off:** Nothing meaningful. The state machine remains directional (you can't jump from cancelled directly to invoiced) — the revert-to-scheduled is the only escape hatch, and from scheduled the user can re-traverse the forward paths.
+
+---
+
+## FB-09 — Sole-Chrome Shift + Drawer-State Context Primitive
+
+**Date:** 2026-04-23
+**Architecture section:** `docs/architecture.md` → Component Architecture → shell/ + dashboard/
+
+**Decided:** The app's chrome on authenticated routes is reduced to a single pill-contained hamburger button anchored top-left — no top bar, no logo, no global search, no notification bell, no user avatar. The dashboard adds a speed-dial Quick-Add FAB anchored bottom-right with three options (Purchase Order / Customer / Lead) that navigate to the destination screen with a `?new=1` deep link, opening the existing create form on mount. To let the FAB react to drawer open/close without prop drilling, AppShell now publishes drawer state through a React Context (`useAppShellDrawerState`) — the first cross-component shared-state primitive in this project, intended as the canonical pattern for any future shell-aware UI signal.
+
+**Means for your product:** Less chrome means more vertical real estate for content on the iPad — the salesperson sees more rows of customers / orders / invoices per screen. The FAB compresses the most common daily action (add a new customer / PO / lead) from three taps (open drawer → tap nav → tap "+ New") to two (tap "+" → tap option). Sign Out is now reachable inside the drawer — a latent gap was that the server action existed but no UI called it; the salesperson previously couldn't log out from the app at all without manual session-cookie clearing.
+
+**Check before approving:** The chrome is now intentionally minimal — for a single-user internal tool this is the right call, but it deviates from the Stitch mockup. The deviation is documented in `docs/design-decisions.md` under "Deliberate Deviations from Mockup" alongside the existing sidebar→drawer deviation. If the salesperson ever asks "how do I find X" and the answer is "the hamburger menu," the cost was real.
+
+**What this closes off:** Adding chrome elements back (notifications, profile menu, global search) requires either re-introducing a top bar or finding non-chrome spots for them — both involve real layout work, not a single component swap. The drawer-state Context is small and additive — it doesn't lock out alternative shared-state patterns (Zustand, Jotai, etc.) in the future, but introducing one now sets a precedent that future cross-shell signals should default to React Context unless there's a real reason not to.
+
+---
+
+## FB-10 — PO Multi-Combo Wide-Row Schema
+
+**Date:** 2026-04-24
+**Architecture section:** `docs/architecture.md` → Component Tree (`components/shared/QtyGrid.tsx` + `lib/actions/orders.validation.ts` additions); also CONSTRAINT-18
+
+**Decided:** Restructured the PO data model from single-combo (one `container_size` + `container_type` + `quantity` per PO row) to wide-row (6 typed integer quantity columns, one per fixed size×type combination — `qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new`). Total `price` stays a single user-entered value — no per-unit pricing, no global pricing settings, no per-PO unit-price overrides. The reusable `<QtyGrid>` component at `components/shared/` handles both display (read-only) and input (controlled) variants of the 2×3 grid.
+
+**Means for your product:** A PO can now hold any mix of the 6 size×type combinations in a single record — matching how customers actually order. Most POs include 2–3 combos (per the salesperson). Before this, the salesperson would either fragment one real PO into multiple app POs (corrupting customer-level frequency / volume / last-sale analytics) or lose data fidelity by entering only one combo. Daily friction that compounded. Customer Volume Overview averages now reflect actual purchase mix, not a fragmented version of it. The orders table and other PO list surfaces show a clean `275 | 330` totals pattern + a compact `B` backhaul tag — no more cluttered Type badge column.
+
+**Check before approving:** (a) Wide-row beats normalized line-items (separate child table) here because the universe of size×type combos is fixed at 6 by CONSTRAINT-09 — a child table would add join cost with zero flexibility benefit and a uniqueness constraint requirement. Confirmed during brainstorm. (b) Total `price` stays user-entered (not derived from per-unit pricing) because the salesperson negotiates lump-sum prices, not per-unit. Per-unit pricing was explicitly rejected. (c) Atomic PO completion stays — Mark Complete fires for the whole PO, not per-cell. Per-combo state would multiply the state-transition logic 6× and isn't a real workflow per the salesperson. (d) Edit lock for invoiced / cancelled POs blocks qty + price changes only — other field edits (notes, address, etc.) still allowed. Salespeople use the existing revert flow (FB-08) for genuine corrections.
+
+**What this closes off:** Reverting to single-combo POs would require dropping 6 cols + restoring 3 + back-mapping multi-combo rows — lossy by definition and not realistically reversible. Adding per-unit pricing later requires either 6 more unit-price cols on each PO + a settings table OR a separate price-list model — explicitly rejected in this brainstorm; reopening requires a fresh assumptions pass. Adding partial fulfillment / per-combo state would multiply the state machine 6× — separate architectural change, not in scope. The `container_size` + `container_type` PostgreSQL enum types remain orphaned in `pg_type` after migration `0008` runs (intentional — to be dropped in a later cleanup migration once all TS code stops referencing them).

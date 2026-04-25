@@ -1,9 +1,15 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
+import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
 import type { InvoiceableOrder } from '@/db/queries/invoices'
 import { formatCurrency } from '@/lib/format-currency'
-import { formatQtySizeType } from './containerLabels'
+
+function formatPoSizeSummary(order: InvoiceableOrder): string {
+  const total275 = formatPoTotal(sumPoSize(order, '275'))
+  const total330 = formatPoTotal(sumPoSize(order, '330'))
+  return `275: ${total275} · 330: ${total330}`
+}
 
 interface InvoiceFiltersProps {
   billingMonth: string
@@ -66,7 +72,7 @@ export function OrdersChecklist({ orders, checkedIds, onToggle }: OrdersChecklis
             />
             <div className="min-w-0">
               <p className="font-medium text-foreground">{order.po_number}</p>
-              <p className="text-xs text-muted-foreground">{formatQtySizeType(order)}</p>
+              <p className="text-xs text-muted-foreground tabular-nums">{formatPoSizeSummary(order)}</p>
             </div>
             <div className="min-w-0 truncate text-foreground">
               {order.customer_name ?? '—'}

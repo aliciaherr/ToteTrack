@@ -3,26 +3,15 @@
 import { useTransition, useMemo } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import BackhaulTag from '@/components/shared/BackhaulTag'
+import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
 import { formatCurrency } from '@/lib/format-currency'
 import type {
   CustomerOrdersWindow,
   CustomerOrderRow,
-  ContainerType,
 } from '@/db/queries/customers'
 
 const WINDOWS: CustomerOrdersWindow[] = ['1M', '3M', '6M', '1Y', 'YTD']
-
-const CONTAINER_TYPE_LABEL: Record<ContainerType, string> = {
-  rebottled: 'Rebottled',
-  reconditioned: 'Recon',
-  brand_new: 'New',
-}
-
-const CONTAINER_TYPE_CLASS: Record<ContainerType, string> = {
-  rebottled: 'bg-blue-100 text-blue-700',
-  reconditioned: 'bg-primary/10 text-primary',
-  brand_new: 'bg-slate-800 text-white',
-}
 
 const STATUS_CLASS: Record<CustomerOrderRow['status'], string> = {
   scheduled: 'bg-slate-100 text-slate-700',
@@ -88,16 +77,17 @@ function WindowTabs({
 }
 
 function OrderRowItem({ order }: { order: CustomerOrderRow }) {
+  const total275 = sumPoSize(order, '275')
+  const total330 = sumPoSize(order, '330')
   return (
     <tr className="border-b border-border last:border-0">
       <td className="py-3 px-3 text-sm font-medium text-foreground">{order.po_number}</td>
       <td className="py-3 px-3 text-sm text-secondary">{order.requested_delivery_date ?? '—'}</td>
-      <td className="py-3 px-3 text-sm text-secondary text-right">{order.quantity}</td>
-      <td className="py-3 px-3 text-sm text-secondary">{order.container_size} gal</td>
-      <td className="py-3 px-3 text-sm">
-        <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${CONTAINER_TYPE_CLASS[order.container_type]}`}>
-          {CONTAINER_TYPE_LABEL[order.container_type]}
-        </span>
+      <td className="py-3 px-3 text-sm text-foreground tabular-nums text-right">
+        {formatPoTotal(total275)}
+      </td>
+      <td className="py-3 px-3 text-sm text-foreground tabular-nums text-right">
+        {formatPoTotal(total330)}
       </td>
       <td className="py-3 px-3 text-sm">
         <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_CLASS[order.status]}`}>
@@ -105,6 +95,9 @@ function OrderRowItem({ order }: { order: CustomerOrderRow }) {
         </span>
       </td>
       <td className="py-3 px-3 text-sm text-foreground text-right">{formatCurrency(order.price)}</td>
+      <td className="py-3 px-3 w-8 text-center">
+        {order.backhaul && <BackhaulTag />}
+      </td>
     </tr>
   )
 }
@@ -124,11 +117,13 @@ function OrdersTable({ orders }: { orders: CustomerOrderRow[] }) {
           <tr className="text-xs uppercase tracking-wide text-muted-foreground border-b border-border">
             <th className="py-2 px-3 font-medium">PO#</th>
             <th className="py-2 px-3 font-medium">Date</th>
-            <th className="py-2 px-3 font-medium text-right">Qty</th>
-            <th className="py-2 px-3 font-medium">Size</th>
-            <th className="py-2 px-3 font-medium">Type</th>
+            <th className="py-2 px-3 font-medium text-right">275</th>
+            <th className="py-2 px-3 font-medium text-right">330</th>
             <th className="py-2 px-3 font-medium">Status</th>
             <th className="py-2 px-3 font-medium text-right">Price</th>
+            <th className="py-2 px-3 w-8 text-center font-medium">
+              <span className="sr-only">Backhaul</span>
+            </th>
           </tr>
         </thead>
         <tbody>

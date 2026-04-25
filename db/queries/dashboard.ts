@@ -44,6 +44,12 @@ export interface OpenOrderRow {
   id: string
   po_number: string
   customer_name: string | null
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
   requested_delivery_date: string | null
   backhaul: boolean
 }

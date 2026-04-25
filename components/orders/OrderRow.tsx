@@ -3,8 +3,9 @@
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { buildListItemMotionProps } from '@/lib/list-animation'
-import OrderTypeBadge from './OrderTypeBadge'
 import OrderStatusBadge from './OrderStatusBadge'
+import BackhaulTag from '@/components/shared/BackhaulTag'
+import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
 import { formatCurrency } from '@/lib/format-currency'
 import type { OrderTableRow } from '@/db/queries/orders'
 
@@ -16,11 +17,18 @@ interface OrderRowProps {
   shouldReduceMotion: boolean
 }
 
-function BackhaulBadge() {
+function CustomerCell({ name }: { name: string }) {
+  const initial = name.trim()[0]?.toUpperCase() ?? '?'
   return (
-    <span className="inline-flex items-center rounded-md bg-primary/10 text-primary text-[10px] font-semibold px-1.5 py-0.5 uppercase tracking-wide">
-      Backhaul
-    </span>
+    <div className="flex items-center gap-2 min-w-0">
+      <span
+        aria-hidden="true"
+        className="shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[11px] font-semibold select-none"
+      >
+        {initial}
+      </span>
+      <span className="truncate text-foreground">{name}</span>
+    </div>
   )
 }
 
@@ -33,6 +41,8 @@ export default function OrderRow({
 }: OrderRowProps) {
   const router = useRouter()
   const customerLabel = order.customer_name ?? 'Unknown customer'
+  const total275 = sumPoSize(order, '275')
+  const total330 = sumPoSize(order, '330')
 
   const handleActivate = () => router.push(href)
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
@@ -60,25 +70,25 @@ export default function OrderRow({
         {order.po_number}
       </td>
       <td className="px-4 py-3 text-sm min-w-0">
-        <span className="block truncate text-foreground">{customerLabel}</span>
+        <CustomerCell name={customerLabel} />
       </td>
-      <td className="px-4 py-3 text-sm text-foreground whitespace-nowrap">
-        {order.quantity} × {order.container_size} gal
+      <td className="px-4 py-3 text-sm text-foreground tabular-nums text-right whitespace-nowrap">
+        {formatPoTotal(total275)}
+      </td>
+      <td className="px-4 py-3 text-sm text-foreground tabular-nums text-right whitespace-nowrap">
+        {formatPoTotal(total330)}
       </td>
       <td className="px-4 py-3">
-        <div className="flex flex-col items-start gap-1">
-          <OrderTypeBadge type={order.container_type} size="sm" />
-          <OrderStatusBadge status={order.status} size="sm" />
-        </div>
+        <OrderStatusBadge status={order.status} size="sm" />
       </td>
       <td className="px-4 py-3 text-sm text-foreground whitespace-nowrap">
-        <div className="flex items-center gap-2">
-          <span>{order.requested_delivery_date ?? '—'}</span>
-          {order.backhaul && <BackhaulBadge />}
-        </div>
+        {order.requested_delivery_date ?? '—'}
       </td>
       <td className="px-4 py-3 text-sm text-foreground text-right whitespace-nowrap">
         {formatCurrency(order.price)}
+      </td>
+      <td className="px-4 py-3 w-8 text-center">
+        {order.backhaul && <BackhaulTag />}
       </td>
     </motion.tr>
   )

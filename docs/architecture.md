@@ -110,14 +110,16 @@ components/
   auth/
     LoginForm.tsx           ← 'use client'
   shell/
-    AppShell.tsx            ← 'use client' — drawer state, wraps all app pages
-    TopBar.tsx              ← 'use client'
-    NavDrawer.tsx           ← 'use client' — Framer Motion slide-over (left)
+    AppShell.tsx            ← 'use client' — owns drawer state; mounts PillHamburger + NavDrawer; wraps children in DrawerStateProvider so descendants can read drawer-open state without prop drilling
+    PillHamburger.tsx       ← 'use client' — sole chrome element on authenticated routes; 44×44 white pill, fixed top-left at top-6 left-6 (FB-09)
+    NavDrawer.tsx           ← 'use client' — Framer Motion slide-over (left); 6 nav items + Sign Out at bottom (FB-09)
+    drawer-state.tsx        ← 'use client' — Context provider + useAppShellDrawerState hook (shared signal for components like QuickAddFab that need to react to drawer open/close) (FB-09)
     DetailDrawer.tsx        ← 'use client' — CSS-only responsive right-panel wrapper (FB-06)
     PageTransition.tsx      ← 'use client' — Framer Motion page fade
     ToastProvider.tsx       ← 'use client' — toast queue management
   dashboard/
-    DashboardView.tsx       ← 'use client' — period toggle state
+    DashboardView.tsx       ← 'use client' — period toggle state; mounts QuickAddFab
+    QuickAddFab.tsx         ← 'use client' — speed-dial FAB (Purchase Order / Customer / Lead options), navigates to destination with ?new=1 deep link; hides when drawer is open (FB-09)
     HeroCards.tsx           ← 'use client'
     NeedToContactWidget.tsx ← 'use client'
     OpenOrdersWidget.tsx    ← 'use client' — was PendingOrdersWidget; renamed in PO model v2
@@ -154,6 +156,9 @@ components/
     NewTicketForm.tsx       ← 'use client'
     TicketList.tsx          ← 'use client'
     TicketDetail.tsx        ← 'use client'
+  shared/
+    QtyGrid.tsx             ← 'use client' — reusable 2×3 size×type grid (display + input modes); used by OrderForm and OrderDetail (FB-10 / Feature 9 / CONSTRAINT-18)
+    BackhaulTag.tsx         ← 'use client' — compact `B` tag for any PO list surface (created in Task 42)
   ui/                       ← shadcn/ui generated components
 ```
 
@@ -206,6 +211,7 @@ lib/
     customers.ts     ← createCustomer, updateCustomer, deleteCustomer
     orders.ts        ← createOrder, updateOrder, updateOrderStatus
     orders.revert.ts ← revertOrderToScheduled (FB-08; sibling extracted at the 300-line cap)
+    orders.validation.ts ← Zod schemas + helpers + constants for the orders actions (FB-10 / Platform-Native Rule sibling — `'use server'` files export async only)
     leads.ts         ← createLead, updateLead, addLeadNote, setNextAction, convertLeadToCustomer
     invoices.ts      ← createInvoice (v3; markInvoicePaid removed)
     invoices.constants.ts ← INVOICE_EXISTS_CODE sentinel (Platform-Native Rule sibling)

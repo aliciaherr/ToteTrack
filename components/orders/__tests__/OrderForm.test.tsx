@@ -48,9 +48,12 @@ const sampleDetail: OrderDetail = {
   customer_id: '22222222-2222-2222-2222-222222222222',
   customer_name: 'Acme Industrial',
   status: 'scheduled',
-  container_size: '275',
-  container_type: 'rebottled',
-  quantity: 12,
+  qty_275_recon: 0,
+  qty_275_rebot: 12,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 5,
   price: '300.00',
   pickup_only: false,
   delivery_address: '123 Main Street',
@@ -79,7 +82,31 @@ describe('OrderForm', () => {
     expect(screen.getByLabelText(/PO Number/i)).toHaveValue('')
   })
 
-  it('pre-fills all fields in edit mode from the supplied OrderDetail', () => {
+  it('renders the 2×3 quantity grid with 6 input cells in create mode', () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customers}
+        lockedCustomerId={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    const cells = [
+      '275 gal Rebottled quantity',
+      '275 gal Reconditioned quantity',
+      '275 gal Brand New quantity',
+      '330 gal Rebottled quantity',
+      '330 gal Reconditioned quantity',
+      '330 gal Brand New quantity',
+    ]
+    for (const label of cells) {
+      expect(screen.getByLabelText(new RegExp(label, 'i'))).toBeInTheDocument()
+    }
+    expect(screen.getByLabelText(/Total Price/i)).toBeInTheDocument()
+  })
+
+  it('pre-fills all fields in edit mode from the supplied OrderDetail (6 qty cells + price + other fields)', () => {
     render(
       <OrderForm
         mode="edit"
@@ -94,7 +121,11 @@ describe('OrderForm', () => {
       screen.getByRole('heading', { name: /edit PO-2001/i }),
     ).toBeInTheDocument()
     expect(screen.getByLabelText(/PO Number/i)).toHaveValue('PO-2001')
-    expect(screen.getByLabelText(/Quantity/i)).toHaveValue(12)
+    // Two non-zero cells from sampleDetail: 275 Rebottled = 12, 330 Brand New = 5.
+    expect(screen.getByLabelText(/275 gal Rebottled quantity/i)).toHaveValue(12)
+    expect(screen.getByLabelText(/330 gal Brand New quantity/i)).toHaveValue(5)
+    // A zero cell renders as empty (placeholder "0").
+    expect(screen.getByLabelText(/275 gal Reconditioned quantity/i)).toHaveValue(null)
     expect(screen.getByLabelText(/^Delivery Address$/i)).toHaveValue('123 Main Street')
   })
 
@@ -144,7 +175,29 @@ describe('OrderForm', () => {
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
-  it('passes a parsed payload to createOrder on valid submit', async () => {
+  it('blocks submit with "At least one quantity is required." when all 6 cells are zero', async () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customers}
+        lockedCustomerId={customers[0].id}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText(/PO Number/i), { target: { value: 'PO-9999' } })
+    fireEvent.change(screen.getByLabelText(/Total Price/i), { target: { value: '199.50' } })
+    fireEvent.change(screen.getByLabelText(/^Delivery Address$/i), {
+      target: { value: '456 Oak Ave' },
+    })
+    // All 6 grid cells stay at 0 (default).
+    fireEvent.click(screen.getByRole('button', { name: /create order/i }))
+    const errorEl = await screen.findByTestId('qty-error', undefined, { timeout: 3000 })
+    expect(errorEl).toHaveTextContent('At least one quantity is required.')
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+
+  it('passes a multi-combo payload to createOrder on valid submit', async () => {
     mockCreateOrder.mockResolvedValueOnce({ id: 'new-order-id' })
     const onSaved = vi.fn()
     render(
@@ -159,8 +212,14 @@ describe('OrderForm', () => {
     fireEvent.change(screen.getByLabelText(/PO Number/i), {
       target: { value: 'PO-9999' },
     })
-    fireEvent.change(screen.getByLabelText(/Quantity/i), { target: { value: '8' } })
-    fireEvent.change(screen.getByLabelText(/Price/i), { target: { value: '199.50' } })
+    // Fill two combos: 275 Rebottled = 8 and 330 Brand New = 3.
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled quantity/i), {
+      target: { value: '8' },
+    })
+    fireEvent.change(screen.getByLabelText(/330 gal Brand New quantity/i), {
+      target: { value: '3' },
+    })
+    fireEvent.change(screen.getByLabelText(/Total Price/i), { target: { value: '199.50' } })
     fireEvent.change(screen.getByLabelText(/^Delivery Address$/i), {
       target: { value: '456 Oak Ave' },
     })
@@ -173,10 +232,51 @@ describe('OrderForm', () => {
     expect(arg).toMatchObject({
       po_number: 'PO-9999',
       customer_id: customers[0].id,
-      quantity: 8,
+      qty_275_recon: 0,
+      qty_275_rebot: 8,
+      qty_275_new: 0,
+      qty_330_recon: 0,
+      qty_330_rebot: 0,
+      qty_330_new: 3,
       price: 199.5,
       pickup_only: false,
       delivery_address: '456 Oak Ave',
+    })
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+  })
+
+  it('passes the new 6-qty payload to updateOrder when editing an existing PO', async () => {
+    mockUpdateOrder.mockResolvedValueOnce({ success: true })
+    const onSaved = vi.fn()
+    render(
+      <OrderForm
+        mode="edit"
+        initialDetail={sampleDetail}
+        customers={customers}
+        lockedCustomerId={null}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+      />,
+    )
+    // Bump 275 Rebottled from 12 → 15.
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled quantity/i), {
+      target: { value: '15' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await vi.waitFor(() => {
+      expect(mockUpdateOrder).toHaveBeenCalledTimes(1)
+    })
+    const [orderId, arg] = mockUpdateOrder.mock.calls[0]
+    expect(orderId).toBe(sampleDetail.id)
+    expect(arg).toMatchObject({
+      qty_275_recon: 0,
+      qty_275_rebot: 15,
+      qty_275_new: 0,
+      qty_330_recon: 0,
+      qty_330_rebot: 0,
+      qty_330_new: 5,
+      price: 300,
     })
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
   })

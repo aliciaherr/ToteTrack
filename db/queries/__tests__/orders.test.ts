@@ -43,9 +43,12 @@ const sampleOrder = {
   customer_id: '22222222-2222-2222-2222-222222222222',
   customer_name: 'Acme Industrial',
   status: 'scheduled' as const,
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
-  quantity: 10,
+  qty_275_recon: 0,
+  qty_275_rebot: 10,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: '250.00',
   requested_delivery_date: '2026-05-01',
   backhaul: false,
@@ -135,6 +138,29 @@ describe('getOrders', () => {
       cause: driverError,
     })
   })
+
+  it('selects all 6 qty columns from the wide-row schema (Feature 9)', async () => {
+    mockListAndCount([], 0)
+    await getOrders({ status: 'all' })
+    const listCall = findListCall()
+    for (const col of [
+      'qty_275_recon', 'qty_275_rebot', 'qty_275_new',
+      'qty_330_recon', 'qty_330_rebot', 'qty_330_new',
+    ]) {
+      expect(listCall.sql, `expected SELECT to include ${col}`).toMatch(new RegExp(`\\b${col}\\b`))
+    }
+  })
+
+  it('does NOT select the dropped legacy columns', async () => {
+    mockListAndCount([], 0)
+    await getOrders({ status: 'all' })
+    const listCall = findListCall()
+    expect(listCall.sql).not.toMatch(/\bcontainer_size\b/)
+    expect(listCall.sql).not.toMatch(/\bcontainer_type\b/)
+    // `quantity` would also fail — but the regex is loose enough that future
+    // unrelated `quantity` aliases would trip; tightened to the column read.
+    expect(listCall.sql).not.toMatch(/o\.quantity/)
+  })
 })
 
 const sampleOrderDetail = {
@@ -143,9 +169,12 @@ const sampleOrderDetail = {
   customer_id: '44444444-4444-4444-4444-444444444444',
   customer_name: 'Acme Industrial',
   status: 'scheduled' as const,
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
-  quantity: 12,
+  qty_275_recon: 0,
+  qty_275_rebot: 12,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: '300.00',
   pickup_only: false,
   delivery_address: '123 Main Street',

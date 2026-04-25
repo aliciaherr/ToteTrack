@@ -66,9 +66,12 @@ function stubUpdateResolves() {
 const VALID_CREATE = {
   po_number: 'PO-9001',
   customer_id: CUSTOMER_ID,
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
-  quantity: 10,
+  qty_275_recon: 0,
+  qty_275_rebot: 10,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: 250,
   pickup_only: false,
   delivery_address: '123 Main Street',
@@ -80,15 +83,59 @@ const VALID_CREATE = {
 const VALID_UPDATE = {
   po_number: 'PO-9001',
   customer_id: CUSTOMER_ID,
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
-  quantity: 12,
+  qty_275_recon: 0,
+  qty_275_rebot: 12,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: 300,
   pickup_only: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
   backhaul: false,
   notes: null,
+}
+
+// Snapshot of the current row's status + qty + price columns. Used by the
+// edit-lock check inside `updateOrder` (Feature 9). When the test wants the
+// PO to be in a state that doesn't lock qty/price edits (scheduled,
+// completed) AND the input matches the current row, no lock fires.
+interface CurrentRowSnapshot {
+  status: string
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
+  price: string
+}
+
+function buildCurrentSnapshot(
+  partial: Partial<CurrentRowSnapshot> = {},
+): CurrentRowSnapshot {
+  return {
+    status: 'scheduled',
+    qty_275_recon: 0,
+    qty_275_rebot: 0,
+    qty_275_new: 0,
+    qty_330_recon: 0,
+    qty_330_rebot: 0,
+    qty_330_new: 0,
+    price: '0.00',
+    ...partial,
+  }
+}
+
+function stubSelectCurrent(row: CurrentRowSnapshot | null) {
+  mockSelect.mockReturnValueOnce({
+    from: () => ({
+      where: () => ({
+        limit: () => Promise.resolve(row ? [row] : []),
+      }),
+    }),
+  })
 }
 
 function stubSelectStatus(status: string | null) {
@@ -128,7 +175,12 @@ describe('createOrder', () => {
       po_number: 'PO-9001',
       customer_id: CUSTOMER_ID,
       status: 'scheduled',
-      quantity: 10,
+      qty_275_recon: 0,
+      qty_275_rebot: 10,
+      qty_275_new: 0,
+      qty_330_recon: 0,
+      qty_330_rebot: 0,
+      qty_330_new: 0,
       price: '250.00',
       pickup_only: false,
       delivery_address: '123 Main Street',
@@ -168,9 +220,39 @@ describe('createOrder', () => {
     })
   })
 
-  it('rejects when quantity is less than 1', async () => {
-    const result = await createOrder({ ...VALID_CREATE, quantity: 0 })
-    expect(result).toEqual({ error: 'Quantity must be at least 1.' })
+  it('rejects when all 6 quantity cells are zero (Feature 9 sum > 0 invariant)', async () => {
+    const result = await createOrder({
+      ...VALID_CREATE,
+      qty_275_recon: 0,
+      qty_275_rebot: 0,
+      qty_275_new: 0,
+      qty_330_recon: 0,
+      qty_330_rebot: 0,
+      qty_330_new: 0,
+    })
+    expect(result).toEqual({ error: 'At least one quantity is required.' })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('accepts a multi-combo PO (more than one cell > 0)', async () => {
+    stubInsertReturning(ORDER_ID)
+    const result = await createOrder({
+      ...VALID_CREATE,
+      qty_275_rebot: 10,
+      qty_330_new: 5,
+    })
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(lastInsertValues).toMatchObject({
+      qty_275_rebot: 10,
+      qty_330_new: 5,
+    })
+  })
+
+  it('rejects negative quantities (per-cell ≥ 0 invariant)', async () => {
+    const result = await createOrder({ ...VALID_CREATE, qty_275_rebot: -1 })
+    expect(result).toMatchObject({
+      error: expect.stringMatching(/Quantities must be 0 or greater\./),
+    })
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
@@ -207,18 +289,20 @@ describe('createOrder', () => {
 
 describe('updateOrder', () => {
   it('updates the order and returns success on valid input', async () => {
+    stubSelectCurrent(buildCurrentSnapshot({ status: 'scheduled' }))
     stubUpdateResolves()
     const result = await updateOrder(ORDER_ID, VALID_UPDATE)
     expect(result).toEqual({ success: true })
     expect(mockRevalidatePath).toHaveBeenCalledWith('/orders')
     expect(lastUpdateSet).toMatchObject({
       po_number: 'PO-9001',
-      quantity: 12,
+      qty_275_rebot: 12,
       price: '300.00',
     })
   })
 
   it('never writes a status column even when status is passed in the payload', async () => {
+    stubSelectCurrent(buildCurrentSnapshot({ status: 'scheduled' }))
     stubUpdateResolves()
     const payloadWithStatus = {
       ...VALID_UPDATE,
@@ -237,6 +321,7 @@ describe('updateOrder', () => {
   it('rejects a malformed order id before touching the database', async () => {
     const result = await updateOrder('not-a-uuid', VALID_UPDATE)
     expect(result).toEqual({ error: 'Invalid order id.' })
+    expect(mockSelect).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
@@ -244,10 +329,19 @@ describe('updateOrder', () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null })
     const result = await updateOrder(ORDER_ID, VALID_UPDATE)
     expect(result).toEqual({ error: 'You are not signed in.' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects when the order does not exist (current snapshot empty)', async () => {
+    stubSelectCurrent(null)
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({ error: 'Order not found.' })
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it('maps a PO# unique-violation during update to the user-facing message', async () => {
+    stubSelectCurrent(buildCurrentSnapshot({ status: 'scheduled' }))
     const driverError = Object.assign(new Error('duplicate key'), { code: '23505' })
     mockUpdate.mockReturnValueOnce({
       set: () => ({
@@ -256,6 +350,88 @@ describe('updateOrder', () => {
     })
     const result = await updateOrder(ORDER_ID, VALID_UPDATE)
     expect(result).toEqual({ error: 'PO number already exists.' })
+  })
+
+  // Edit-lock tests (Feature 9, Q3): qty + price changes blocked on
+  // invoiced + cancelled POs. Other field changes still allowed on those
+  // statuses. scheduled + completed remain fully editable.
+
+  it('blocks qty changes on an invoiced PO with the lock error message', async () => {
+    stubSelectCurrent(
+      buildCurrentSnapshot({
+        status: 'invoiced',
+        qty_275_rebot: 10, // current is 10; VALID_UPDATE asks for 12 → change
+        price: '300.00',
+      }),
+    )
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({
+      error: 'PO is locked. Revert to scheduled before editing quantities or price.',
+    })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('blocks qty changes on a cancelled PO with the lock error message', async () => {
+    stubSelectCurrent(
+      buildCurrentSnapshot({
+        status: 'cancelled',
+        qty_275_rebot: 10,
+        price: '300.00',
+      }),
+    )
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({
+      error: 'PO is locked. Revert to scheduled before editing quantities or price.',
+    })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('blocks price changes on an invoiced PO even when qty is unchanged', async () => {
+    stubSelectCurrent(
+      buildCurrentSnapshot({
+        status: 'invoiced',
+        qty_275_rebot: 12, // matches input
+        price: '999.00', // differs from input price 300
+      }),
+    )
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({
+      error: 'PO is locked. Revert to scheduled before editing quantities or price.',
+    })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('allows notes-only changes on an invoiced PO (qty + price unchanged)', async () => {
+    stubSelectCurrent(
+      buildCurrentSnapshot({
+        status: 'invoiced',
+        qty_275_rebot: 12, // matches VALID_UPDATE
+        price: '300.00', // matches VALID_UPDATE.price.toFixed(2)
+      }),
+    )
+    stubUpdateResolves()
+    const result = await updateOrder(ORDER_ID, {
+      ...VALID_UPDATE,
+      notes: 'Updated note — quantities and price unchanged.',
+    })
+    expect(result).toEqual({ success: true })
+    expect(lastUpdateSet).toMatchObject({
+      notes: 'Updated note — quantities and price unchanged.',
+    })
+  })
+
+  it('allows qty changes on a completed PO (lock applies to invoiced + cancelled only)', async () => {
+    stubSelectCurrent(
+      buildCurrentSnapshot({
+        status: 'completed',
+        qty_275_rebot: 5, // input asks for 12 → change
+        price: '999.00',
+      }),
+    )
+    stubUpdateResolves()
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({ success: true })
+    expect(lastUpdateSet).toMatchObject({ qty_275_rebot: 12, price: '300.00' })
   })
 })
 

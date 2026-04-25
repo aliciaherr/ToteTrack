@@ -206,11 +206,15 @@ const sampleOrderRow = {
   id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
   po_number: 'PO-1001',
   status: 'completed' as const,
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
-  quantity: 10,
+  qty_275_recon: 0,
+  qty_275_rebot: 10,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: '250.00',
   requested_delivery_date: '2026-04-01',
+  backhaul: false,
 }
 
 describe('getCustomerOrders', () => {
@@ -260,7 +264,7 @@ describe('getCustomerOrders', () => {
 })
 
 describe('getCustomerVolumeOverview', () => {
-  it('returns all zeros for a customer with no completed orders', async () => {
+  it('returns all zeros for a customer with no completed orders (empty result)', async () => {
     mockExecute.mockResolvedValueOnce([])
     const result = await getCustomerVolumeOverview(CUSTOMER_ID)
     expect(result).toEqual({
@@ -269,10 +273,29 @@ describe('getCustomerVolumeOverview', () => {
     })
   })
 
-  it('averages across completed orders and fills other buckets with zero', async () => {
-    // Simulates 3 completed 275-gallon rebottled orders (qty 10, 20, 15 → avg 15).
+  it('returns all zeros when row has only NULLs (customer with completed POs but every combo qty = 0 — should not happen in practice but the FILTER clause makes this expressible)', async () => {
     mockExecute.mockResolvedValueOnce([
-      { container_size: '275', container_type: 'rebottled', avg_quantity: '15' },
+      {
+        avg_275_recon: null, avg_275_rebot: null, avg_275_new: null,
+        avg_330_recon: null, avg_330_rebot: null, avg_330_new: null,
+      },
+    ])
+    const result = await getCustomerVolumeOverview(CUSTOMER_ID)
+    expect(result.gal275.totalAvg).toBe(0)
+    expect(result.gal330.totalAvg).toBe(0)
+  })
+
+  it('parses string averages and fills NULL combos with zero', async () => {
+    // Simulates 3 POs with non-zero 275-rebot quantities (avg 15) and nothing else.
+    mockExecute.mockResolvedValueOnce([
+      {
+        avg_275_recon: null,
+        avg_275_rebot: '15',
+        avg_275_new: null,
+        avg_330_recon: null,
+        avg_330_rebot: null,
+        avg_330_new: null,
+      },
     ])
     const result = await getCustomerVolumeOverview(CUSTOMER_ID)
     expect(result.gal275).toEqual({
@@ -291,14 +314,33 @@ describe('getCustomerVolumeOverview', () => {
 
   it('sums the three type averages into totalAvg for each size', async () => {
     mockExecute.mockResolvedValueOnce([
-      { container_size: '275', container_type: 'rebottled', avg_quantity: '5' },
-      { container_size: '275', container_type: 'reconditioned', avg_quantity: '3' },
-      { container_size: '275', container_type: 'brand_new', avg_quantity: '2' },
-      { container_size: '330', container_type: 'rebottled', avg_quantity: '8' },
+      {
+        avg_275_recon: '3',
+        avg_275_rebot: '5',
+        avg_275_new: '2',
+        avg_330_recon: null,
+        avg_330_rebot: '8',
+        avg_330_new: null,
+      },
     ])
     const result = await getCustomerVolumeOverview(CUSTOMER_ID)
     expect(result.gal275.totalAvg).toBe(10)
     expect(result.gal330.totalAvg).toBe(8)
+  })
+
+  it('emits a single-row aggregate query with FILTER per qty column (Feature 9)', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCustomerVolumeOverview(CUSTOMER_ID)
+    const { sql } = compileLastCall()
+    for (const col of [
+      'qty_275_recon', 'qty_275_rebot', 'qty_275_new',
+      'qty_330_recon', 'qty_330_rebot', 'qty_330_new',
+    ]) {
+      expect(sql, `expected AVG(${col}) and FILTER (WHERE ${col} > 0)`).toMatch(
+        new RegExp(`AVG\\(${col}\\)[\\s\\S]*FILTER \\(WHERE ${col} > 0\\)`)
+      )
+    }
+    expect(sql).toMatch(/status IN \('completed', 'invoiced'\)/)
   })
 
   it('throws DatabaseError with cause when the underlying query fails', async () => {

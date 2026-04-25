@@ -113,6 +113,12 @@ export function buildOpenOrdersQuery(limit: number) {
       o.id,
       o.po_number,
       c.company_name AS customer_name,
+      o.qty_275_recon,
+      o.qty_275_rebot,
+      o.qty_275_new,
+      o.qty_330_recon,
+      o.qty_330_rebot,
+      o.qty_330_new,
       o.requested_delivery_date,
       o.backhaul
     FROM orders o

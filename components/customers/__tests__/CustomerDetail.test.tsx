@@ -73,11 +73,15 @@ const sampleOrders: CustomerOrderRow[] = [
     id: 'bbbb1111-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
     po_number: 'PO-1001',
     status: 'completed',
-    container_size: '275',
-    container_type: 'rebottled',
-    quantity: 10,
+    qty_275_recon: 0,
+    qty_275_rebot: 10,
+    qty_275_new: 0,
+    qty_330_recon: 0,
+    qty_330_rebot: 0,
+    qty_330_new: 0,
     price: '250.00',
     requested_delivery_date: '2026-04-01',
+    backhaul: false,
   },
 ]
 

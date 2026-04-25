@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 
 // OrderDetail renders OrderStatusActions, which imports updateOrderStatus from
@@ -57,9 +57,12 @@ const baseDetail: OrderDetailType = {
   customer_id: '44444444-4444-4444-4444-444444444444',
   customer_name: 'Acme Industrial',
   status: 'scheduled',
-  container_size: '275',
-  container_type: 'rebottled',
-  quantity: 12,
+  qty_275_recon: 5,
+  qty_275_rebot: 0,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 7,
+  qty_330_new: 0,
   price: '300.00',
   pickup_only: false,
   delivery_address: '123 Main Street',
@@ -103,5 +106,72 @@ describe('OrderDetail', () => {
     const addressSection = screen.getByRole('region', { name: /delivery address/i })
     expect(addressSection).toBeInTheDocument()
     expect(addressSection).toHaveTextContent('123 Main Street')
+  })
+
+  it('renders the 2×3 quantity grid with the actual qty values for a mixed-combo PO', () => {
+    render(<OrderDetail detail={baseDetail} />)
+    const qtySection = screen.getByRole('region', { name: /quantities/i })
+    expect(within(qtySection).getByText('5')).toBeInTheDocument()
+    expect(within(qtySection).getByText('7')).toBeInTheDocument()
+  })
+
+  it('renders an em dash for each empty qty cell in the grid (default showEmptyAsDash)', () => {
+    render(<OrderDetail detail={baseDetail} />)
+    const qtySection = screen.getByRole('region', { name: /quantities/i })
+    // baseDetail has 4 zero cells out of 6
+    const dashes = within(qtySection).getAllByText('—')
+    expect(dashes.length).toBe(4)
+  })
+
+  it('renders the total price prominently inside its own section', () => {
+    render(<OrderDetail detail={baseDetail} />)
+    const totalSection = screen.getByRole('region', { name: /total price/i })
+    expect(within(totalSection).getByText('$300')).toBeInTheDocument()
+  })
+
+  it('renders a BackhaulTag in the meta grid when backhaul is true', () => {
+    render(<OrderDetail detail={baseDetail} />)
+    const metaSection = screen.getByRole('region', { name: /order details/i })
+    expect(within(metaSection).getByLabelText(/backhaul/i)).toBeInTheDocument()
+  })
+
+  it('renders "No" in place of the BackhaulTag when backhaul is false', () => {
+    const noBackhaul: OrderDetailType = { ...baseDetail, backhaul: false }
+    render(<OrderDetail detail={noBackhaul} />)
+    const metaSection = screen.getByRole('region', { name: /order details/i })
+    expect(within(metaSection).queryByLabelText(/backhaul/i)).not.toBeInTheDocument()
+    // Backhaul row + Pickup Only row both render "No" when both flags are false
+    expect(within(metaSection).getAllByText('No').length).toBe(2)
+  })
+
+  it('disables the Edit button when status is invoiced', () => {
+    const invoicedDetail: OrderDetailType = { ...baseDetail, status: 'invoiced' }
+    render(<OrderDetail detail={invoicedDetail} onEdit={vi.fn()} />)
+    const editButton = screen.getByRole('button', { name: /edit order PO-2001/i })
+    expect(editButton).toBeDisabled()
+    expect(editButton).toHaveAttribute(
+      'title',
+      expect.stringMatching(/revert.*scheduled/i),
+    )
+  })
+
+  it('disables the Edit button when status is cancelled', () => {
+    const cancelledDetail: OrderDetailType = { ...baseDetail, status: 'cancelled' }
+    render(<OrderDetail detail={cancelledDetail} onEdit={vi.fn()} />)
+    const editButton = screen.getByRole('button', { name: /edit order PO-2001/i })
+    expect(editButton).toBeDisabled()
+  })
+
+  it('enables the Edit button when status is scheduled', () => {
+    render(<OrderDetail detail={baseDetail} onEdit={vi.fn()} />)
+    const editButton = screen.getByRole('button', { name: /edit order PO-2001/i })
+    expect(editButton).not.toBeDisabled()
+  })
+
+  it('enables the Edit button when status is completed (server still validates)', () => {
+    const completedDetail: OrderDetailType = { ...baseDetail, status: 'completed' }
+    render(<OrderDetail detail={completedDetail} onEdit={vi.fn()} />)
+    const editButton = screen.getByRole('button', { name: /edit order PO-2001/i })
+    expect(editButton).not.toBeDisabled()
   })
 })

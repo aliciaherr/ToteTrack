@@ -239,6 +239,26 @@
 
 ---
 
+### CONSTRAINT-18 — PO Multi-Combo wide-row schema (Feature 9)
+
+**Decision:** Each PO row holds quantities for any combination of the 6 fixed (size × type) options (CONSTRAINT-09) via 6 typed integer columns on `orders`: `qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new` (all `INTEGER NOT NULL DEFAULT 0`). Replaces the prior single-combo model (`container_size` + `container_type` + `quantity`). The total `price` column stays a single user-entered value — **no per-unit pricing, no global pricing settings, no per-PO unit-price overrides**. Mark Complete remains atomic at the PO level — all combos in a PO ship together. Edit lock: when a PO's status is `invoiced` or `cancelled`, qty + price changes are rejected by `updateOrder`; other field edits (notes, address, delivery date, backhaul, pickup_only) are still permitted. Salespeople must use the existing revert flow (FB-08) to bring the PO back to `scheduled` before adjusting quantities or price.
+
+**What it means in practice:**
+- `db/schema/orders.ts` defines the 6 qty cols. Migration `0008_po_multi_combo.sql` performs the schema change + lossless backfill of existing single-combo rows.
+- `container_size` + `container_type` PostgreSQL enum types remain orphaned in `pg_type` after migration `0008` (intentional — they'll be dropped in a later cleanup migration once all TS code stops referencing them).
+- All 4 PO list surfaces (orders table, dashboard Open Orders widget, customer Order History rows, invoice detail PO rows) render the consistent `275 | 330` totals + compact `B` backhaul tag pattern.
+- Empty cells render as em dash `—` in display contexts (orders table, PO detail grid, etc.).
+- Validation: client + server both enforce sum of 6 qty cells > 0 with error message `"At least one quantity is required."`. Per-cell ≥ 0 integers, capped at 100,000.
+- Customer Volume Overview formula stays as "avg per PO that included this combo" — `AVG(qty_X) FILTER (WHERE qty_X > 0 AND status IN ('completed', 'invoiced'))`. Multiple combos per PO contribute to multiple combo averages, which is correct under the new model.
+- Reusable `<QtyGrid>` component at `components/shared/QtyGrid.tsx` handles both display (read-only number or em dash) and input (controlled numeric inputs) modes for the 2×3 grid; consumed by OrderForm and OrderDetail.
+- `lib/actions/orders.validation.ts` sibling file holds Zod schemas + helpers (Platform-Native Rule — `'use server'` files export async only).
+
+**Who decided and when:** Builder (Q1–Q7 confirmations during `@cpo` consultation), 2026-04-24
+
+**What this closes off:** Reverting to single-combo POs would require dropping 6 cols + restoring 3 cols + back-mapping rows where multi-combo data exists (lossy by definition — a PO with 3 non-zero cells can't collapse to a single combo without manual disambiguation). Adding per-unit pricing requires either re-introducing 6 unit-price cols on each PO + a settings table OR a separate price-list model — explicitly rejected during brainstorm; reopening requires fresh assumptions. Adding partial fulfillment / per-combo state machine is a separate architectural change (per-cell status would multiply the state-transition logic 6×) — not in scope.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -260,3 +280,4 @@
 | 15 | PO model v2: drop `pending`, fold `invoiced` into `completed` for stats | 4 states; "completed" filter matches both | Builder | 2026-04-22 |
 | 16 | Optional delivery date + auto-set on Mark Complete | NULL allowed; COALESCE to CURRENT_DATE on completion | Builder | 2026-04-22 |
 | 17 | Invoice v3: one per month, no status, no customer, overwrite via modal | Drops `customer_id` + `status` columns; chronological ledger | Builder | 2026-04-22 |
+| 18 | PO multi-combo wide-row schema + atomic completion + edit lock | Drops `container_size`/`container_type`/`quantity`; adds 6 qty cols; total `price` user-entered (no per-unit pricing); invoiced/cancelled blocks qty/price edits | Builder | 2026-04-24 |

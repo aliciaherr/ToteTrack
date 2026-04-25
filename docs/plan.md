@@ -1150,3 +1150,297 @@ export const collapsibleVariants // height animate via motion.div
 **Specialist:** @ui-totetrack
 
 **Status:** [x] Done (2026-04-23) — see `docs/session-log.md` for decisions (drawer state shared via `components/shell/drawer-state.tsx` Context + `useAppShellDrawerState` hook; `?new=1` precedence over `?id` resolved server-side in customers/leads page parsers; tap-outside via mousedown capture + `preventDefault` to suppress activation behind; `useDismissOnOutsideOrEsc` extracted as a sibling hook to keep QuickAddFab under CONSTRAINT-14's 80-line cap; `LucideIcon` typed for FAB option icons; design-decisions.md Animation Specs extended with 3 speed-dial rows). 18 new tests (387 → 405). Browser-verified end-to-end on `/dashboard` + `/customers?new=1` + `/leads?new=1` + drawer-open hides FAB. No Security Trigger — presentational + URL routing only. **Feature complete (Task 34 + 35) — `@code-review` next.**
+
+---
+
+## Task 36: Schema migration — replace legacy PO columns with 6 quantity columns
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `db/schema/orders.ts` — modify
+- `db/schema/enums.ts` — modify (drop `container_size`, `container_type` enums **only if** no other table references them; otherwise leave intact)
+- `db/migrations/0008_po_multi_combo.sql` — create
+- `db/migrations/meta/_journal.json` — modify (Drizzle migrations metadata)
+- `db/migrations/__tests__/0008.test.ts` — create
+
+**Functions to implement:**
+- Migration SQL (in order):
+  1. `ALTER TABLE orders ADD COLUMN qty_275_recon INTEGER NOT NULL DEFAULT 0` (× 6 columns: `qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new`)
+  2. Backfill: `UPDATE orders SET qty_<size>_<type> = quantity WHERE container_size = '<size>' AND container_type = '<type>'` for each of the 6 (size, type) pairs
+  3. `ALTER TABLE orders DROP COLUMN container_size, DROP COLUMN container_type, DROP COLUMN quantity`
+- Drizzle schema additions: 6 typed integer columns matching SQL, all `.notNull().default(0)`
+
+**Acceptance criteria:**
+- [ ] Migration adds 6 qty columns — all `INTEGER NOT NULL DEFAULT 0`
+- [ ] Backfill runs **before** drop — every existing order row has exactly one non-zero qty cell matching its prior `container_size` + `container_type` + `quantity`
+- [ ] Legacy columns (`container_size`, `container_type`, `quantity`) dropped after backfill
+- [ ] Drizzle schema updated; `drizzle-kit` reports clean state vs migration
+- [ ] RLS policies on `orders` unchanged and still enforced (CONSTRAINT-05)
+- [ ] No data loss — row count + price totals before vs after migration are identical
+
+**Tests required:**
+- `db/migrations/__tests__/0008.test.ts` → `backfill correctness with seeded mixed-combo data` → `expect each combo to land in correct column`
+- `db/migrations/__tests__/0008.test.ts` → `row count + price total invariants` → `expect pre-migration count === post-migration count and SUM(price) unchanged`
+
+**Depends on:** None
+**Specialist:** @db
+
+**Status:** [x] Done (2026-04-24) — see `docs/session-log.md`. Migration `0008_po_multi_combo.sql` created (6 ADD COLUMN + 6 backfill UPDATE + 3 DROP COLUMN, statement-breakpoint convention, container_size/container_type enum types intentionally retained as orphans pending Tasks 37–43 cleanup); `db/schema/orders.ts` rewritten (3 cols out, 6 cols in, no other field changes); 3/3 new migration content-validation tests pass. **Deviations from spec (see Founder Brief in session log):** (1) `_journal.json` not updated — already out of sync with migrations 0002–0007, would have made the gap weirder; (2) test pattern is SQL content-validation, not integration test — project has no DB integration test infra, real backfill verification deferred to dev DB application after full feature ships. **Build is now broken** (TypeScript fails because Tasks 37–43 still reference dropped columns) — expected per option C; production stays on commit `4df1886` until Feature 9 fully ships.
+
+---
+
+## Task 37: Refactor read queries for new schema (orders, dashboard, volume overview)
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `db/queries/orders.ts` — modify (`getOrders`, `getOrderDetail`)
+- `db/queries/dashboard.ts` — modify (Open Orders widget data; any aggregations referencing old size/type/qty)
+- `db/queries/customers.ts` — modify (`getVolumeOverview`)
+- `db/queries/__tests__/orders.test.ts` — modify
+- `db/queries/__tests__/dashboard.test.ts` — modify
+- `db/queries/__tests__/customers.test.ts` — modify
+
+**Functions to implement:**
+- `getOrders(...)` — return shape includes the 6 qty columns + price; remove all references to `container_size` / `container_type` / `quantity`
+- `getOrderDetail(id)` — same column shape addition
+- `getVolumeOverview(customerId)` — for each of 6 combos, compute `AVG(qty_<size>_<type>) FILTER (WHERE qty_<size>_<type> > 0 AND status IN ('completed', 'invoiced'))` per CONSTRAINT-15 stats rule
+- Open Orders widget query — return 6 qty columns for downstream display formatting
+
+**Acceptance criteria:**
+- [ ] All three query files compile and return new column shape
+- [ ] `getVolumeOverview` formula: per-combo avg only across POs that included that combo (not diluted by zero-cell POs)
+- [ ] Stats include `status IN ('completed', 'invoiced')` per CONSTRAINT-15 (invoiced is sub-state of completed for stats)
+- [ ] No reference to `container_size`, `container_type`, or `quantity` anywhere in queries
+- [ ] Type imports in any client component that consumes these queries (via `import type`) compile per Platform-Native Rule (architecture.md — client components value-import nothing from `db/queries/*`)
+
+**Tests required:**
+- `db/queries/__tests__/orders.test.ts` → `getOrders returns 6 qty columns` → `expect new shape`
+- `db/queries/__tests__/customers.test.ts` → `getVolumeOverview with mixed-combo POs` → `expect avg only across POs with that combo non-zero`
+- `db/queries/__tests__/customers.test.ts` → `getVolumeOverview excludes scheduled/cancelled` → `expect status filter applied`
+- `db/queries/__tests__/dashboard.test.ts` → `Open Orders widget data has new shape` → `expect 6 qty cols`
+
+**Depends on:** Task 36
+**Specialist:** @db
+
+**Status:** [x] Done (2026-04-24) — see `docs/session-log.md`. Refactored `db/queries/orders.ts` (`getOrders` + `getOrderDetail` return 6 qty cols, no legacy size/type/qty); `db/queries/customers.ts` (`CustomerOrderRow` shape + `VolumeAveragesRow` single-row aggregate consumer); `db/queries/customers.sql.ts` (`customerVolumeAveragesQuery` becomes 6× `AVG(qty_X) FILTER (WHERE qty_X > 0)`; `customerOrdersQuery` returns 6 qty cols + backhaul); `db/queries/customers.volume.ts` (`assembleVolumeOverview` takes single row, parses string averages with NULL → 0 fallback); `db/queries/dashboard.sql.ts` (Open Orders widget query returns 6 qty cols per Q7); `db/queries/dashboard.ts` (`OpenOrderRow` shape). **Scope expansion (Founder Brief in session log):** `db/queries/invoices.ts` was missing from the original Task 37 spec but also references the dropped columns — included to keep the read layer internally consistent (`InvoiceableOrder` + `InvoicePoRow` shapes + queries updated; `InvoicePoRow` gains `backhaul` for Task 43's downstream B-tag). 71/71 query tests pass (orders 11, customers 23, dashboard 22, invoices 15).
+
+---
+
+## Task 38: Refactor `createOrder` + `updateOrder` server actions — new input shape, sum-validation, edit lock
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `lib/actions/orders.ts` — modify (currently at 300-line cap; if needed, extract validation helpers to a sibling `lib/actions/orders.validation.ts` per existing precedent like `orders.revert.ts` / `orders.constants.ts`)
+- `lib/actions/__tests__/orders.test.ts` — modify
+
+**Functions to implement:**
+- `createOrder(input)` — input shape now: `{ customer_id, qty_275_recon, qty_275_rebot, qty_275_new, qty_330_recon, qty_330_rebot, qty_330_new, price, ... existing fields }`. Zod validation: each qty ≥ 0; sum > 0; price > 0
+- `updateOrder(id, input)` — same input shape; **before update**: fetch current status; if `status IN ('invoiced', 'cancelled')` and input contains any qty or price change, reject with `{ error: 'PO is locked. Revert to scheduled before editing quantities or price.' }`. Other field edits (notes, address, etc.) on terminal states allowed per existing rules.
+- All-zero validation message: `"At least one quantity is required."`
+
+**Acceptance criteria:**
+- [ ] `createOrder` accepts new input shape, rejects all-zero with clear error
+- [ ] `updateOrder` accepts new shape; rejects qty/price changes on `invoiced` and `cancelled` POs with explicit error message
+- [ ] `updateOrder` permits qty/price changes on `scheduled` and `completed` POs
+- [ ] Server-side Zod validation applied (CONSTRAINT-02 — server actions can't trust client validation)
+- [ ] No reference to legacy fields anywhere in actions
+- [ ] `lib/actions/orders.ts` stays at or below the 300-line cap (sibling extraction per Platform-Native Rule precedent if needed)
+- [ ] SEC-01: input UUIDs validated as UUID format (existing pattern)
+- [ ] EH-01: failures fail loud with context per error-handling rule
+
+**Tests required:**
+- `lib/actions/__tests__/orders.test.ts` → `createOrder happy path with mixed combos` → `expect insert with new shape`
+- `lib/actions/__tests__/orders.test.ts` → `createOrder all-zero rejected` → `expect error 'At least one quantity is required.'`
+- `lib/actions/__tests__/orders.test.ts` → `updateOrder on invoiced PO with qty change` → `expect lock error`
+- `lib/actions/__tests__/orders.test.ts` → `updateOrder on invoiced PO with notes-only change` → `expect success` (lock applies to qty/price only)
+- `lib/actions/__tests__/orders.test.ts` → `updateOrder on completed PO with qty change` → `expect success`
+- `lib/actions/__tests__/orders.test.ts` → `updateOrder on cancelled PO with qty change` → `expect lock error`
+
+**Depends on:** Task 36, Task 37
+**Specialist:** @db
+
+**Status:** [x] Done (2026-04-24) — see `docs/session-log.md`. Refactored `lib/actions/orders.ts` (282 lines, under 300-line cap) + extracted Zod schemas / regex constants / validation helpers / type aliases to new `lib/actions/orders.validation.ts` (142 lines) per Platform-Native Rule sibling pattern (precedent: `customers.constants.ts`, `leads.constants.ts`). `createOrder` / `updateOrder` accept new 6-qty input shape; sum > 0 enforced server-side via Zod `.superRefine` (`requireAtLeastOneQty`) returning `"At least one quantity is required."`; `updateOrder` adds pre-update SELECT of (status + 6 qty + price) snapshot, compares against input via `detectQtyOrPriceChange`, rejects with `PO_LOCKED_MESSAGE` when status ∈ `('invoiced', 'cancelled')` AND any qty/price differs (notes/address/etc. on locked POs still permitted). `updateOrderStatus` unchanged (CONSTRAINT-16 COALESCE preserved). 32/32 action tests pass (added: multi-combo create, negative-qty rejection, edit-lock × 4, order-not-found). No Security Trigger fired — no auth/payment/PII changes; only operational data shape + validation tightening (SEC-01 UUID + SEC-02 Zod input validation preserved).
+
+---
+
+## Task 39: Reusable 2×3 size×type grid component (display + input variants)
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `components/shared/QtyGrid.tsx` — create (`'use client'`)
+- `components/shared/__tests__/QtyGrid.test.tsx` — create
+- `components/customers/VolumeOverview.tsx` — modify (refactor to consume `QtyGrid` in display-with-progress-bar mode, OR keep its existing component if grid concerns differ enough — implementer's call to avoid forcing a misfit abstraction)
+- `components/customers/__tests__/VolumeOverview.test.tsx` — modify (regression coverage)
+
+**Functions to implement:**
+- `QtyGrid({ mode, values, onChange?, showEmptyAsDash? })` — renders 2×3 grid (rows: 275 gal / 330 gal; columns: Reconditioned / Rebottled / Brand New). In `display` mode: numbers or `—` per `showEmptyAsDash`. In `input` mode: numeric inputs, ≥ 0 integers only.
+
+**Acceptance criteria:**
+- [ ] Grid renders 2 rows × 3 columns with correct labels (sizes as row headers, types as column headers)
+- [ ] Display mode: cells show qty integer or `—` when 0 (per Q4 decision)
+- [ ] Input mode: numeric inputs accept ≥ 0 integers only; non-integer / negative input rejected client-side
+- [ ] `'use client'` directive present (CONSTRAINT-03)
+- [ ] iPad-landscape friendly: each input ≥ 44px touch target (project touch-target standard)
+- [ ] Customer Volume Overview continues to render correctly post-refactor (no visual regression — covered by regression test)
+- [ ] Component file ≤ 200 lines (project component cap), or ≤ 80 lines for the JSX-rendering component per CONSTRAINT-14
+
+**Tests required:**
+- `components/shared/__tests__/QtyGrid.test.tsx` → `display mode renders values correctly` → `expect 6 cells with correct values`
+- `components/shared/__tests__/QtyGrid.test.tsx` → `display mode shows — for zero cells` → `expect dash on empty`
+- `components/shared/__tests__/QtyGrid.test.tsx` → `input mode triggers onChange with new value` → `expect handler called with updated cell`
+- `components/shared/__tests__/QtyGrid.test.tsx` → `input mode rejects negative input` → `expect input clamped to 0`
+- `components/customers/__tests__/VolumeOverview.test.tsx` → `regression: existing render still passes` → `expect no visual regression`
+
+**Depends on:** None (pure UI component; can be built in parallel with Tasks 36–38)
+**Specialist:** @ui-totetrack
+
+**Status:** [x] Done (2026-04-24) — see `docs/session-log.md`. Created `components/shared/QtyGrid.tsx` (196 lines, under 200-line cap) with `display` + `input` modes, `QtyGridValues` interface matching the 6 orders-table column names, `ZERO_QTY_VALUES` constant export. Display mode uses em dash for zero cells (default, configurable via `showEmptyAsDash`); input mode uses controlled numeric inputs with empty-placeholder for zero, client-side clamp (≥0, ≤100k, integer floor). All cells ≥44px touch target via `h-11 min-h-[44px]`. **Implementer's call (Founder Brief in session log):** did NOT refactor `VolumeOverview` to consume `QtyGrid` — its progress-bar layout is structurally different from raw-qty grid; forcing a shared abstraction would be a misfit per Task 39 spec's escape hatch. Visual consistency between OrderDetail's grid (Task 41) and Customer Volume Overview is in spirit only — both decompose the 6 (size × type) combos but with mode-appropriate presentation. 17/17 tests pass (14 QtyGrid + 3 VolumeOverview regression — confirms zero impact on existing customer detail screen).
+
+---
+
+## Task 40: Order form — integrate 2×3 input grid + total price + client validation
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `components/orders/OrderForm.tsx` — modify
+- `components/orders/__tests__/OrderForm.test.tsx` — modify
+
+**Functions to implement:**
+- Form schema (Zod): replace `container_size` + `container_type` + `quantity` fields with 6 qty fields; sum > 0 validator; price > 0 validator (existing)
+- Form layout: replace single size/type/qty inputs with `<QtyGrid mode="input" />`; total price stays as single input below the grid
+- Submit handler: pass new shape to `createOrder` / `updateOrder` server action
+
+**Acceptance criteria:**
+- [ ] Form renders 2×3 input grid + total price input + existing fields (PO#, customer, dates, address, pickup, backhaul, notes)
+- [ ] Inline error: `"At least one quantity is required."` shown when sum = 0 on submit
+- [ ] Submit calls server action with new input shape
+- [ ] Edit mode pre-fills 6 qty cells from existing PO
+- [ ] `'use client'` directive present (existing); no Framer Motion / Recharts cross-boundary (CONSTRAINT-03)
+- [ ] Touch targets ≥ 44px throughout (project standard)
+- [ ] CQ-14: component file ≤ 80 lines if non-JSX logic ≤ 50; else split sub-components
+
+**Tests required:**
+- `components/orders/__tests__/OrderForm.test.tsx` → `renders new grid + price` → `expect grid present`
+- `components/orders/__tests__/OrderForm.test.tsx` → `submit with mixed combos` → `expect createOrder called with new shape`
+- `components/orders/__tests__/OrderForm.test.tsx` → `submit with all-zero` → `expect inline error, no action call`
+- `components/orders/__tests__/OrderForm.test.tsx` → `edit mode pre-fills 6 qty cells from existing PO` → `expect inputs populated`
+
+**Depends on:** Task 38, Task 39
+**Specialist:** @ui-totetrack
+
+**Status:** [x] Done (2026-04-24) — see `docs/session-log.md`. Updated `components/orders/orderFormSchema.ts` (`OrderFormValues` shape + `EMPTY_FORM_VALUES` + `detailToFormValues` + `formValuesToCreateInput`/`formValuesToUpdateInput` use the 6 qty number fields; new `totalQuantity` helper exported; dropped `ContainerSize`/`ContainerType` exports). Rewrote `components/orders/OrderContainerFields.tsx` (106 lines) — replaces single size/type/qty selects with `<QtyGrid mode="input" />` bridged via watch/setValue, plus relabeled price input as "Total Price (USD)". `components/orders/OrderFormFields.tsx` + `components/orders/OrderForm.tsx` thread `setValue` and a new `qtyError` state through to OCF. Client-side at-least-one-quantity validation via `totalQuantity()` check in OrderForm.onSubmit; error rendered inline below grid. **Founder Brief in session log:** the qty error couldn't reliably use react-hook-form's `setError` because the qty fields are bridged through setValue/watch (not standard `register` since QtyGrid is controlled) — RHF's setError on programmatically-managed fields didn't trigger subscriber re-renders in the OrderContainerFields path. Switched to a plain `useState<string | null>` in OrderForm threaded down via prop. 9/9 OrderForm tests pass + 14/14 QtyGrid + 3/3 VolumeOverview regression. 26 total tests in this surface area.
+
+---
+
+## Task 41: Order detail — 2×3 display grid + total price prominence ✅ Done 2026-04-24
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `components/orders/OrderDetail.tsx` — modify
+- `components/orders/__tests__/OrderDetail.test.tsx` — modify
+
+**Functions to implement:**
+- Replace single size/type/qty display with `<QtyGrid mode="display" showEmptyAsDash />`
+- Total price displayed prominently (visual hierarchy per `docs/design-decisions.md` — large/bold dark numbers per Stitch mockup display-numbers spec)
+- Existing fields (delivery date, pickup-only, address, backhaul, notes) unchanged
+- Action buttons unchanged (Mark Complete, Cancel, Revert, Edit) — Edit button visually disabled when status is `invoiced` or `cancelled` (Task 38 edit lock semantics)
+
+**Acceptance criteria:**
+- [ ] Detail panel renders 2×3 mix grid with actual quantities, `—` for empty cells
+- [ ] Total price visually prominent (matches Stitch mockup display-numbers treatment per design-decisions.md)
+- [ ] Edit button visually disabled (or "Revert to Edit" hint) when PO is `invoiced` or `cancelled`
+- [ ] Backhaul shown as compact `B` tag (consistency with new pattern; `BackhaulTag` from Task 42)
+- [ ] Component file ≤ 200 lines (or 80 for JSX-renderer per CONSTRAINT-14)
+- [ ] `'use client'` directive present
+
+**Tests required:**
+- `components/orders/__tests__/OrderDetail.test.tsx` → `renders grid with mixed-combo PO` → `expect correct values`
+- `components/orders/__tests__/OrderDetail.test.tsx` → `renders — for empty cells` → `expect dashes`
+- `components/orders/__tests__/OrderDetail.test.tsx` → `Edit button disabled on invoiced` → `expect disabled state`
+- `components/orders/__tests__/OrderDetail.test.tsx` → `Edit button enabled on completed` → `expect enabled state`
+
+**Depends on:** Task 37, Task 39, Task 42 (uses `BackhaulTag`)
+**Specialist:** @ui-totetrack
+
+**Status:** [x]
+
+---
+
+## Task 42: Order table — column restructure + shared `BackhaulTag` component ✅ Done 2026-04-24
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `components/orders/OrderTable.tsx` — modify
+- `components/orders/__tests__/OrderTable.test.tsx` — modify
+- `components/shared/BackhaulTag.tsx` — create (compact `B` tag, used across PO list surfaces per Q7)
+- `components/shared/__tests__/BackhaulTag.test.tsx` — create
+
+**Functions to implement:**
+- `BackhaulTag()` — renders compact teal `B` badge. Conditional render at the call site (only when `backhaul = true`)
+- Order table columns: PO# | Customer (avatar + name) | 275 (`qty_275_recon + qty_275_rebot + qty_275_new` per row, render `—` if 0) | 330 (same for 330) | Status | Req Date (`—` if null per CONSTRAINT-16) | Price | `B` tag (after Price column when backhaul=true)
+- Default sort unchanged: `requested_delivery_date DESC NULLS LAST` (per Q5)
+
+**Acceptance criteria:**
+- [ ] Table renders new columns in correct order, no Type or Qty/Size columns
+- [ ] 275 / 330 totals computed per row; render as integer or `—`
+- [ ] `B` tag rendered after Price column on rows with `backhaul = true` only
+- [ ] Existing filter tabs (All | Scheduled | Completed | Cancelled) unchanged
+- [ ] Pagination row preserved
+- [ ] Touch target ≥ 44px on row taps (existing)
+- [ ] iPad-landscape (1024px+) layout: columns fit without horizontal scroll
+- [ ] Component file ≤ 200 lines (or 80 for JSX-renderer per CONSTRAINT-14); extract row component if needed
+
+**Tests required:**
+- `components/orders/__tests__/OrderTable.test.tsx` → `renders new columns in correct order` → `expect column headers`
+- `components/orders/__tests__/OrderTable.test.tsx` → `275/330 totals correct for mixed PO` → `expect summed values`
+- `components/orders/__tests__/OrderTable.test.tsx` → `renders — for zero size` → `expect dash`
+- `components/orders/__tests__/OrderTable.test.tsx` → `B tag rendered when backhaul=true` → `expect tag present`
+- `components/orders/__tests__/OrderTable.test.tsx` → `no B tag when backhaul=false` → `expect no tag`
+- `components/shared/__tests__/BackhaulTag.test.tsx` → `renders B` → `expect tag content`
+
+**Depends on:** Task 37
+**Specialist:** @ui-totetrack
+
+**Status:** [x]
+
+---
+
+## Task 43: Downstream PO list surfaces — Open Orders widget + Customer Order History + Invoice detail PO rows ✅ Done 2026-04-24
+
+> Added 2026-04-24 via `@create-plan`. Source: `docs/prd.md` Feature 9 (D15).
+
+**Files:**
+- `components/dashboard/OpenOrdersWidget.tsx` — modify
+- `components/customers/CustomerDetail.tsx` — modify (or sub-component for Order History rows — implementer's call based on file size)
+- `components/invoices/InvoiceLayout.tsx` — modify (or wherever invoice detail PO rows render — confirm at implementation time)
+- `components/dashboard/__tests__/OpenOrdersWidget.test.tsx` — modify
+- `components/customers/__tests__/CustomerDetail.test.tsx` — modify (or new sub-component test file)
+- `components/invoices/__tests__/InvoiceLayout.test.tsx` — modify (or new sub-component test file)
+
+**Functions to implement:**
+- All three surfaces render PO rows with the same `275 | 330` totals + `B` tag pattern as the orders table (Q7 consistency)
+- Reuse `BackhaulTag` from Task 42
+
+**Acceptance criteria:**
+- [ ] Dashboard Open Orders widget rows show `275: X | 330: Y` + `B` tag (when applicable)
+- [ ] Customer detail Order History rows show same pattern
+- [ ] Invoice detail PO rows show same pattern
+- [ ] Empty totals render as `—` everywhere
+- [ ] All component-level rules preserved (touch targets, file size caps, `'use client'` directive)
+
+**Tests required:**
+- `components/dashboard/__tests__/OpenOrdersWidget.test.tsx` → `renders 275/330 totals + B tag` → `expect new shape`
+- `components/customers/__tests__/CustomerDetail.test.tsx` → `Order History rows render 275/330 totals + B tag` → `expect new shape`
+- `components/invoices/__tests__/InvoiceLayout.test.tsx` → `invoice detail PO rows render 275/330 totals + B tag` → `expect new shape`
+
+**Depends on:** Task 37, Task 42
+**Specialist:** @ui-totetrack
+
+**Status:** [x]

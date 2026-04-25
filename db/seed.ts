@@ -104,13 +104,24 @@ const TICKET_TITLES = [
   { title: 'Add SMS reminder for follow-ups', category: 'feature_request', priority: 'low' },
 ] as const
 
-const CONTAINER_SIZES = ['275', '330'] as const
-const CONTAINER_TYPES = ['rebottled', 'reconditioned', 'brand_new'] as const
 const LEAD_STATUSES = ['hot', 'warm', 'cold'] as const
 const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const
 
+type SeedSize = '275' | '330'
+type SeedType = 'rebottled' | 'reconditioned' | 'brand_new'
+
+// All 6 (size × type) cells of the wide-row PO schema (CONSTRAINT-18).
+const QTY_CELLS: ReadonlyArray<{ size: SeedSize; type: SeedType; col: 'qty_275_recon' | 'qty_275_rebot' | 'qty_275_new' | 'qty_330_recon' | 'qty_330_rebot' | 'qty_330_new' }> = [
+  { size: '275', type: 'reconditioned', col: 'qty_275_recon' },
+  { size: '275', type: 'rebottled', col: 'qty_275_rebot' },
+  { size: '275', type: 'brand_new', col: 'qty_275_new' },
+  { size: '330', type: 'reconditioned', col: 'qty_330_recon' },
+  { size: '330', type: 'rebottled', col: 'qty_330_rebot' },
+  { size: '330', type: 'brand_new', col: 'qty_330_new' },
+]
+
 // Unit-price bands per (size, type) — rough but realistic.
-function unitPriceFor(size: '275' | '330', type: 'rebottled' | 'reconditioned' | 'brand_new'): number {
+function unitPriceFor(size: SeedSize, type: SeedType): number {
   if (size === '275') {
     if (type === 'brand_new') return rand(80, 110)
     if (type === 'reconditioned') return rand(55, 75)
@@ -119,6 +130,45 @@ function unitPriceFor(size: '275' | '330', type: 'rebottled' | 'reconditioned' |
   if (type === 'brand_new') return rand(110, 150)
   if (type === 'reconditioned') return rand(70, 95)
   return rand(50, 70)
+}
+
+interface PoQtyShape {
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
+}
+
+const ZERO_PO_QTY: PoQtyShape = {
+  qty_275_recon: 0,
+  qty_275_rebot: 0,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
+}
+
+/**
+ * Build a (qty, price) pair for one PO. ~85% of POs use a single (size×type)
+ * combo; ~15% mix two combos to exercise the new wide-row schema. Total
+ * price is the sum across each non-zero cell, computed via the same
+ * per-unit price bands that the single-combo seed used.
+ */
+function buildPoQtyAndPrice(): { qty: PoQtyShape; price: number } {
+  const cellCount = maybe(0.15) ? 2 : 1
+  const pool = [...QTY_CELLS]
+  const qty: PoQtyShape = { ...ZERO_PO_QTY }
+  let total = 0
+  for (let i = 0; i < cellCount; i++) {
+    const idx = rand(0, pool.length - 1)
+    const cell = pool.splice(idx, 1)[0]!
+    const cellQty = rand(5, 30)
+    qty[cell.col] = cellQty
+    total += cellQty * unitPriceFor(cell.size, cell.type)
+  }
+  return { qty, price: total }
 }
 
 // ===== Customer archetypes =====
@@ -238,19 +288,14 @@ async function seedOrders(customerSeeds: SeededCustomer[]): Promise<SeededOrder[
       const deliveryDate = addDays(subDays(TODAY, offset), rand(-5, 5))
       const daysAgo = Math.floor((TODAY.getTime() - deliveryDate.getTime()) / (24 * 3600 * 1000))
       const status = statusForAge(daysAgo)
-      const size = pickRandom(CONTAINER_SIZES)
-      const type = pickRandom(CONTAINER_TYPES)
-      const qty = rand(5, 30)
-      const price = qty * unitPriceFor(size, type)
+      const { qty, price } = buildPoQtyAndPrice()
       const pickupOnly = maybe(0.15)
 
       const [row] = await db.insert(orders).values({
         po_number: `PO-${String(poCounter).padStart(4, '0')}`,
         customer_id: c.id,
         status,
-        container_size: size,
-        container_type: type,
-        quantity: qty,
+        ...qty,
         price: money(price),
         pickup_only: pickupOnly,
         delivery_address: pickupOnly ? null : pickRandom(ADDRESSES),

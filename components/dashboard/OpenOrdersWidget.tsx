@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
+import BackhaulTag from '@/components/shared/BackhaulTag'
+import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
 import type { OpenOrderRow } from '@/db/queries/dashboard'
 
 interface OpenOrdersWidgetProps {
@@ -13,15 +15,9 @@ function formatDeliveryDate(isoDate: string | null): string {
   return format(parseISO(isoDate), 'MMM d')
 }
 
-function BackhaulBadge() {
-  return (
-    <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-medium uppercase tracking-wide transition-colors duration-200 ease-in-out">
-      Backhaul
-    </span>
-  )
-}
-
 function OpenOrderRowLink({ row }: { row: OpenOrderRow }) {
+  const total275 = sumPoSize(row, '275')
+  const total330 = sumPoSize(row, '330')
   return (
     <li>
       <Link
@@ -33,10 +29,13 @@ function OpenOrderRowLink({ row }: { row: OpenOrderRow }) {
             <span className="text-sm font-medium text-foreground truncate">
               {row.po_number}
             </span>
-            {row.backhaul && <BackhaulBadge />}
+            {row.backhaul && <BackhaulTag />}
           </div>
-          <div className="text-xs text-muted-foreground truncate">
-            {row.customer_name ?? 'Unknown customer'}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+            <span className="truncate">{row.customer_name ?? 'Unknown customer'}</span>
+            <span className="shrink-0 tabular-nums">
+              275: {formatPoTotal(total275)} · 330: {formatPoTotal(total330)}
+            </span>
           </div>
         </div>
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -49,9 +48,11 @@ function OpenOrderRowLink({ row }: { row: OpenOrderRow }) {
 
 /**
  * Dashboard widget listing the top open (`status='scheduled'`) orders.
- * Backhaul orders are pinned to the top server-side; the BACKHAUL badge
- * surfaces the pin reason. Clicking a row deep-links to `/orders?id=[id]`;
- * the footer link routes to `/orders?status=scheduled`.
+ * Backhaul orders are pinned to the top server-side; the BackhaulTag
+ * surfaces the pin reason. Each row also shows the per-size totals
+ * (275 / 330) so the salesperson can scan volume without opening the
+ * order. Clicking a row deep-links to `/orders?id=[id]`; the footer
+ * link routes to `/orders?status=scheduled`.
  */
 export default function OpenOrdersWidget({ rows }: OpenOrdersWidgetProps) {
   return (

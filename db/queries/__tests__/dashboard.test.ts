@@ -173,6 +173,12 @@ describe('getOpenOrdersForDashboard', () => {
         id: 'o1',
         po_number: 'PO-0001',
         customer_name: 'Acme',
+        qty_275_recon: 0,
+        qty_275_rebot: 20,
+        qty_275_new: 0,
+        qty_330_recon: 0,
+        qty_330_rebot: 0,
+        qty_330_new: 12,
         requested_delivery_date: '2026-04-30',
         backhaul: true,
       },
@@ -190,6 +196,18 @@ describe('getOpenOrdersForDashboard', () => {
     const compiled = compiledCall(0)
     expect(compiled.sql).toMatch(/o\.status\s*=\s*'scheduled'/i)
     expect(compiled.sql).toMatch(/ORDER BY\s+o\.backhaul\s+DESC,\s*o\.requested_delivery_date\s+ASC/i)
+  })
+
+  it('selects all 6 qty columns from the wide-row schema (Feature 9)', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getOpenOrdersForDashboard()
+    const compiled = compiledCall(0)
+    for (const col of [
+      'qty_275_recon', 'qty_275_rebot', 'qty_275_new',
+      'qty_330_recon', 'qty_330_rebot', 'qty_330_new',
+    ]) {
+      expect(compiled.sql, `expected SELECT to include ${col}`).toMatch(new RegExp(`\\b${col}\\b`))
+    }
   })
 
   it('returns an empty array when no orders are open (not an error)', async () => {

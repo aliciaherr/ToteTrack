@@ -23,9 +23,12 @@ const sampleRow = {
   po_number: 'PO-3001',
   customer_id: '22222222-2222-2222-2222-222222222222',
   customer_name: 'Acme Industrial',
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
-  quantity: 10,
+  qty_275_recon: 0,
+  qty_275_rebot: 10,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: '250.00',
   requested_delivery_date: '2026-04-10',
 }
@@ -126,11 +129,15 @@ const sampleInvoiceDetail = {
 const samplePoRow = {
   id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   po_number: 'PO-3001',
-  quantity: 10,
-  container_size: '275' as const,
-  container_type: 'rebottled' as const,
+  qty_275_recon: 0,
+  qty_275_rebot: 10,
+  qty_275_new: 0,
+  qty_330_recon: 0,
+  qty_330_rebot: 0,
+  qty_330_new: 0,
   price: '250.00',
   customer_name: 'Acme Industrial',
+  backhaul: false,
 }
 
 describe('getInvoiceDetail', () => {

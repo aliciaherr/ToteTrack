@@ -6,8 +6,6 @@ import { ORDERS_PAGE_SIZE } from './orders.constants'
 export { ORDERS_PAGE_SIZE }
 
 export type PoStatus = 'scheduled' | 'completed' | 'cancelled' | 'invoiced'
-export type ContainerSize = '275' | '330'
-export type ContainerType = 'rebottled' | 'reconditioned' | 'brand_new'
 
 // Status filter for the orders list — 'all' means no status restriction.
 export type OrderListStatus = PoStatus | 'all'
@@ -23,9 +21,12 @@ export interface OrderTableRow {
   customer_id: string
   customer_name: string | null
   status: PoStatus
-  container_size: ContainerSize
-  container_type: ContainerType
-  quantity: number
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
   price: string
   requested_delivery_date: string | null
   backhaul: boolean
@@ -37,9 +38,12 @@ export interface OrderDetail {
   customer_id: string
   customer_name: string | null
   status: PoStatus
-  container_size: ContainerSize
-  container_type: ContainerType
-  quantity: number
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
   price: string
   pickup_only: boolean
   delivery_address: string | null
@@ -89,9 +93,12 @@ function buildOrdersQuery(status: OrderListStatus, limit: number, offset: number
       o.customer_id,
       c.company_name AS customer_name,
       o.status,
-      o.container_size,
-      o.container_type,
-      o.quantity,
+      o.qty_275_recon,
+      o.qty_275_rebot,
+      o.qty_275_new,
+      o.qty_330_recon,
+      o.qty_330_rebot,
+      o.qty_330_new,
       o.price::text AS price,
       o.requested_delivery_date,
       o.backhaul
@@ -167,9 +174,12 @@ function buildOrderDetailQuery(orderId: string): SQL {
       o.customer_id,
       c.company_name AS customer_name,
       o.status,
-      o.container_size,
-      o.container_type,
-      o.quantity,
+      o.qty_275_recon,
+      o.qty_275_rebot,
+      o.qty_275_new,
+      o.qty_330_recon,
+      o.qty_330_rebot,
+      o.qty_330_new,
       o.price::text AS price,
       o.pickup_only,
       o.delivery_address,

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 
 // OrderPagination imports ORDERS_PAGE_SIZE (a runtime value) from
@@ -41,9 +41,12 @@ function makeOrder(index: number, overrides: Partial<OrderTableRow> = {}): Order
     customer_id: '11111111-1111-1111-1111-111111111111',
     customer_name: 'Acme Industrial',
     status: 'scheduled',
-    container_size: '275',
-    container_type: 'rebottled',
-    quantity: 10,
+    qty_275_recon: 0,
+    qty_275_rebot: 10,
+    qty_275_new: 0,
+    qty_330_recon: 0,
+    qty_330_rebot: 0,
+    qty_330_new: 0,
     price: '250.00',
     requested_delivery_date: '2026-05-01',
     backhaul: false,
@@ -135,8 +138,8 @@ describe('OrderTable', () => {
     expect(screen.getByText('PO-1001')).toBeInTheDocument()
   })
 
-  it('marks the BACKHAUL badge inline when the order has backhaul=true', () => {
-    const orders = [makeOrder(0, { backhaul: true })]
+  it('renders the new column headers in order: PO, Customer, 275, 330, Status, Req Date, Price', () => {
+    const orders = [makeOrder(0)]
     render(
       <OrderTable
         orders={orders}
@@ -148,6 +151,92 @@ describe('OrderTable', () => {
         onNewOrder={vi.fn()}
       />,
     )
-    expect(screen.getByText(/backhaul/i)).toBeInTheDocument()
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
+    expect(headers).toEqual([
+      'PO #',
+      'Customer',
+      '275',
+      '330',
+      'Status',
+      'Req. Date',
+      'Price',
+      'Backhaul',
+    ])
+  })
+
+  it('sums 275 and 330 per row across the three type columns', () => {
+    const orders = [
+      makeOrder(0, {
+        po_number: 'PO-MIX',
+        qty_275_recon: 5,
+        qty_275_rebot: 20,
+        qty_275_new: 0,
+        qty_330_recon: 0,
+        qty_330_rebot: 8,
+        qty_330_new: 4,
+      }),
+    ]
+    render(
+      <OrderTable
+        orders={orders}
+        totalCount={1}
+        totalPages={1}
+        currentPage={1}
+        status="all"
+        selectedId={null}
+        onNewOrder={vi.fn()}
+      />,
+    )
+    const row = screen.getByRole('row', { name: /PO-MIX/i })
+    expect(within(row).getByText('25')).toBeInTheDocument()
+    expect(within(row).getByText('12')).toBeInTheDocument()
+  })
+
+  it('renders an em dash for a size whose three columns are all zero', () => {
+    const orders = [
+      makeOrder(0, {
+        po_number: 'PO-275-ONLY',
+        qty_275_rebot: 10,
+        qty_330_recon: 0,
+        qty_330_rebot: 0,
+        qty_330_new: 0,
+      }),
+    ]
+    render(
+      <OrderTable
+        orders={orders}
+        totalCount={1}
+        totalPages={1}
+        currentPage={1}
+        status="all"
+        selectedId={null}
+        onNewOrder={vi.fn()}
+      />,
+    )
+    const row = screen.getByRole('row', { name: /PO-275-ONLY/i })
+    expect(within(row).getByText('10')).toBeInTheDocument()
+    expect(within(row).getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders the BackhaulTag only on rows flagged backhaul=true', () => {
+    const orders = [
+      makeOrder(0, { po_number: 'PO-BACK', backhaul: true }),
+      makeOrder(1, { po_number: 'PO-NORM', backhaul: false }),
+    ]
+    render(
+      <OrderTable
+        orders={orders}
+        totalCount={2}
+        totalPages={1}
+        currentPage={1}
+        status="all"
+        selectedId={null}
+        onNewOrder={vi.fn()}
+      />,
+    )
+    const rowBack = screen.getByRole('row', { name: /PO-BACK/i })
+    const rowNorm = screen.getByRole('row', { name: /PO-NORM/i })
+    expect(within(rowBack).getByLabelText(/backhaul/i)).toBeInTheDocument()
+    expect(within(rowNorm).queryByLabelText(/backhaul/i)).not.toBeInTheDocument()
   })
 })

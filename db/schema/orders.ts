@@ -1,5 +1,5 @@
 import { pgTable, text, uuid, integer, boolean, numeric, date, timestamp, index } from 'drizzle-orm/pg-core'
-import { poStatusEnum, containerSizeEnum, containerTypeEnum } from './enums'
+import { poStatusEnum } from './enums'
 import { customers } from './customers'
 import { invoices } from './invoices'
 
@@ -8,9 +8,12 @@ export const orders = pgTable('orders', {
   po_number: text('po_number').notNull().unique(),
   customer_id: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
   status: poStatusEnum('status').notNull().default('scheduled'),
-  container_size: containerSizeEnum('container_size').notNull(),
-  container_type: containerTypeEnum('container_type').notNull(),
-  quantity: integer('quantity').notNull(),
+  qty_275_recon: integer('qty_275_recon').notNull().default(0),
+  qty_275_rebot: integer('qty_275_rebot').notNull().default(0),
+  qty_275_new: integer('qty_275_new').notNull().default(0),
+  qty_330_recon: integer('qty_330_recon').notNull().default(0),
+  qty_330_rebot: integer('qty_330_rebot').notNull().default(0),
+  qty_330_new: integer('qty_330_new').notNull().default(0),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   pickup_only: boolean('pickup_only').notNull().default(false),
   delivery_address: text('delivery_address'),

@@ -4,17 +4,17 @@ import { db } from '@/db'
 import { DatabaseError, InvoiceNotFoundError } from '@/lib/errors'
 import { DB_DATE_FORMAT } from '@/lib/dates'
 
-export type ContainerSize = '275' | '330'
-export type ContainerType = 'rebottled' | 'reconditioned' | 'brand_new'
-
 export interface InvoiceableOrder {
   id: string
   po_number: string
   customer_id: string
   customer_name: string | null
-  container_size: ContainerSize
-  container_type: ContainerType
-  quantity: number
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
   price: string
   requested_delivery_date: string | null
 }
@@ -29,11 +29,15 @@ export interface InvoiceLedgerRow {
 export interface InvoicePoRow {
   id: string
   po_number: string
-  quantity: number
-  container_size: ContainerSize
-  container_type: ContainerType
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
   price: string
   customer_name: string | null
+  backhaul: boolean
 }
 
 export interface InvoiceDetail {
@@ -52,9 +56,12 @@ function buildInvoiceableOrdersQuery(monthStart: string, monthEnd: string): SQL 
       o.po_number,
       o.customer_id,
       c.company_name AS customer_name,
-      o.container_size,
-      o.container_type,
-      o.quantity,
+      o.qty_275_recon,
+      o.qty_275_rebot,
+      o.qty_275_new,
+      o.qty_330_recon,
+      o.qty_330_rebot,
+      o.qty_330_new,
       o.price::text AS price,
       o.requested_delivery_date
     FROM orders o
@@ -163,10 +170,14 @@ function buildInvoicePoRowsQuery(invoiceId: string): SQL {
     SELECT
       o.id,
       o.po_number,
-      o.quantity,
-      o.container_size,
-      o.container_type,
+      o.qty_275_recon,
+      o.qty_275_rebot,
+      o.qty_275_new,
+      o.qty_330_recon,
+      o.qty_330_rebot,
+      o.qty_330_new,
       o.price::text AS price,
+      o.backhaul,
       c.company_name AS customer_name
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id

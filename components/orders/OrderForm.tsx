@@ -9,6 +9,7 @@ import {
   detailToFormValues,
   formValuesToCreateInput,
   formValuesToUpdateInput,
+  totalQuantity,
   type OrderFormValues,
 } from './orderFormSchema'
 import { createOrder, updateOrder } from '@/lib/actions/orders'
@@ -66,14 +67,16 @@ function FormBody({
   customers,
   lockedCustomerId,
   serverError,
+  qtyError,
 }: {
   mode: 'create' | 'edit'
   form: UseFormReturn<OrderFormValues>
   customers: CustomerSelectOption[]
   lockedCustomerId: string | null
   serverError: string | null
+  qtyError: string | null
 }) {
-  const { register, watch, formState: { errors } } = form
+  const { register, watch, setValue, formState: { errors } } = form
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-4">
       {serverError && (
@@ -87,7 +90,9 @@ function FormBody({
         lockedCustomerId={lockedCustomerId}
         register={register}
         watch={watch}
+        setValue={setValue}
         errors={errors}
+        qtyError={qtyError}
       />
     </div>
   )
@@ -111,6 +116,7 @@ export default function OrderForm({
   const shouldReduceMotion = useReducedMotion()
   const { toast } = useToast()
   const [serverError, setServerError] = useState<string | null>(null)
+  const [qtyError, setQtyError] = useState<string | null>(null)
   const isEdit = mode === 'edit' && Boolean(initialDetail)
   const orderId = initialDetail?.id ?? null
   const title = isEdit ? `Edit ${initialDetail?.po_number}` : 'New Order'
@@ -136,6 +142,16 @@ export default function OrderForm({
 
   async function onSubmit(values: OrderFormValues) {
     setServerError(null)
+    setQtyError(null)
+    // Client-side mirror of the server's `requireAtLeastOneQty` superRefine
+    // (lib/actions/orders.validation.ts). Tracked as separate state because
+    // the qty fields are bridged through setValue/watch (controlled by
+    // QtyGrid) — react-hook-form's setError doesn't reliably trigger a
+    // re-render of subscribers for these programmatically-managed fields.
+    if (totalQuantity(values) <= 0) {
+      setQtyError('At least one quantity is required.')
+      return
+    }
     const result = isEdit && orderId
       ? await updateOrder(orderId, formValuesToUpdateInput(values))
       : await createOrder(formValuesToCreateInput(values))
@@ -161,6 +177,7 @@ export default function OrderForm({
         customers={customers}
         lockedCustomerId={lockedCustomerId}
         serverError={serverError}
+        qtyError={qtyError}
       />
       <FormFooter
         isEdit={isEdit}

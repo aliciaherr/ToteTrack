@@ -4,13 +4,25 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import OrderStatusActions from './OrderStatusActions'
 import OrderStatusBadge from './OrderStatusBadge'
-import OrderTypeBadge from './OrderTypeBadge'
-import { formatCurrency } from '@/lib/format-currency'
+import {
+  PODocumentSlot,
+  QuantitiesBlock,
+  TotalPriceBlock,
+  DetailMetaGrid,
+  DeliveryAddressBlock,
+  NotesBlock,
+} from './OrderDetailParts'
 import type { OrderDetail as OrderDetailType } from '@/db/queries/orders'
 
 interface OrderDetailProps {
   detail: OrderDetailType | null
   onEdit?: () => void
+}
+
+const EDIT_LOCK_HINT = 'Revert this PO to Scheduled to edit quantities or price.'
+
+function isEditLocked(status: OrderDetailType['status']): boolean {
+  return status === 'invoiced' || status === 'cancelled'
 }
 
 /**
@@ -33,6 +45,7 @@ function DetailHeader({
   onEdit?: () => void
 }) {
   const customerLabel = detail.customer_name ?? 'Unknown customer'
+  const editLocked = isEditLocked(detail.status)
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="space-y-1.5 min-w-0">
@@ -56,7 +69,9 @@ function DetailHeader({
         <Button
           variant="outline"
           onClick={onEdit}
+          disabled={editLocked}
           aria-label={`Edit order ${detail.po_number}`}
+          title={editLocked ? EDIT_LOCK_HINT : undefined}
           className="min-h-[44px] shrink-0"
         >
           Edit
@@ -89,94 +104,11 @@ function StatusActionsSlot({ detail }: { detail: OrderDetailType }) {
   )
 }
 
-// Tasks 19 and 33 (PO upload + Claude vision extraction) were both cut from
-// v1 scope — see plan.md. This slot surfaces whether a document was loaded
-// directly into Supabase (manual admin path); there is no in-app upload flow.
-// The `document_url` column + `po-documents` bucket stay in the DB for a
-// possible future feature.
-function PODocumentSlot({ detail }: { detail: OrderDetailType }) {
-  const hasDocument = Boolean(detail.document_url)
-  return (
-    <section
-      aria-label="PO document"
-      className="rounded-lg border border-border bg-card p-4 space-y-2"
-    >
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        PO Document
-      </div>
-      <p className="text-sm text-foreground">
-        {hasDocument
-          ? 'Document on file (uploaded outside the app).'
-          : 'No document on file. In-app upload is not available in v1.'}
-      </p>
-    </section>
-  )
-}
-
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-2 border-b border-border last:border-b-0">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground shrink-0">
-        {label}
-      </span>
-      <span className="text-sm text-foreground text-right">{children}</span>
-    </div>
-  )
-}
-
-function DetailMetaGrid({ detail }: { detail: OrderDetailType }) {
-  return (
-    <section
-      aria-label="Order details"
-      className="rounded-lg border border-border bg-card p-4"
-    >
-      <FieldRow label="Container Size">{detail.container_size} gal</FieldRow>
-      <FieldRow label="Container Type">
-        <OrderTypeBadge type={detail.container_type} />
-      </FieldRow>
-      <FieldRow label="Quantity">{detail.quantity}</FieldRow>
-      <FieldRow label="Price">{formatCurrency(detail.price)}</FieldRow>
-      <FieldRow label="Requested Delivery">{detail.requested_delivery_date ?? '—'}</FieldRow>
-      <FieldRow label="Backhaul">{detail.backhaul ? 'Yes' : 'No'}</FieldRow>
-      <FieldRow label="Pickup Only">{detail.pickup_only ? 'Yes' : 'No'}</FieldRow>
-    </section>
-  )
-}
-
-function DeliveryAddressBlock({ address }: { address: string | null }) {
-  return (
-    <section
-      aria-label="Delivery address"
-      className="rounded-lg border border-border bg-card p-4 space-y-2"
-    >
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        Delivery Address
-      </div>
-      <p className="text-sm text-foreground whitespace-pre-wrap">
-        {address?.trim() ? address : 'No address on file.'}
-      </p>
-    </section>
-  )
-}
-
-function NotesBlock({ notes }: { notes: string | null }) {
-  return (
-    <section
-      aria-label="Notes"
-      className="rounded-lg border border-border bg-card p-4 space-y-2"
-    >
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">Notes</div>
-      <p className="text-sm text-foreground whitespace-pre-wrap">
-        {notes?.trim() ? notes : 'No notes.'}
-      </p>
-    </section>
-  )
-}
-
 /**
  * Right-panel order detail view. Renders the PO header, status actions,
- * PO document slot, metadata, delivery address (hidden when pickup_only),
- * and notes. Returns the empty state when `detail` is null.
+ * PO document slot, the 2×3 quantity grid, prominent total price, the
+ * remaining metadata, delivery address (hidden when pickup_only), and
+ * notes. Returns the empty state when `detail` is null.
  */
 export default function OrderDetail({ detail, onEdit }: OrderDetailProps) {
   if (!detail) return <OrderDetailEmptyState />
@@ -186,6 +118,8 @@ export default function OrderDetail({ detail, onEdit }: OrderDetailProps) {
       <DetailHeader detail={detail} onEdit={onEdit} />
       <StatusActionsSlot detail={detail} />
       <PODocumentSlot detail={detail} />
+      <QuantitiesBlock detail={detail} />
+      <TotalPriceBlock price={detail.price} />
       <DetailMetaGrid detail={detail} />
       {!detail.pickup_only && (
         <DeliveryAddressBlock address={detail.delivery_address} />

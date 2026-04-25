@@ -11,7 +11,7 @@ import {
 } from './customers.sql'
 import {
   assembleVolumeOverview,
-  type VolumeAggregateRow,
+  type VolumeAveragesRow,
   type VolumeOverview,
 } from './customers.volume'
 
@@ -40,8 +40,6 @@ const WINDOW_DAYS: Record<Exclude<CustomerOrdersWindow, 'YTD'>, number> = {
 }
 
 export type PoStatus = 'scheduled' | 'completed' | 'cancelled' | 'invoiced'
-export type ContainerSize = '275' | '330'
-export type ContainerType = 'rebottled' | 'reconditioned' | 'brand_new'
 
 export interface GetCustomersFilters {
   status?: CustomerListStatus
@@ -88,11 +86,15 @@ export interface CustomerOrderRow {
   id: string
   po_number: string
   status: PoStatus
-  container_size: ContainerSize
-  container_type: ContainerType
-  quantity: number
+  qty_275_recon: number
+  qty_275_rebot: number
+  qty_275_new: number
+  qty_330_recon: number
+  qty_330_rebot: number
+  qty_330_new: number
   price: string
   requested_delivery_date: string | null
+  backhaul: boolean
 }
 
 
@@ -244,13 +246,13 @@ export function computeWindowStartDate(
 }
 
 /**
- * Loads the per-PO volume profile for a single customer: AVG(quantity) per
- * (container_size, container_type) combination across all completed orders.
- * Missing combinations resolve to 0 — a customer that has never ordered
- * 330-gallon rebottled totes returns `gal330.rebottled = 0` without error.
- * `totalAvg` is the sum of the three type averages within the same size and
- * is exposed so the UI can render each type as a share of the whole without
- * recomputing.
+ * Loads the per-PO volume profile for a single customer: AVG(qty_<size>_<type>)
+ * FILTERED to POs that included that combo (qty > 0) AND status IN
+ * ('completed', 'invoiced'). Missing combinations resolve to 0 — a customer
+ * that has never ordered 330-gallon rebottled totes returns
+ * `gal330.rebottled = 0` without error. `totalAvg` is the sum of the three
+ * type averages within the same size and is exposed so the UI can render
+ * each type as a share of the whole without recomputing.
  *
  * @throws {DatabaseError} when the underlying SQL query fails.
  */
@@ -259,7 +261,8 @@ export async function getCustomerVolumeOverview(
 ): Promise<VolumeOverview> {
   try {
     const result = await db.execute(customerVolumeAveragesQuery(customerId))
-    return assembleVolumeOverview(result as unknown as VolumeAggregateRow[])
+    const row = (result as unknown as VolumeAveragesRow[])[0]
+    return assembleVolumeOverview(row)
   } catch (cause) {
     console.error('getCustomerVolumeOverview: query failed', {
       operation: 'getCustomerVolumeOverview',

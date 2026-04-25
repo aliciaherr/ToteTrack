@@ -156,9 +156,9 @@ Two-panel: order table (left ~40%) + order detail (right ~60%)
 
 ### Order Table (left)
 - Filter tabs: All | Scheduled | Completed | Cancelled (per CONSTRAINT-15 — `pending` removed; `Completed` tab matches status IN ('completed', 'invoiced'); no standalone `Invoiced` tab)
-- Columns: PO#, Customer (avatar initial + name), Qty/Size, Type badge, Status badge, Req. Date ("—" when null per CONSTRAINT-16), Price
-- BACKHAUL badge (teal) on rows where `backhaul = true`
-- Type badge colors: Rebottled = blue-tinted, Reconditioned = teal-tinted, Brand New = dark/inverted
+- ~~Columns: PO#, Customer (avatar initial + name), Qty/Size, Type badge, Status badge, Req. Date ("—" when null per CONSTRAINT-16), Price~~ — **SUPERSEDED by D15 / Feature 9 (2026-04-24):** Columns are PO#, Customer (avatar initial + name), 275 (total qty), 330 (total qty), Status badge, Req. Date ("—" when null per CONSTRAINT-16), Price, B-tag (backhaul). Empty size totals render as `—`.
+- ~~BACKHAUL badge (teal) on rows where `backhaul = true`~~ — **SUPERSEDED by D15 / Feature 9 (2026-04-24):** Compact `B` tag rendered after Price column when `backhaul = true`.
+- ~~Type badge colors: Rebottled = blue-tinted, Reconditioned = teal-tinted, Brand New = dark/inverted~~ — **SUPERSEDED by D15 / Feature 9 (2026-04-24):** Type badges removed from list view; type information now visible only in PO detail's 2×3 mix grid.
 - Default sort: scheduled first (req date ASC NULLS LAST), then completed/invoiced/cancelled (req date DESC NULLS LAST)
 - Pagination: 20 rows/page; "Showing X–Y of Z orders"
 - "+ New Order" button top right → OrderForm
@@ -166,12 +166,12 @@ Two-panel: order table (left ~40%) + order detail (right ~60%)
 
 ### Order Detail Panel (right)
 - No order selected → "Select an order to view details."
-- All fields: PO#, customer (linked), status badge, container size, container type, quantity, price, pickup-only (Y/N), delivery address (hidden if pickup-only = true), requested delivery date, backhaul (Y/N), notes
+- ~~All fields: PO#, customer (linked), status badge, container size, container type, quantity, price, pickup-only (Y/N), delivery address (hidden if pickup-only = true), requested delivery date, backhaul (Y/N), notes~~ — **SUPERSEDED by D15 / Feature 9 (2026-04-24):** All fields: PO#, customer (linked), status badge, **2×3 quantity mix grid** (replaces single container_size + container_type + quantity — reuses Customer Volume Overview component, displays actual qty per cell or `—` for empty), price (total, user-entered), pickup-only (Y/N), delivery address (hidden if pickup-only = true), requested delivery date, backhaul (Y/N), notes.
 - Status section → OrderStatusActions component (see state machine; manual transitions: `scheduled → completed`, `scheduled → cancelled`; terminal states may be reverted to `scheduled` via "Revert to Scheduled" per FB-08)
 - Document section → permanent labeled placeholder (Task 19 + Task 33 cut 2026-04-22; `orders.document_url` column and `po-documents` Supabase Storage bucket retained for potential future revival)
 
 ### New/Edit Order Form
-Fields: PO number (manual, unique), customer (searchable dropdown), container size (275 | 330), container type, quantity, price, pickup-only checkbox, delivery address (conditional; auto-fills from customer's `default_delivery_address`), requested delivery date (optional per CONSTRAINT-16 — stored NULL if omitted; form label shows "(optional)"), backhaul checkbox, notes.
+~~Fields: PO number (manual, unique), customer (searchable dropdown), container size (275 | 330), container type, quantity, price, pickup-only checkbox, delivery address (conditional; auto-fills from customer's `default_delivery_address`), requested delivery date (optional per CONSTRAINT-16 — stored NULL if omitted; form label shows "(optional)"), backhaul checkbox, notes.~~ — **SUPERSEDED by D15 / Feature 9 (2026-04-24):** Fields: PO number (manual, unique), customer (searchable dropdown), **2×3 quantity grid** (rows: 275 gal / 330 gal; columns: Reconditioned / Rebottled / Brand New — replaces single container_size + container_type + quantity), price (total, user-entered), pickup-only checkbox, delivery address (conditional; auto-fills from customer's `default_delivery_address`), requested delivery date (optional per CONSTRAINT-16 — stored NULL if omitted; form label shows "(optional)"), backhaul checkbox, notes.
 
 Status at creation is fixed as `scheduled` (not user-selectable) per CONSTRAINT-15. No PO document field (upload cut from v1 scope — see below).
 
@@ -184,7 +184,7 @@ Status at creation is fixed as `scheduled` (not user-selectable) per CONSTRAINT-
 ### Error States
 - Duplicate PO number → "PO number already exists."
 - Delivery address empty when pickup-only = false → "Delivery address is required unless pickup-only."
-- Quantity < 1 → "Quantity must be at least 1."
+- ~~Quantity < 1 → "Quantity must be at least 1."~~ — **SUPERSEDED by D15 / Feature 9 (2026-04-24):** All 6 quantity cells = 0 → "At least one quantity is required."
 - Price ≤ 0 → "Price must be greater than $0."
 
 ### Exclusions
@@ -411,6 +411,85 @@ The salesperson adopts the FAB as the primary path to create new customers / POs
 
 ---
 
+## Feature 9: PO Multi-Combo Restructure
+
+### Problem Statement
+Real-world purchase orders contain any combination of the 6 size×type tote options (275 or 330 gal × Reconditioned, Rebottled, or Brand New). Most POs include 2–3 combos. The current single-combo model forces the salesperson to either fragment one real PO into multiple app POs (corrupting customer-level frequency, last-sale, and volume analytics) or to lose data fidelity by entering only one combo. Daily friction that compounds — every multi-combo PO entered today degrades downstream analytics tomorrow.
+
+### User Story
+As the salesperson, I want to enter a PO with any mix of the 6 size×type combos in a single record, so my data matches reality and downstream analytics (contact frequency, volume averages, invoice totals) are accurate.
+
+### User Flow
+
+**Creating a new PO:**
+1. Open New PO form (entry points unchanged: + New Order button, Quick-Add FAB → Add Purchase Order)
+2. Enter PO number, customer, delivery date (optional), pickup/backhaul flags, address, notes — same as today
+3. Fill quantities for any subset of the 6 combos in a 2×3 grid (rows: 275 gal / 330 gal; columns: Reconditioned / Rebottled / Brand New). Empty cells = 0.
+4. Enter total PO price (user-entered single value, unchanged)
+5. Save — at least one cell must be > 0
+
+**Orders table row:**
+PO# | Customer | 275 | 330 | Status | Req Date | Price | B (compact backhaul tag, only when true)
+- Empty size totals render as `—`
+- Type column and Qty/Size column removed
+
+**PO detail view:**
+- Header: PO#, Customer, Status badge
+- 2×3 mix grid (same component as Customer Volume Overview) — cells show actual quantities, `—` for empty
+- Total price displayed prominently
+- All other fields unchanged (delivery date, pickup-only, address, backhaul, notes)
+- Action buttons unchanged (Mark as Complete, Cancel Order, Revert to Scheduled, Edit) — subject to edit lock
+
+**Editing a PO:**
+- Same 2×3 grid as the new PO form
+- Edit lock by status: `scheduled` and `completed` permit quantity + price edits; `invoiced` and `cancelled` block both. Invoiced corrections require revert-to-scheduled first (existing FB-08 flow).
+
+### Business Logic
+- **Schema change:** drop `container_size`, `container_type`, `quantity` from `orders`. Add 6 columns: `qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new` (integer, NOT NULL, default 0). Keep existing `price` column unchanged (user-entered total).
+- **Validation:** sum of all 6 qty cells must be > 0; each cell ≥ 0. Enforced both client-side (Zod + inline error) and server-side (Zod in `createOrder` / `updateOrder`).
+- **Backfill migration:** for each existing order row, set the matching `qty_size_type` column to the prior `quantity`; the other 5 columns = 0. Legacy 3 columns dropped after backfill.
+- **Completion semantics:** Mark Complete remains atomic at PO level. All combos in a PO ship together. No per-combo state.
+- **Display consistency:** `275 | 330` totals pattern + compact `B` backhaul tag used in all 4 PO list surfaces — orders table, dashboard Open Orders widget, customer Order History rows, invoice detail PO rows.
+- **Customer Volume Overview formula:** unchanged — "average qty per PO that included this combo." Multiple combos per PO now contribute to multiple averages, which is correct under the new model.
+
+### Acceptance Criteria
+- [ ] Migration adds 6 qty columns, drops the 3 legacy columns, backfills existing rows lossless
+- [ ] New PO form renders 2×3 quantity grid + total price field + existing fields
+- [ ] Saving a PO with all 6 cells = 0 fails client-side AND server-side with a clear error
+- [ ] Saving a PO with at least one cell > 0 succeeds
+- [ ] PO detail shows 2×3 mix grid with actual quantities, `—` for empty cells
+- [ ] Orders table shows `275 | 330` totals + `B` tag, no Type / Qty/Size columns
+- [ ] Empty size totals in any list surface render as `—`
+- [ ] Editing a `scheduled` or `completed` PO permits quantity + price changes
+- [ ] Editing an `invoiced` or `cancelled` PO blocks quantity + price changes
+- [ ] Customer Volume Overview displays correct averages under the new schema
+- [ ] Dashboard Open Orders widget, Customer Order History, and Invoice detail PO rows all use the `275 | 330` totals pattern
+- [ ] Existing single-combo POs post-migration display correctly (one cell populated, rest `—`)
+
+### Edge Cases
+- **PO with one combo only** — valid. Displays `275: 25 | 330: —` (or vice versa).
+- **PO with one whole size = 0** — that size column renders `—`.
+- **Existing single-combo PO post-migration** — visually indistinguishable from a new PO with one cell filled.
+- **Edit attempt on invoiced PO** — blocked at action layer with a message pointing to revert-to-scheduled.
+- **Reverting an invoiced PO via FB-08** — PO returns to scheduled with quantities intact and editable.
+
+### Out of Scope
+- OCR / PDF upload (deferred — separate decision)
+- PO carry-over / "Duplicate this PO" (rejected — adds delete-friction in the form)
+- Per-combo unit pricing (rejected)
+- Settings / global pricing table (rejected)
+- Per-PO unit price overrides (rejected — no unit prices anywhere)
+- Per-combo state machine / partial fulfillment (rejected — atomic PO completion only)
+- Retroactive merging of historical single-combo POs into multi-combo POs (manual user action only if desired)
+- Sortable columns on the orders table (none today, none added)
+
+### Success Metric
+- Salesperson stops creating duplicate POs to represent a single real-world PO
+- Customer Volume Overview averages reflect actual purchase mix
+- New PO entry time stays within 30 seconds for typical 2-combo POs
+
+---
+
 ## Cross-cutting: Need-to-Contact Logic
 
 ### Calculation
@@ -509,3 +588,4 @@ No page title row is added to chrome. Authenticated screens orient the user via:
 | D12 | PO model v2 (Bundle D, 2026-04-22) → CONSTRAINT-15 | Drop `pending` status; 4 states (`scheduled`, `completed`, `cancelled`, `invoiced`); `invoiced` is a sub-state of `completed` for stats; `Completed` filter tab matches `status IN ('completed', 'invoiced')`; manual transitions only `scheduled → completed` and `scheduled → cancelled`; terminal → `scheduled` via Revert (FB-08). Migration `0004` |
 | D13 | Optional `requested_delivery_date` (Bundle E, 2026-04-22) → CONSTRAINT-16 | Date column is nullable; new-order form marks it (optional); Mark-as-Complete on an undated order auto-sets `CURRENT_DATE` via `COALESCE`; all sorts use `NULLS LAST`; period-window filters naturally exclude NULL-dated rows |
 | D14 | Invoice model v3 (Bundle H, 2026-04-22) → CONSTRAINT-17 | One invoice per calendar month covers all customers; no `customer_id` column on invoices; no status column (no draft/paid); "Mark as Paid" removed; existing-month invoice creation triggers `OverwriteInvoiceDialog`; retired invoice numbers never reused; ledger is flat chronological. Migration `0007` |
+| D15 | PO multi-combo restructure (2026-04-24) → Feature 9 | Single-combo PO model replaced with 6-quantity wide-row schema. Drop `container_size`, `container_type`, `quantity` columns; add 6 typed quantity columns (`qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new`). Total `price` stays as user-entered single value (no per-unit pricing, no settings, no per-PO overrides). Mark Complete remains atomic at PO level. New 2×3 grid display in PO detail (reuses Customer Volume Overview component); orders table shows `275` / `330` totals + compact `B` backhaul tag. Edit lock: `scheduled`/`completed` editable; `invoiced`/`cancelled` locked. Affects Feature 4 (Order Table, Detail Panel, Form, Error States) |
