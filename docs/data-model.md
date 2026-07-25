@@ -1,7 +1,7 @@
 # Data Model: ToteTrack
 
-**Date:** 2026-04-20
-**Status:** Approved — Phase 2 complete
+**Date:** 2026-04-25 (reconciled against live Supabase DB through migration `0008_po_multi_combo`)
+**Status:** Approved — reflects production schema
 
 ---
 
@@ -11,12 +11,11 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 
 | Enum | Values |
 |------|--------|
-| `po_status` | `scheduled` \| `pending` \| `completed` \| `cancelled` \| `invoiced` |
+| `po_status` | `scheduled` \| `completed` \| `cancelled` \| `invoiced` |
 | `container_size` | `275` \| `330` |
 | `container_type` | `rebottled` \| `reconditioned` \| `brand_new` |
 | `customer_status` | `active` \| `inactive` |
 | `lead_status` | `hot` \| `warm` \| `cold` \| `converted` |
-| `invoice_status` | `draft` \| `paid` |
 | `support_category` | `bug` \| `feature_request` \| `question` \| `other` |
 | `support_priority` | `low` \| `standard` \| `high` \| `critical` |
 | `ticket_status` | `open` \| `in_progress` \| `resolved` \| `closed` |
@@ -36,6 +35,7 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `status` | customer_status | NOT NULL, default 'active' | |
 | `contact_frequency_days` | integer | nullable | null = auto-calculated from order history |
 | `notes` | text | nullable | |
+| `default_delivery_address` | text | nullable | Pre-fills order delivery address (migration 0005) |
 | `created_at` | timestamptz | NOT NULL, defaultNow() | |
 | `updated_at` | timestamptz | NOT NULL, defaultNow() | |
 
@@ -70,19 +70,24 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `po_number` | text | NOT NULL, UNIQUE | Manual entry by salesperson |
 | `customer_id` | uuid | FK → customers.id, onDelete: restrict | Cannot delete customer with orders |
 | `status` | po_status | NOT NULL, default 'scheduled' | See PO state machine in prd.md |
-| `container_size` | container_size | NOT NULL | |
-| `container_type` | container_type | NOT NULL | |
-| `quantity` | integer | NOT NULL, > 0 | |
-| `price` | numeric(10,2) | NOT NULL, > 0 | |
+| `price` | numeric(10,2) | NOT NULL | Total PO price across all combos |
 | `pickup_only` | boolean | NOT NULL, default false | |
 | `delivery_address` | text | nullable | Required when pickup_only = false (app-level) |
-| `requested_delivery_date` | date | NOT NULL | |
+| `requested_delivery_date` | date | nullable | Made optional in migration 0006 |
 | `backhaul` | boolean | NOT NULL, default false | Pins to top of Pending Orders widget |
 | `document_url` | text | nullable | Supabase Storage path (not a URL) |
 | `notes` | text | nullable | |
 | `invoice_id` | uuid | FK → invoices.id, onDelete: set null | null = not yet invoiced |
 | `created_at` | timestamptz | NOT NULL, defaultNow() | |
 | `updated_at` | timestamptz | NOT NULL, defaultNow() | |
+| `qty_275_recon` | integer | NOT NULL, default 0 | 275L reconditioned |
+| `qty_275_rebot` | integer | NOT NULL, default 0 | 275L rebottled |
+| `qty_275_new` | integer | NOT NULL, default 0 | 275L brand new |
+| `qty_330_recon` | integer | NOT NULL, default 0 | 330L reconditioned |
+| `qty_330_rebot` | integer | NOT NULL, default 0 | 330L rebottled |
+| `qty_330_new` | integer | NOT NULL, default 0 | 330L brand new |
+
+**Multi-combo schema (Feature 9, migration 0008):** A single PO now holds quantities for all six size×type combinations in one wide row, replacing the old single `container_size` / `container_type` / `quantity` columns. Each `qty_*` column is a count for that combo; sum > 0 enforced app-level. The `container_size` and `container_type` enums still exist in the DB and encode the column-name suffixes.
 
 **Indexes:** `customer_id`, `status`, `invoice_id`, `requested_delivery_date`
 
@@ -130,13 +135,13 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `id` | uuid | PK, defaultRandom() | |
 | `invoice_number` | text | NOT NULL, UNIQUE | Format: INV-0001, INV-0002... auto-generated |
 | `billing_month` | date | NOT NULL | Stored as first day of month (e.g., 2026-04-01) |
-| `customer_id` | uuid | FK → customers.id, onDelete: set null | null = "All Customers" invoice |
 | `total_amount` | numeric(10,2) | NOT NULL | Sum of included orders' prices |
-| `status` | invoice_status | NOT NULL, default 'draft' | |
 | `created_at` | timestamptz | NOT NULL, defaultNow() | |
 | `updated_at` | timestamptz | NOT NULL, defaultNow() | |
 
-**Indexes:** `billing_month`, `status`, `customer_id`
+**Indexes:** `billing_month`
+
+**Invoice v3 (migration 0007):** Dropped `customer_id` and `status`. Invoices are no longer per-customer or status-tracked — an invoice is a billing-month rollup of orders (linked via `orders.invoice_id`).
 
 **`billing_month` note:** Always stored as the first day of the month. Query example: `WHERE billing_month >= '2026-04-01' AND billing_month < '2026-05-01'`.
 
