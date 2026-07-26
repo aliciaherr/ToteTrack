@@ -77,10 +77,24 @@ function WindowTabs({
 }
 
 function OrderRowItem({ order }: { order: CustomerOrderRow }) {
+  const router = useRouter()
   const total275 = sumPoSize(order, '275')
   const total330 = sumPoSize(order, '330')
+  const goToOrder = () => router.push(`/orders?id=${order.id}`)
   return (
-    <tr className="border-b border-border last:border-0">
+    <tr
+      role="link"
+      tabIndex={0}
+      aria-label={`View order ${order.po_number}`}
+      onClick={goToOrder}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          goToOrder()
+        }
+      }}
+      className="border-b border-border last:border-0 cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
       <td className="py-3 px-3 text-sm font-medium text-foreground">{order.po_number}</td>
       <td className="py-3 px-3 text-sm text-secondary">{order.requested_delivery_date ?? '—'}</td>
       <td className="py-3 px-3 text-sm text-foreground tabular-nums text-right">
