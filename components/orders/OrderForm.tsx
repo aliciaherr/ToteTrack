@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import OrderFormFields from './OrderFormFields'
 import {
   detailToFormValues,
+  firstUnitPriceCouplingError,
   formValuesToCreateInput,
   formValuesToUpdateInput,
   totalQuantity,
@@ -150,6 +151,15 @@ export default function OrderForm({
     // re-render of subscribers for these programmatically-managed fields.
     if (totalQuantity(values) <= 0) {
       setQtyError('At least one quantity is required.')
+      return
+    }
+    // Client-side mirror of the server's `requireUnitPriceCoupling` (PRD
+    // Feature 10 AC: must also fail client-side). Surfaced through the same
+    // `qtyError` channel because the unit-price inputs live inside the grid and
+    // are bridged via setValue/watch, so RHF's setError is unreliable here.
+    const couplingError = firstUnitPriceCouplingError(values)
+    if (couplingError) {
+      setQtyError(couplingError)
       return
     }
     const result = isEdit && orderId

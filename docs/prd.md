@@ -476,9 +476,9 @@ PO# | Customer | 275 | 330 | Status | Req Date | Price | B (compact backhaul tag
 ### Out of Scope
 - OCR / PDF upload (deferred — separate decision)
 - PO carry-over / "Duplicate this PO" (rejected — adds delete-friction in the form)
-- Per-combo unit pricing (rejected)
+- Per-combo unit pricing (rejected in v1 — **superseded by Feature 10**)
 - Settings / global pricing table (rejected)
-- Per-PO unit price overrides (rejected — no unit prices anywhere)
+- Per-PO unit price overrides (total override still rejected; per-combo unit prices added in **Feature 10**)
 - Per-combo state machine / partial fulfillment (rejected — atomic PO completion only)
 - Retroactive merging of historical single-combo POs into multi-combo POs (manual user action only if desired)
 - Sortable columns on the orders table (none today, none added)
@@ -487,6 +487,50 @@ PO# | Customer | 275 | 330 | Status | Req Date | Price | B (compact backhaul tag
 - Salesperson stops creating duplicate POs to represent a single real-world PO
 - Customer Volume Overview averages reflect actual purchase mix
 - New PO entry time stays within 30 seconds for typical 2-combo POs
+
+---
+
+## Feature 10: PO Per-Combo Unit Pricing
+
+> Supersedes Feature 9's "user-entered total" pricing. `price` is now derived, not typed.
+
+### Problem Statement
+F9 tracks quantities per combo but prices the whole PO as one hand-keyed total, so per-tote economics are invisible and totals are error-prone.
+
+### User Story
+As the salesperson, I want a unit price per combo so the PO total auto-calculates and I can see what each tote type costs.
+
+### User Flow
+- **New/Edit PO:** each of the 6 grid cells takes a quantity **and** a unit price ($). Total Price is read-only, live-calculated as Σ(qty × unit price).
+- **PO detail:** each filled cell shows `qty / $unit` (e.g. `60 / $105`); empty cells show `—`. Total price displayed as today.
+
+### Business Logic
+- **Schema:** add 6 nullable `numeric(10,2)` columns `unit_price_{275,330}_{recon,rebot,new}`. `price` retained as the **derived** total (no longer user-entered).
+- **Derivation:** `price = Σ(qty × unit price)`; total is not manually editable.
+- **Unit price rules:** required and > 0 when its qty > 0; NULL when qty = 0.
+- **Edit lock:** unit-price edits follow F9's status lock (`scheduled`/`completed` editable; `invoiced`/`cancelled` blocked).
+- **Backfill (done 2026-07-25):** legacy `price` was a unit price → set on the single non-zero combo, `price` recomputed to qty × unit. Multi-combo/zero-qty orders skipped for manual entry (1: `MAn00003239`).
+
+### Acceptance Criteria
+- [ ] Schema adds 6 nullable unit-price columns
+- [ ] Form shows a unit-price input per combo cell; Total Price is read-only and live-calculates Σ(qty × unit price)
+- [ ] Saving with qty > 0 and unit price blank or ≤ 0 fails client- and server-side with a clear error
+- [ ] Unit price persists only where qty > 0; qty = 0 stores NULL
+- [ ] Server computes/stores `price`; client-sent totals ignored
+- [ ] PO detail shows `qty / $unit` for filled cells, `—` for empty
+- [ ] Editing an `invoiced`/`cancelled` PO blocks unit-price changes
+
+### Edge Cases
+- **qty > 0, unit price blank** → validation error (both layers).
+- **qty = 0 with unit price entered** → cleared to NULL on save.
+- **Multi-combo legacy order (`MAn00003239`)** → unit prices NULL; filled manually.
+
+### Out of Scope
+- Manual total override (rejected — total is strictly derived)
+- Auto-assigning unit prices to multi-combo legacy orders (manual only)
+
+### Success Metric
+Salesperson never hand-keys totals; PO total always equals Σ(qty × unit price).
 
 ---
 

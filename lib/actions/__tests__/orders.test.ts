@@ -63,6 +63,9 @@ function stubUpdateResolves() {
   })
 }
 
+// Feature 10: `price` is no longer a client input — it is derived server-side
+// as Σ(qty × unit price). Each active qty cell carries a per-combo unit price;
+// idle cells carry null. VALID_CREATE: 10 × $25 = $250.00.
 const VALID_CREATE = {
   po_number: 'PO-9001',
   customer_id: CUSTOMER_ID,
@@ -72,7 +75,12 @@ const VALID_CREATE = {
   qty_330_recon: 0,
   qty_330_rebot: 0,
   qty_330_new: 0,
-  price: 250,
+  unit_price_275_recon: null,
+  unit_price_275_rebot: 25,
+  unit_price_275_new: null,
+  unit_price_330_recon: null,
+  unit_price_330_rebot: null,
+  unit_price_330_new: null,
   pickup_only: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
@@ -80,6 +88,7 @@ const VALID_CREATE = {
   notes: null,
 }
 
+// VALID_UPDATE: 12 × $25 = $300.00.
 const VALID_UPDATE = {
   po_number: 'PO-9001',
   customer_id: CUSTOMER_ID,
@@ -89,7 +98,12 @@ const VALID_UPDATE = {
   qty_330_recon: 0,
   qty_330_rebot: 0,
   qty_330_new: 0,
-  price: 300,
+  unit_price_275_recon: null,
+  unit_price_275_rebot: 25,
+  unit_price_275_new: null,
+  unit_price_330_recon: null,
+  unit_price_330_rebot: null,
+  unit_price_330_new: null,
   pickup_only: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
@@ -110,6 +124,12 @@ interface CurrentRowSnapshot {
   qty_330_rebot: number
   qty_330_new: number
   price: string
+  unit_price_275_recon: string | null
+  unit_price_275_rebot: string | null
+  unit_price_275_new: string | null
+  unit_price_330_recon: string | null
+  unit_price_330_rebot: string | null
+  unit_price_330_new: string | null
 }
 
 function buildCurrentSnapshot(
@@ -124,6 +144,12 @@ function buildCurrentSnapshot(
     qty_330_rebot: 0,
     qty_330_new: 0,
     price: '0.00',
+    unit_price_275_recon: null,
+    unit_price_275_rebot: null,
+    unit_price_275_new: null,
+    unit_price_330_recon: null,
+    unit_price_330_rebot: null,
+    unit_price_330_new: null,
     ...partial,
   }
 }
@@ -234,17 +260,40 @@ describe('createOrder', () => {
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('accepts a multi-combo PO (more than one cell > 0)', async () => {
+  it('accepts a multi-combo PO and stores the server-derived total (Σ qty×unit)', async () => {
     stubInsertReturning(ORDER_ID)
     const result = await createOrder({
       ...VALID_CREATE,
       qty_275_rebot: 10,
+      unit_price_275_rebot: 25, // 10 × 25 = 250
       qty_330_new: 5,
+      unit_price_330_new: 40, // 5 × 40 = 200
     })
     expect(result).toEqual({ id: ORDER_ID })
     expect(lastInsertValues).toMatchObject({
       qty_275_rebot: 10,
       qty_330_new: 5,
+      unit_price_275_rebot: '25.00',
+      unit_price_330_new: '40.00',
+      // Derived total = 250 + 200 = 450.00 (client sends no total).
+      price: '450.00',
+    })
+  })
+
+  it('normalizes a qty-0 cell that carries a unit price to null on write', async () => {
+    stubInsertReturning(ORDER_ID)
+    const result = await createOrder({
+      ...VALID_CREATE,
+      // qty_330_new stays 0 but a stale/mis-sent unit price rides along — the
+      // server clears it to null rather than rejecting (PRD Feature 10 edge).
+      qty_330_new: 0,
+      unit_price_330_new: 30,
+    })
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(lastInsertValues).toMatchObject({
+      unit_price_330_new: null,
+      // Only the active 10 × $25 combo contributes to the total.
+      price: '250.00',
     })
   })
 
@@ -256,18 +305,85 @@ describe('createOrder', () => {
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('rejects when price is zero or negative', async () => {
-    const result = await createOrder({ ...VALID_CREATE, price: 0 })
-    expect(result).toEqual({ error: 'Price must be greater than $0.' })
+  it('rejects a qty>0 cell whose unit price is missing (coupling rule)', async () => {
+    const result = await createOrder({
+      ...VALID_CREATE,
+      qty_275_rebot: 10,
+      unit_price_275_rebot: null,
+    })
+    expect(result).toEqual({
+      error: 'Unit price for 275 gal Rebottled is required and must be greater than $0.',
+    })
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('rejects when price exceeds the numeric(10,2) column ceiling', async () => {
-    const result = await createOrder({ ...VALID_CREATE, price: 10_000_000 })
+  it('rejects a qty>0 cell whose unit price is zero or negative (coupling rule)', async () => {
+    const result = await createOrder({
+      ...VALID_CREATE,
+      qty_275_rebot: 10,
+      unit_price_275_rebot: 0,
+    })
     expect(result).toMatchObject({
-      error: expect.stringMatching(/^Price must be less than \$/),
+      error: expect.stringMatching(/Unit price must be greater than \$0\.|Unit price for 275 gal Rebottled/),
     })
     expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects when a unit price exceeds the numeric(10,2) column ceiling', async () => {
+    const result = await createOrder({
+      ...VALID_CREATE,
+      unit_price_275_rebot: 10_000_000,
+    })
+    expect(result).toMatchObject({
+      error: expect.stringMatching(/^Unit price must be less than \$/),
+    })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects a unit price with more than 2 decimal places (>2dp precision)', async () => {
+    const result = await createOrder({
+      ...VALID_CREATE,
+      // 25.005 would store as 25.01 while the total would use 25.005 — the
+      // exact price↔unit_price divergence Fix A(2) closes. Reject, don't round.
+      unit_price_275_rebot: 25.005,
+    })
+    expect(result).toEqual({
+      error: 'Unit price can have at most 2 decimal places.',
+    })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects when the derived total exceeds the numeric(10,2) column ceiling', async () => {
+    const result = await createOrder({
+      ...VALID_CREATE,
+      // Each cell is individually valid (qty ≤ 100,000, unit price ≤ max) but
+      // 100,000 × $100 = $10,000,000 > $9,999,999.99 → the total overflows.
+      qty_275_rebot: 100_000,
+      unit_price_275_rebot: 100,
+    })
+    expect(result).toEqual({
+      error: 'Order total exceeds the maximum of $9,999,999.99.',
+    })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('stores price exactly equal to Σ(unit × qty) for valid 2-decimal unit prices', async () => {
+    stubInsertReturning(ORDER_ID)
+    const result = await createOrder({
+      ...VALID_CREATE,
+      qty_275_rebot: 3,
+      unit_price_275_rebot: 25.05, // 3 × 25.05 = 75.15
+      qty_330_new: 7,
+      unit_price_330_new: 10.1, //  7 × 10.10 = 70.70
+    })
+    expect(result).toEqual({ id: ORDER_ID })
+    // Stored total must exactly equal Σ(stored unit_price × qty).
+    const expectedTotal = (3 * 25.05 + 7 * 10.1).toFixed(2) // '145.85'
+    expect(lastInsertValues).toMatchObject({
+      unit_price_275_rebot: '25.05',
+      unit_price_330_new: '10.10',
+      price: expectedTotal,
+    })
   })
 
   it('rejects when the user is not authenticated', async () => {
@@ -321,6 +437,21 @@ describe('updateOrder', () => {
   it('rejects a malformed order id before touching the database', async () => {
     const result = await updateOrder('not-a-uuid', VALID_UPDATE)
     expect(result).toEqual({ error: 'Invalid order id.' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an update whose derived total exceeds the numeric(10,2) ceiling', async () => {
+    // Validation runs before any DB read, so the overflow is rejected without
+    // touching select/update.
+    const result = await updateOrder(ORDER_ID, {
+      ...VALID_UPDATE,
+      qty_275_rebot: 100_000,
+      unit_price_275_rebot: 100, // 100,000 × $100 = $10,000,000 > max
+    })
+    expect(result).toEqual({
+      error: 'Order total exceeds the maximum of $9,999,999.99.',
+    })
     expect(mockSelect).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
   })
@@ -401,12 +532,29 @@ describe('updateOrder', () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
-  it('allows notes-only changes on an invoiced PO (qty + price unchanged)', async () => {
+  it('blocks unit-price changes on an invoiced PO even when qty is unchanged', async () => {
+    stubSelectCurrent(
+      buildCurrentSnapshot({
+        status: 'invoiced',
+        qty_275_rebot: 12, // matches VALID_UPDATE qty
+        unit_price_275_rebot: '99.00', // differs from input unit price 25
+        price: '1188.00', // 12 × 99
+      }),
+    )
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({
+      error: 'PO is locked. Revert to scheduled before editing quantities or price.',
+    })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('allows notes-only changes on an invoiced PO (qty + unit price + total unchanged)', async () => {
     stubSelectCurrent(
       buildCurrentSnapshot({
         status: 'invoiced',
         qty_275_rebot: 12, // matches VALID_UPDATE
-        price: '300.00', // matches VALID_UPDATE.price.toFixed(2)
+        unit_price_275_rebot: '25.00', // matches VALID_UPDATE derived unit price
+        price: '300.00', // matches derived total 12 × 25
       }),
     )
     stubUpdateResolves()

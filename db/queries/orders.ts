@@ -45,6 +45,15 @@ export interface OrderDetail {
   qty_330_rebot: number
   qty_330_new: number
   price: string
+  // Per-combo unit prices (Feature 10). numeric(10,2) rendered as text (or
+  // null where the combo's qty is 0), matching how `price` is typed. Consumed
+  // by the PO detail view to show `qty / $unit` per filled cell.
+  unit_price_275_recon: string | null
+  unit_price_275_rebot: string | null
+  unit_price_275_new: string | null
+  unit_price_330_recon: string | null
+  unit_price_330_rebot: string | null
+  unit_price_330_new: string | null
   pickup_only: boolean
   delivery_address: string | null
   requested_delivery_date: string | null
@@ -181,6 +190,12 @@ function buildOrderDetailQuery(orderId: string): SQL {
       o.qty_330_rebot,
       o.qty_330_new,
       o.price::text AS price,
+      o.unit_price_275_recon::text AS unit_price_275_recon,
+      o.unit_price_275_rebot::text AS unit_price_275_rebot,
+      o.unit_price_275_new::text AS unit_price_275_new,
+      o.unit_price_330_recon::text AS unit_price_330_recon,
+      o.unit_price_330_rebot::text AS unit_price_330_rebot,
+      o.unit_price_330_new::text AS unit_price_330_new,
       o.pickup_only,
       o.delivery_address,
       o.requested_delivery_date,

@@ -12,13 +12,16 @@ import {
   updateOrderInputSchema,
   updateOrderStatusInputSchema,
   firstZodMessage,
-  nullIfBlank,
   type CreateOrderInput,
   type UpdateOrderInput,
-  type ValidatedCreate,
-  type ValidatedUpdate,
   type UpdateOrderStatusTarget,
 } from './orders.validation'
+import {
+  QTY_AND_PRICE_SNAPSHOT_COLUMNS,
+  normalizeCreate,
+  normalizeUpdate,
+  detectQtyOrPriceChange,
+} from './orders.internal'
 
 // User-facing fallback for any server-side failure that isn't a validation,
 // auth, or unique-constraint rejection. Detailed cause is logged server-side
@@ -53,71 +56,6 @@ function isUniqueViolation(cause: unknown): boolean {
     'code' in cause &&
     (cause as { code?: unknown }).code === POSTGRES_UNIQUE_VIOLATION
   )
-}
-
-function normalizeCreate(data: ValidatedCreate) {
-  return {
-    po_number: data.po_number.trim(),
-    customer_id: data.customer_id,
-    status: data.initial_status,
-    qty_275_recon: data.qty_275_recon,
-    qty_275_rebot: data.qty_275_rebot,
-    qty_275_new: data.qty_275_new,
-    qty_330_recon: data.qty_330_recon,
-    qty_330_rebot: data.qty_330_rebot,
-    qty_330_new: data.qty_330_new,
-    price: data.price.toFixed(2),
-    pickup_only: data.pickup_only,
-    delivery_address: data.pickup_only ? null : nullIfBlank(data.delivery_address),
-    requested_delivery_date: nullIfBlank(data.requested_delivery_date),
-    backhaul: data.backhaul,
-    notes: nullIfBlank(data.notes),
-  }
-}
-
-function normalizeUpdate(data: ValidatedUpdate) {
-  return {
-    po_number: data.po_number.trim(),
-    customer_id: data.customer_id,
-    qty_275_recon: data.qty_275_recon,
-    qty_275_rebot: data.qty_275_rebot,
-    qty_275_new: data.qty_275_new,
-    qty_330_recon: data.qty_330_recon,
-    qty_330_rebot: data.qty_330_rebot,
-    qty_330_new: data.qty_330_new,
-    price: data.price.toFixed(2),
-    pickup_only: data.pickup_only,
-    delivery_address: data.pickup_only ? null : nullIfBlank(data.delivery_address),
-    requested_delivery_date: nullIfBlank(data.requested_delivery_date),
-    backhaul: data.backhaul,
-    notes: nullIfBlank(data.notes),
-    updated_at: new Date(),
-  }
-}
-
-interface QtyAndPriceSnapshot {
-  status: PoStatus
-  qty_275_recon: number
-  qty_275_rebot: number
-  qty_275_new: number
-  qty_330_recon: number
-  qty_330_rebot: number
-  qty_330_new: number
-  price: string
-}
-
-function detectQtyOrPriceChange(
-  current: QtyAndPriceSnapshot,
-  next: ValidatedUpdate,
-): boolean {
-  if (current.qty_275_recon !== next.qty_275_recon) return true
-  if (current.qty_275_rebot !== next.qty_275_rebot) return true
-  if (current.qty_275_new !== next.qty_275_new) return true
-  if (current.qty_330_recon !== next.qty_330_recon) return true
-  if (current.qty_330_rebot !== next.qty_330_rebot) return true
-  if (current.qty_330_new !== next.qty_330_new) return true
-  if (current.price !== next.price.toFixed(2)) return true
-  return false
 }
 
 /**
@@ -176,16 +114,7 @@ export async function updateOrder(
 
   try {
     const [current] = await db
-      .select({
-        status: orders.status,
-        qty_275_recon: orders.qty_275_recon,
-        qty_275_rebot: orders.qty_275_rebot,
-        qty_275_new: orders.qty_275_new,
-        qty_330_recon: orders.qty_330_recon,
-        qty_330_rebot: orders.qty_330_rebot,
-        qty_330_new: orders.qty_330_new,
-        price: orders.price,
-      })
+      .select(QTY_AND_PRICE_SNAPSHOT_COLUMNS)
       .from(orders)
       .where(eq(orders.id, id))
       .limit(1)

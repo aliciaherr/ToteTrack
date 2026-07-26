@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { buildListItemMotionProps } from '@/lib/list-animation'
 import OrderStatusBadge from './OrderStatusBadge'
 import BackhaulTag from '@/components/shared/BackhaulTag'
-import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
+import { sumPoSize, formatPoTotal } from '@/components/shared/qtyGridValues'
 import { formatCurrency } from '@/lib/format-currency'
 import type { OrderTableRow } from '@/db/queries/orders'
 

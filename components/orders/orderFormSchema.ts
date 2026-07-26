@@ -1,5 +1,12 @@
 import type { OrderDetail } from '@/db/queries/orders'
-import type { CreateOrderInput, UpdateOrderInput } from '@/lib/actions/orders.validation'
+import {
+  UNIT_PRICE_COMBOS,
+  computeOrderPrice,
+  type CreateOrderInput,
+  type OrderQtyUnitPrices,
+  type UpdateOrderInput,
+} from '@/lib/actions/orders.validation'
+import type { QtyGridValues, UnitPriceValues } from '@/components/shared/qtyGridValues'
 
 /**
  * Shared Tailwind class string for every text/number/date input across the
@@ -12,9 +19,12 @@ export const FORM_INPUT_CLASS =
 /**
  * Form values shape. The 6 quantity cells are stored as numbers (not strings)
  * because QtyGrid is a controlled numeric component — bridging through a
- * string round-trip would just re-parse on every keystroke. Price stays a
- * string because the native `<input type="number">` for currency benefits
- * from preserving the user's literal entry (trailing zeros, etc.).
+ * string round-trip would just re-parse on every keystroke. The 6 per-combo
+ * unit prices are `string | null` to match QtyGrid's input contract: each `$`
+ * cell emits the user's literal entry as a string (preserving trailing zeros)
+ * or `null` when blank. There is NO submitted `price` — the total is derived
+ * server-side (Feature 10) via `computeOrderPrice`; the form only shows a
+ * read-only live preview of it.
  */
 export interface OrderFormValues {
   po_number: string
@@ -25,7 +35,12 @@ export interface OrderFormValues {
   qty_330_recon: number
   qty_330_rebot: number
   qty_330_new: number
-  price: string
+  unit_price_275_recon: string | null
+  unit_price_275_rebot: string | null
+  unit_price_275_new: string | null
+  unit_price_330_recon: string | null
+  unit_price_330_rebot: string | null
+  unit_price_330_new: string | null
   pickup_only: boolean
   delivery_address: string
   requested_delivery_date: string
@@ -50,7 +65,12 @@ export const EMPTY_FORM_VALUES: OrderFormValues = {
   qty_330_recon: 0,
   qty_330_rebot: 0,
   qty_330_new: 0,
-  price: '',
+  unit_price_275_recon: null,
+  unit_price_275_rebot: null,
+  unit_price_275_new: null,
+  unit_price_330_recon: null,
+  unit_price_330_rebot: null,
+  unit_price_330_new: null,
   pickup_only: false,
   delivery_address: '',
   requested_delivery_date: todayIsoDate(),
@@ -85,7 +105,12 @@ export function detailToFormValues(
     qty_330_recon: detail.qty_330_recon,
     qty_330_rebot: detail.qty_330_rebot,
     qty_330_new: detail.qty_330_new,
-    price: detail.price,
+    unit_price_275_recon: detail.unit_price_275_recon,
+    unit_price_275_rebot: detail.unit_price_275_rebot,
+    unit_price_275_new: detail.unit_price_275_new,
+    unit_price_330_recon: detail.unit_price_330_recon,
+    unit_price_330_rebot: detail.unit_price_330_rebot,
+    unit_price_330_new: detail.unit_price_330_new,
     pickup_only: detail.pickup_only,
     delivery_address: detail.delivery_address ?? '',
     requested_delivery_date: detail.requested_delivery_date ?? '',
@@ -94,14 +119,65 @@ export function detailToFormValues(
   }
 }
 
-function parseNumberOrZero(raw: string): number {
-  const parsed = Number.parseFloat(raw.trim())
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
 function stringOrNull(raw: string): string | null {
   const trimmed = raw.trim()
   return trimmed === '' ? null : trimmed
+}
+
+/**
+ * Parses one per-combo unit price into the action-input shape. A price is only
+ * meaningful when its combo has qty > 0 — a qty-0 cell is forced to null so a
+ * stale/left-over price never rides along (mirrors the server's
+ * `normalizeUnitPrices`). Blank / unparseable entries also collapse to null.
+ */
+function toUnitPriceNumber(raw: string | number | null, qty: number): number | null {
+  if (qty <= 0 || raw === null) return null
+  const parsed = typeof raw === 'number' ? raw : Number.parseFloat(String(raw).trim())
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * Projects the form's qty + unit-price fields onto the `OrderQtyUnitPrices`
+ * shape the pricing helpers (`computeOrderPrice`, coupling checks) operate on.
+ * Shared by the action-input transforms, the live total preview, and the
+ * client-side coupling guard so all three read prices identically.
+ */
+export function formValuesToQtyUnitPrices(
+  data: QtyGridValues & UnitPriceValues,
+): OrderQtyUnitPrices {
+  const out = {} as OrderQtyUnitPrices
+  for (const combo of UNIT_PRICE_COMBOS) {
+    const qty = data[combo.qtyKey]
+    out[combo.qtyKey] = qty
+    out[combo.priceKey] = toUnitPriceNumber(data[combo.priceKey], qty)
+  }
+  return out
+}
+
+/**
+ * Server-derived total, previewed live in the form. Delegates to the
+ * authoritative `computeOrderPrice` formula so the read-only preview can never
+ * drift from what the server will persist.
+ */
+export function computeFormTotal(data: QtyGridValues & UnitPriceValues): string {
+  return computeOrderPrice(formValuesToQtyUnitPrices(data))
+}
+
+/**
+ * Client-side mirror of the server's `requireUnitPriceCoupling` superRefine:
+ * every combo with qty > 0 must carry a unit price > 0. Returns the first
+ * violation's message (matching the server text) or null when all combos pass,
+ * so the form can block submit with an inline error before hitting the action.
+ */
+export function firstUnitPriceCouplingError(values: OrderFormValues): string | null {
+  const data = formValuesToQtyUnitPrices(values)
+  for (const combo of UNIT_PRICE_COMBOS) {
+    const price = data[combo.priceKey]
+    if (data[combo.qtyKey] > 0 && (price === null || price <= 0)) {
+      return `Unit price for ${combo.label} is required and must be greater than $0.`
+    }
+  }
+  return null
 }
 
 /**
@@ -129,13 +205,7 @@ export function formValuesToCreateInput(values: OrderFormValues): CreateOrderInp
   return {
     po_number: values.po_number.trim(),
     customer_id: values.customer_id,
-    qty_275_recon: values.qty_275_recon,
-    qty_275_rebot: values.qty_275_rebot,
-    qty_275_new: values.qty_275_new,
-    qty_330_recon: values.qty_330_recon,
-    qty_330_rebot: values.qty_330_rebot,
-    qty_330_new: values.qty_330_new,
-    price: parseNumberOrZero(values.price),
+    ...formValuesToQtyUnitPrices(values),
     pickup_only: values.pickup_only,
     delivery_address: stringOrNull(values.delivery_address),
     requested_delivery_date: values.requested_delivery_date,
@@ -154,13 +224,7 @@ export function formValuesToUpdateInput(values: OrderFormValues): UpdateOrderInp
   return {
     po_number: values.po_number.trim(),
     customer_id: values.customer_id,
-    qty_275_recon: values.qty_275_recon,
-    qty_275_rebot: values.qty_275_rebot,
-    qty_275_new: values.qty_275_new,
-    qty_330_recon: values.qty_330_recon,
-    qty_330_rebot: values.qty_330_rebot,
-    qty_330_new: values.qty_330_new,
-    price: parseNumberOrZero(values.price),
+    ...formValuesToQtyUnitPrices(values),
     pickup_only: values.pickup_only,
     delivery_address: stringOrNull(values.delivery_address),
     requested_delivery_date: values.requested_delivery_date,

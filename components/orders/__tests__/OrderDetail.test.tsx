@@ -64,6 +64,12 @@ const baseDetail: OrderDetailType = {
   qty_330_rebot: 7,
   qty_330_new: 0,
   price: '300.00',
+  unit_price_275_recon: '20.00',
+  unit_price_275_rebot: null,
+  unit_price_275_new: null,
+  unit_price_330_recon: null,
+  unit_price_330_rebot: '28.57',
+  unit_price_330_new: null,
   pickup_only: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-10',
@@ -111,8 +117,23 @@ describe('OrderDetail', () => {
   it('renders the 2×3 quantity grid with the actual qty values for a mixed-combo PO', () => {
     render(<OrderDetail detail={baseDetail} />)
     const qtySection = screen.getByRole('region', { name: /quantities/i })
-    expect(within(qtySection).getByText('5')).toBeInTheDocument()
-    expect(within(qtySection).getByText('7')).toBeInTheDocument()
+    // Cells now render `qty / $unit` (Task 48), so match against that form.
+    expect(within(qtySection).getByText('5 / $20')).toBeInTheDocument()
+    expect(within(qtySection).getByText('7 / $28.57')).toBeInTheDocument()
+  })
+
+  it('renders a filled qty cell as `qty / $unit` when a unit price is present', () => {
+    render(<OrderDetail detail={baseDetail} />)
+    const qtySection = screen.getByRole('region', { name: /quantities/i })
+    // qty_275_recon = 5 @ unit_price_275_recon = '20.00' -> "5 / $20"
+    expect(within(qtySection).getByText('5 / $20')).toBeInTheDocument()
+  })
+
+  it('renders an em dash for an empty qty cell regardless of unit prices', () => {
+    render(<OrderDetail detail={baseDetail} />)
+    const qtySection = screen.getByRole('region', { name: /quantities/i })
+    // 4 of 6 combos have qty 0 -> em dash, not `qty / $unit`
+    expect(within(qtySection).getAllByText('—').length).toBe(4)
   })
 
   it('renders an em dash for each empty qty cell in the grid (default showEmptyAsDash)', () => {

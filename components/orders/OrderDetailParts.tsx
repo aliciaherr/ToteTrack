@@ -1,6 +1,7 @@
 'use client'
 
 import { QtyGrid } from '@/components/shared/QtyGrid'
+import { type UnitPriceValues } from '@/components/shared/qtyGridValues'
 import BackhaulTag from '@/components/shared/BackhaulTag'
 import { formatCurrency } from '@/lib/format-currency'
 import type { OrderDetail as OrderDetailType } from '@/db/queries/orders'
@@ -28,6 +29,14 @@ export function PODocumentSlot({ detail }: { detail: OrderDetailType }) {
 }
 
 export function QuantitiesBlock({ detail }: { detail: OrderDetailType }) {
+  const unitPrices: UnitPriceValues = {
+    unit_price_275_recon: detail.unit_price_275_recon,
+    unit_price_275_rebot: detail.unit_price_275_rebot,
+    unit_price_275_new: detail.unit_price_275_new,
+    unit_price_330_recon: detail.unit_price_330_recon,
+    unit_price_330_rebot: detail.unit_price_330_rebot,
+    unit_price_330_new: detail.unit_price_330_new,
+  }
   return (
     <section
       aria-label="Quantities"
@@ -36,7 +45,7 @@ export function QuantitiesBlock({ detail }: { detail: OrderDetailType }) {
       <span className="text-xs uppercase tracking-wide text-muted-foreground">
         Quantities
       </span>
-      <QtyGrid mode="display" values={detail} showEmptyAsDash />
+      <QtyGrid mode="display" values={detail} unitPrices={unitPrices} showEmptyAsDash />
     </section>
   )
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import BackhaulTag from '@/components/shared/BackhaulTag'
-import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
+import { sumPoSize, formatPoTotal } from '@/components/shared/qtyGridValues'
 import type { OpenOrderRow } from '@/db/queries/dashboard'
 
 interface OpenOrdersWidgetProps {

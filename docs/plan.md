@@ -1444,3 +1444,152 @@ export const collapsibleVariants // height animate via motion.div
 **Specialist:** @ui-totetrack
 
 **Status:** [x]
+
+---
+
+## Task 44: Schema — add 6 per-combo unit-price columns ✅ Done 2026-07-25
+
+> Added 2026-07-25 via `@create-plan`. Source: `docs/prd.md` Feature 10.
+> Live DB was hand-migrated + backfilled 2026-07-25; this task brings Drizzle schema + migration file + data-model into parity (closes drift).
+
+**Files:**
+- `db/schema/orders.ts` — modify
+- `db/migrations/0009_po_unit_prices.sql` — create
+- `docs/data-model.md` — modify
+
+**Functions to implement:**
+- Add `unit_price_275_recon`, `unit_price_275_rebot`, `unit_price_275_new`, `unit_price_330_recon`, `unit_price_330_rebot`, `unit_price_330_new` — `numeric(10,2)`, nullable, no default
+- Migration mirrors the run SQL: `ADD COLUMN IF NOT EXISTS` (x6) + guarded single-combo backfill (`price` → matching combo's unit price, `price` recomputed to qty × unit; multi-combo/zero-qty rows skipped)
+
+**Acceptance criteria:**
+- [x] Drizzle `orders` schema declares all 6 nullable `numeric(10,2)` unit-price columns
+- [x] `0009_po_unit_prices.sql` is idempotent (safe to re-run; backfill only touches rows with all 6 unit prices NULL)
+- [x] `docs/data-model.md` reflects the 6 columns and the derived-total semantics (SEC-01: no secrets in migration)
+
+**Tests required:**
+- `db/migrations/__tests__/0009.test.ts` → `content-test: adds 6 nullable unit_price columns` → `expect column names present`
+- `db/migrations/__tests__/0009.test.ts` → `backfill guarded on all-NULL unit prices` → `expect WHERE clause blocks double-apply`
+
+**Depends on:** None
+**Specialist:** @db
+
+**Status:** [x]
+
+---
+
+## Task 45: Server data contract — validation, actions, detail read ✅ Done 2026-07-25
+
+> Added 2026-07-25 via `@create-plan`. Source: `docs/prd.md` Feature 10.
+
+**Files:**
+- `lib/actions/orders.validation.ts` — modify
+- `lib/actions/orders.ts` — modify
+- order detail query + `OrderDetailType` (wherever the detail row is read/typed) — modify
+
+**Functions to implement:**
+- `orders.validation.ts`: add 6 unit-price fields (`numeric(10,2)` domain, nullable); refinement — `qty > 0 ⟹ unit price present and > 0`; `qty = 0 ⟹ unit price must be NULL`
+- `normalizeCreate` / `normalizeUpdate`: write the 6 unit prices; compute and store `price = Σ(qty_cell × unit_price_cell)` as `.toFixed(2)` — ignore any client-sent total
+- `detectQtyOrPriceChange(...)`: extend to include unit-price changes so the `invoiced`/`cancelled` edit lock covers them
+- Detail read: select the 6 unit-price columns; `OrderDetailType` exposes them
+
+**Acceptance criteria:**
+- [x] Server derives `price` from qty × unit; a client-supplied total is never trusted
+- [x] qty > 0 with blank/≤0 unit price rejected server-side with a clear message (EH-01: loud, contextful error)
+- [x] qty = 0 persists unit price as NULL
+- [x] Editing an `invoiced`/`cancelled` PO with a changed unit price is blocked with the existing lock message
+
+**Tests required:**
+- `lib/actions/__tests__/orders.test.ts` → `derives total from qty × unit across multiple combos` → `expect stored price = Σ`
+- `lib/actions/__tests__/orders.test.ts` → `qty > 0 with no unit price → validation error` → `expect failure`
+- `lib/actions/__tests__/orders.test.ts` → `qty = 0 stores NULL unit price` → `expect null`
+- `lib/actions/__tests__/orders.test.ts` → `unit-price change on invoiced PO is locked` → `expect PO_LOCKED_MESSAGE`
+
+**Depends on:** Task 44
+**Specialist:** @db
+
+**Status:** [x]
+
+---
+
+## Task 46: `QtyGrid` — unit-price input cell + `qty / $unit` display cell ✅ Done 2026-07-25
+
+> Added 2026-07-25 via `@create-plan`. Source: `docs/prd.md` Feature 10.
+
+**Files:**
+- `components/shared/QtyGrid.tsx` — modify (and its value/type defs)
+
+**Functions to implement:**
+- `InputCell`: add a `$` unit-price input beside the qty input (decimals, ≥ 0, step 0.01)
+- `DisplayCell`: render `qty / $unit` (e.g. `60 / $105`) when qty > 0; `—` when 0/blank
+- Extend `QtyGridValues` (or add a parallel unit-price value type) + `onChange` payload to carry unit prices
+
+**Acceptance criteria:**
+- [x] Display mode shows `qty / $unit` for filled cells and `—` for empty (matches Feature 10 detail spec)
+- [x] Input mode renders a qty + unit-price pair per cell and emits both on change
+- [x] Component stays within file-size cap; existing display/input consumers unaffected where unit prices absent (extracted `QtyGridCells.tsx`; unit prices opt-in via `onUnitPriceChange`)
+
+**Tests required:**
+- `components/shared/__tests__/QtyGrid.test.tsx` → `display cell shows qty / $unit when filled` → `expect formatted string`
+- `components/shared/__tests__/QtyGrid.test.tsx` → `display cell shows dash when empty` → `expect —`
+- `components/shared/__tests__/QtyGrid.test.tsx` → `input cell emits qty and unit price` → `expect onChange payload`
+
+**Depends on:** Task 44
+**Specialist:** @ui-totetrack
+
+**Status:** [x]
+
+---
+
+## Task 47: Order form — wire unit-price inputs + read-only live total ✅ Done 2026-07-25
+
+> Added 2026-07-25 via `@create-plan`. Source: `docs/prd.md` Feature 10.
+
+**Files:**
+- `components/orders/orderFormSchema.ts` — modify
+- `components/orders/OrderContainerFields.tsx` — modify
+- `components/orders/OrderForm.tsx` — modify
+
+**Functions to implement:**
+- `orderFormSchema.ts`: add unit prices to `OrderFormValues`, `detailToFormValues` (edit prefill), and `formValuesToCreateInput` / `formValuesToUpdateInput`
+- `OrderContainerFields.tsx`: bridge the 6 unit-price fields to the grid; replace the editable Total Price input with a **read-only** display that live-recomputes Σ(qty × unit)
+- `OrderForm.tsx`: submit maps the new fields; no client-sent total
+
+**Acceptance criteria:**
+- [x] Each combo cell has a unit-price input; Total Price is read-only and updates live as qty/unit change
+- [x] Edit mode prefills existing unit prices
+- [x] Client validation blocks qty > 0 with blank unit price before submit (mirrors server rule)
+
+**Tests required:**
+- `components/orders/__tests__/OrderForm.test.tsx` → `entering qty + unit price updates read-only total` → `expect Σ`
+- `components/orders/__tests__/OrderForm.test.tsx` → `edit prefills unit prices` → `expect populated inputs`
+
+**Depends on:** Task 45, Task 46
+**Specialist:** @ui-totetrack
+
+**Status:** [x]
+
+---
+
+## Task 48: Order detail — render `qty / $unit` grid ✅ Done 2026-07-25
+
+> Added 2026-07-25 via `@create-plan`. Source: `docs/prd.md` Feature 10.
+
+**Files:**
+- `components/orders/OrderDetailParts.tsx` — modify
+
+**Functions to implement:**
+- `QuantitiesBlock`: pass the 6 unit prices into `QtyGrid` display mode so cells show `qty / $unit`
+- `TotalPriceBlock`: unchanged (still reads `detail.price`)
+
+**Acceptance criteria:**
+- [x] Detail quantities grid shows `qty / $unit` for filled cells, `—` for empty
+- [x] Total price continues to read the derived `price`
+
+**Tests required:**
+- `components/orders/__tests__/OrderDetail.test.tsx` → `detail cell shows qty / $unit` → `expect formatted string`
+- `components/orders/__tests__/OrderDetail.test.tsx` → `empty detail cell shows dash` → `expect —`
+
+**Depends on:** Task 45, Task 46
+**Specialist:** @ui-totetrack
+
+**Status:** [x]

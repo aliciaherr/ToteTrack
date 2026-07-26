@@ -70,7 +70,7 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `po_number` | text | NOT NULL, UNIQUE | Manual entry by salesperson |
 | `customer_id` | uuid | FK → customers.id, onDelete: restrict | Cannot delete customer with orders |
 | `status` | po_status | NOT NULL, default 'scheduled' | See PO state machine in prd.md |
-| `price` | numeric(10,2) | NOT NULL | Total PO price across all combos |
+| `price` | numeric(10,2) | NOT NULL | Derived total = Σ(qty × unit price); backfilled 2026-07-25 (legacy `price` was per-unit) |
 | `pickup_only` | boolean | NOT NULL, default false | |
 | `delivery_address` | text | nullable | Required when pickup_only = false (app-level) |
 | `requested_delivery_date` | date | nullable | Made optional in migration 0006 |
@@ -86,6 +86,14 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `qty_330_recon` | integer | NOT NULL, default 0 | 330L reconditioned |
 | `qty_330_rebot` | integer | NOT NULL, default 0 | 330L rebottled |
 | `qty_330_new` | integer | NOT NULL, default 0 | 330L brand new |
+| `unit_price_275_recon` | numeric(10,2) | nullable | Per-unit price, 275L reconditioned (migration 0009) |
+| `unit_price_275_rebot` | numeric(10,2) | nullable | Per-unit price, 275L rebottled (migration 0009) |
+| `unit_price_275_new` | numeric(10,2) | nullable | Per-unit price, 275L brand new (migration 0009) |
+| `unit_price_330_recon` | numeric(10,2) | nullable | Per-unit price, 330L reconditioned (migration 0009) |
+| `unit_price_330_rebot` | numeric(10,2) | nullable | Per-unit price, 330L rebottled (migration 0009) |
+| `unit_price_330_new` | numeric(10,2) | nullable | Per-unit price, 330L brand new (migration 0009) |
+
+**Per-combo unit prices (migration 0009, live 2026-07-25):** 6 nullable `unit_price_*` columns hold the per-unit price for each combo. `price` is now the DERIVED total = Σ(qty × unit price); the legacy `price` value was per-unit and was backfilled (multiplied by total qty) for single-combo rows.
 
 **Multi-combo schema (Feature 9, migration 0008):** A single PO now holds quantities for all six size×type combinations in one wide row, replacing the old single `container_size` / `container_type` / `quantity` columns. Each `qty_*` column is a count for that combo; sum > 0 enforced app-level. The `container_size` and `container_type` enums still exist in the DB and encode the column-name suffixes.
 

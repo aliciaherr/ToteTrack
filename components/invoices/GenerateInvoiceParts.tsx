@@ -1,7 +1,7 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { sumPoSize, formatPoTotal } from '@/components/shared/QtyGrid'
+import { sumPoSize, formatPoTotal } from '@/components/shared/qtyGridValues'
 import type { InvoiceableOrder } from '@/db/queries/invoices'
 import { formatCurrency } from '@/lib/format-currency'
 

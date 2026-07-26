@@ -1,12 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within, fireEvent } from '@testing-library/react'
+import { QtyGrid } from '../QtyGrid'
 import {
-  QtyGrid,
   ZERO_QTY_VALUES,
+  ZERO_UNIT_PRICE_VALUES,
   sumPoSize,
   formatPoTotal,
   type QtyGridValues,
-} from '../QtyGrid'
+  type UnitPriceValues,
+} from '../qtyGridValues'
 
 const MIXED_VALUES: QtyGridValues = {
   qty_275_recon: 5,
@@ -15,6 +17,15 @@ const MIXED_VALUES: QtyGridValues = {
   qty_330_recon: 0,
   qty_330_rebot: 8,
   qty_330_new: 12,
+}
+
+const MIXED_UNIT_PRICES: UnitPriceValues = {
+  unit_price_275_recon: 105,
+  unit_price_275_rebot: 60,
+  unit_price_275_new: null,
+  unit_price_330_recon: null,
+  unit_price_330_rebot: 72.5,
+  unit_price_330_new: 90,
 }
 
 function getCell(sizeLabel: string, typeLabel: string): HTMLElement {
@@ -150,6 +161,76 @@ describe('QtyGrid — input mode', () => {
       // Class assertion is the project convention (no jsdom layout).
       expect(input.className).toContain('min-h-[44px]')
     }
+  })
+})
+
+describe('QtyGrid — unit price (Feature 10, opt-in)', () => {
+  it('(a) display shows "qty / $unit" for non-zero cells when unitPrices supplied', () => {
+    render(
+      <QtyGrid mode="display" values={MIXED_VALUES} unitPrices={MIXED_UNIT_PRICES} />,
+    )
+    expect(screen.getByText('5 / $105')).toBeInTheDocument()
+    expect(screen.getByText('20 / $60')).toBeInTheDocument()
+    expect(screen.getByText('8 / $72.5')).toBeInTheDocument()
+    expect(screen.getByText('12 / $90')).toBeInTheDocument()
+  })
+
+  it('(b) display shows em dash for a zero-qty cell even when a unit price is set', () => {
+    render(
+      <QtyGrid
+        mode="display"
+        values={MIXED_VALUES}
+        unitPrices={{ ...MIXED_UNIT_PRICES, unit_price_275_new: 200 }}
+      />,
+    )
+    // The 2 zero cells (275 new, 330 recon) stay em dashes despite a price.
+    expect(screen.getAllByText('—').length).toBe(2)
+    expect(screen.queryByText(/200/)).not.toBeInTheDocument()
+  })
+
+  it('(c) display shows plain numbers (no "$") when NO unitPrices supplied — volume-overview guard', () => {
+    render(<QtyGrid mode="display" values={MIXED_VALUES} />)
+    expect(screen.getByText('5')).toBeInTheDocument()
+    expect(screen.getByText('20')).toBeInTheDocument()
+    expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
+  })
+
+  it('(d) input mode emits qty via onChange AND unit price via onUnitPriceChange', () => {
+    const onChange = vi.fn()
+    const onUnitPriceChange = vi.fn()
+    render(
+      <QtyGrid
+        mode="input"
+        values={ZERO_QTY_VALUES}
+        onChange={onChange}
+        unitPrices={ZERO_UNIT_PRICE_VALUES}
+        onUnitPriceChange={onUnitPriceChange}
+      />,
+    )
+    // 6 qty inputs + 6 paired unit-price inputs.
+    expect(screen.getAllByRole('spinbutton').length).toBe(12)
+
+    const qtyInput = screen.getByLabelText('275 gal Rebottled quantity')
+    fireEvent.change(qtyInput, { target: { value: '15' } })
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...ZERO_QTY_VALUES,
+      qty_275_rebot: 15,
+    })
+
+    const priceInput = screen.getByLabelText('275 gal Rebottled unit price')
+    expect(priceInput).toHaveAttribute('step', '0.01')
+    fireEvent.change(priceInput, { target: { value: '99.5' } })
+    expect(onUnitPriceChange).toHaveBeenLastCalledWith({
+      ...ZERO_UNIT_PRICE_VALUES,
+      unit_price_275_rebot: '99.5',
+    })
+  })
+
+  it('does not render unit-price inputs when onUnitPriceChange is omitted (legacy input consumer)', () => {
+    const onChange = vi.fn()
+    render(<QtyGrid mode="input" values={ZERO_QTY_VALUES} onChange={onChange} />)
+    expect(screen.getAllByRole('spinbutton').length).toBe(6)
+    expect(screen.queryByLabelText('275 gal Rebottled unit price')).not.toBeInTheDocument()
   })
 })
 

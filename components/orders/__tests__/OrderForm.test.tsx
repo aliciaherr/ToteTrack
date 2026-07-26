@@ -54,7 +54,15 @@ const sampleDetail: OrderDetail = {
   qty_330_recon: 0,
   qty_330_rebot: 0,
   qty_330_new: 5,
-  price: '300.00',
+  // Feature 10: prices only on the two non-zero combos; qty-0 cells are null.
+  // Derived total = 12 × 25 + 5 × 60 = 600.00.
+  unit_price_275_recon: null,
+  unit_price_275_rebot: '25.00',
+  unit_price_275_new: null,
+  unit_price_330_recon: null,
+  unit_price_330_rebot: null,
+  unit_price_330_new: '60.00',
+  price: '600.00',
   pickup_only: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
@@ -186,7 +194,6 @@ describe('OrderForm', () => {
       />,
     )
     fireEvent.change(screen.getByLabelText(/PO Number/i), { target: { value: 'PO-9999' } })
-    fireEvent.change(screen.getByLabelText(/Total Price/i), { target: { value: '199.50' } })
     fireEvent.change(screen.getByLabelText(/^Delivery Address$/i), {
       target: { value: '456 Oak Ave' },
     })
@@ -212,14 +219,19 @@ describe('OrderForm', () => {
     fireEvent.change(screen.getByLabelText(/PO Number/i), {
       target: { value: 'PO-9999' },
     })
-    // Fill two combos: 275 Rebottled = 8 and 330 Brand New = 3.
+    // Fill two combos: 275 Rebottled = 8 @ $25 and 330 Brand New = 3 @ $40.
     fireEvent.change(screen.getByLabelText(/275 gal Rebottled quantity/i), {
       target: { value: '8' },
+    })
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled unit price/i), {
+      target: { value: '25' },
     })
     fireEvent.change(screen.getByLabelText(/330 gal Brand New quantity/i), {
       target: { value: '3' },
     })
-    fireEvent.change(screen.getByLabelText(/Total Price/i), { target: { value: '199.50' } })
+    fireEvent.change(screen.getByLabelText(/330 gal Brand New unit price/i), {
+      target: { value: '40' },
+    })
     fireEvent.change(screen.getByLabelText(/^Delivery Address$/i), {
       target: { value: '456 Oak Ave' },
     })
@@ -229,6 +241,8 @@ describe('OrderForm', () => {
       expect(mockCreateOrder).toHaveBeenCalledTimes(1)
     })
     const [arg] = mockCreateOrder.mock.calls[0]
+    // No `price` is sent — the server derives it. Client sends the 6 unit
+    // prices, null on the empty combos.
     expect(arg).toMatchObject({
       po_number: 'PO-9999',
       customer_id: customers[0].id,
@@ -238,10 +252,16 @@ describe('OrderForm', () => {
       qty_330_recon: 0,
       qty_330_rebot: 0,
       qty_330_new: 3,
-      price: 199.5,
+      unit_price_275_recon: null,
+      unit_price_275_rebot: 25,
+      unit_price_275_new: null,
+      unit_price_330_recon: null,
+      unit_price_330_rebot: null,
+      unit_price_330_new: 40,
       pickup_only: false,
       delivery_address: '456 Oak Ave',
     })
+    expect(arg).not.toHaveProperty('price')
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
   })
 
@@ -269,6 +289,7 @@ describe('OrderForm', () => {
     })
     const [orderId, arg] = mockUpdateOrder.mock.calls[0]
     expect(orderId).toBe(sampleDetail.id)
+    // Unit prices carry over from the prefilled detail (25 / 60); no `price`.
     expect(arg).toMatchObject({
       qty_275_recon: 0,
       qty_275_rebot: 15,
@@ -276,8 +297,81 @@ describe('OrderForm', () => {
       qty_330_recon: 0,
       qty_330_rebot: 0,
       qty_330_new: 5,
-      price: 300,
+      unit_price_275_rebot: 25,
+      unit_price_330_new: 60,
     })
+    expect(arg).not.toHaveProperty('price')
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+  })
+
+  it('live-computes the read-only total as Σ(qty × unit price) as cells are filled', () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customers}
+        lockedCustomerId={customers[0].id}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    // Total starts at $0 with no quantities entered.
+    expect(screen.getByLabelText(/Total Price/i)).toHaveTextContent('$0')
+    // 275 Rebottled: 4 @ $10 = 40; 330 Brand New: 2 @ $5 = 10; Σ = $50.
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled quantity/i), {
+      target: { value: '4' },
+    })
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled unit price/i), {
+      target: { value: '10' },
+    })
+    fireEvent.change(screen.getByLabelText(/330 gal Brand New quantity/i), {
+      target: { value: '2' },
+    })
+    fireEvent.change(screen.getByLabelText(/330 gal Brand New unit price/i), {
+      target: { value: '5' },
+    })
+    expect(screen.getByLabelText(/Total Price/i)).toHaveTextContent('$50')
+  })
+
+  it('pre-fills per-combo unit prices in edit mode from the supplied OrderDetail', () => {
+    render(
+      <OrderForm
+        mode="edit"
+        initialDetail={sampleDetail}
+        customers={customers}
+        lockedCustomerId={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    // The two non-zero combos carry their prices; a zero combo is blank.
+    expect(screen.getByLabelText(/275 gal Rebottled unit price/i)).toHaveValue(25)
+    expect(screen.getByLabelText(/330 gal Brand New unit price/i)).toHaveValue(60)
+    expect(screen.getByLabelText(/275 gal Reconditioned unit price/i)).toHaveValue(null)
+    // Derived total reflects the prefilled prices: 12 × 25 + 5 × 60 = $600.
+    expect(screen.getByLabelText(/Total Price/i)).toHaveTextContent('$600')
+  })
+
+  it('blocks submit client-side when a combo has qty > 0 but a blank unit price', async () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customers}
+        lockedCustomerId={customers[0].id}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText(/PO Number/i), { target: { value: 'PO-9999' } })
+    fireEvent.change(screen.getByLabelText(/^Delivery Address$/i), {
+      target: { value: '456 Oak Ave' },
+    })
+    // Qty entered but unit price left blank — coupling violation.
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled quantity/i), {
+      target: { value: '5' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create order/i }))
+    const errorEl = await screen.findByTestId('qty-error', undefined, { timeout: 3000 })
+    expect(errorEl).toHaveTextContent(/Unit price for 275 gal Rebottled is required/i)
+    expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 })
