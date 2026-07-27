@@ -1,15 +1,26 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { signIn } from '@/lib/actions/auth'
 
+/**
+ * The sign-in form.
+ *
+ * Owns navigation itself rather than letting the server action redirect: this
+ * awaits `signIn` from a plain event handler, and a server-action `redirect()`
+ * works by throwing, so the throw would reject the awaited promise, skip the
+ * error handling below, and leave the button spinning with nothing happening.
+ * `signIn` therefore returns a result and this routes on success.
+ */
 export default function LoginForm() {
+  const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setLoading] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const password = (e.currentTarget.elements.namedItem('password') as HTMLInputElement).value
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const password = (event.currentTarget.elements.namedItem('password') as HTMLInputElement).value
 
     if (!password) {
       setError('Please enter your password.')
@@ -18,9 +29,32 @@ export default function LoginForm() {
 
     setLoading(true)
     setError(null)
-    const result = await signIn(password)
-    setLoading(false)
-    if (result?.error) setError(result.error)
+
+    let result: { error: string | null }
+    try {
+      result = await signIn(password)
+    } catch (cause) {
+      // The action itself never throws for a bad password — reaching here means
+      // the request failed outright (offline, action transport error). Surface
+      // it rather than leaving the button spinning forever.
+      console.error('LoginForm: sign-in request failed', { cause })
+      setLoading(false)
+      setError('Unable to connect. Check your internet connection.')
+      return
+    }
+
+    if (result.error) {
+      setLoading(false)
+      setError(result.error)
+      return
+    }
+
+    // Navigate here rather than redirecting inside the action: a server-action
+    // `redirect()` works by throwing, and this action is awaited from an event
+    // handler rather than a form action, so the throw would never reach the
+    // router. `refresh()` makes the layout re-read the new session cookie.
+    router.push('/dashboard')
+    router.refresh()
   }
 
   return (

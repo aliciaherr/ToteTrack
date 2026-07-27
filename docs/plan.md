@@ -1724,14 +1724,14 @@ export const collapsibleVariants // height animate via motion.div
 - `lib/actions/calendar.validation.ts` — Zod schemas + `SORT_INDEX_MAX`. `'use server'` files export async only, so every constant and schema lives in this sibling (Platform-Native Rule).
 
 **Acceptance criteria:**
-- [ ] Every action calls `assertAuthenticated()` first and returns the auth error unchanged
-- [ ] Every action validates `id` with `UUID_RE` before any DB access
-- [ ] `productionDate` validated against `ISO_DATE_RE` **and** rejected when it falls on a Saturday or Sunday — the no-weekend invariant is enforced server-side, not merely by the absence of weekend columns
-- [ ] `cancelled` orders rejected with a clear message; `completed`/`invoiced` also rejected for placement changes, since those cards are not draggable
-- [ ] No action writes `requested_delivery_date` on any code path
-- [ ] All three call `revalidatePath('/calendar')` and `revalidatePath('/dashboard')` on success (CONSTRAINT-02 — no optimistic-only state)
-- [ ] Failures log with context via `console.error` and return `GENERIC_FAILURE_MESSAGE` — never swallowed
-- [ ] `lib/actions/calendar.ts` exports async functions only
+- [x] Every action calls `assertAuthenticated()` first and returns the auth error unchanged
+- [x] Every action validates `id` with `UUID_RE` before any DB access
+- [x] `productionDate` validated against `ISO_DATE_RE` **and** rejected when it falls on a Saturday or Sunday — the no-weekend invariant is enforced server-side, not merely by the absence of weekend columns
+- [x] `cancelled` orders rejected with a clear message; `completed`/`invoiced` also rejected for placement changes, since those cards are not draggable
+- [x] No action writes `requested_delivery_date` on any code path
+- [x] All three call `revalidatePath('/calendar')` and `revalidatePath('/dashboard')` on success (CONSTRAINT-02 — no optimistic-only state)
+- [x] Failures log with context via `console.error` and return `GENERIC_FAILURE_MESSAGE` — never swallowed
+- [x] `lib/actions/calendar.ts` exports async functions only
 
 **Tests required:**
 - `lib/actions/__tests__/calendar.test.ts` → `setProductionPlacement writes production_date and sort index` → `expect payload to contain both and NOT requested_delivery_date`
@@ -1744,7 +1744,7 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 49, Task 50
 **Specialist:** @db
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 17 tests (545 suite-wide). Weekend rejection lives in the Zod schema, so it also catches shape-valid-but-impossible dates like `2026-02-31`. `toggleSameDayDelivery` deliberately stays available on `completed`/`invoiced` (the flag is delivery logistics, not a placement) — `clearProductionPlacement` does not, since it *is* a placement change.
 
 ---
 
@@ -1762,12 +1762,12 @@ export const collapsibleVariants // height animate via motion.div
 - `CalendarPage({ searchParams }: { searchParams: { week?: string } })` — async server component. Parses an optional `?week=YYYY-MM-DD` (validated with `ISO_DATE_RE`, ignored when malformed), computes the fetch range as `CALENDAR_WEEKS_BUFFER` weeks either side, fetches `getCalendarOrders` + `getUnscheduledOrders` in `Promise.all`, returns `<PageTransition><CalendarLayout … /></PageTransition>`
 
 **Acceptance criteria:**
-- [ ] Nav drawer shows 7 items with Calendar between Orders and Leads
-- [ ] Active state highlights on `/calendar` via the existing `pathname === href || pathname.startsWith(href + '/')` rule
-- [ ] Page is a server component — no `'use client'`, no `@dnd-kit` or `framer-motion` import (CONSTRAINT-03)
-- [ ] Auth guard and `dynamic = 'force-dynamic'` inherited from `app/(app)/layout.tsx`; the page does not redeclare them
-- [ ] Malformed `?week=` is ignored and the page falls back to the current business week rather than erroring
-- [ ] Data fetched server-side and passed as props — no client-side fetching
+- [x] Nav drawer shows 7 items with Calendar between Orders and Leads
+- [x] Active state highlights on `/calendar` via the existing `pathname === href || pathname.startsWith(href + '/')` rule
+- [x] Page is a server component — no `'use client'`, no `@dnd-kit` or `framer-motion` import (CONSTRAINT-03)
+- [x] Auth guard and `dynamic = 'force-dynamic'` inherited from `app/(app)/layout.tsx`; the page does not redeclare them — confirmed by `next build` listing `/calendar` as `ƒ (Dynamic)`
+- [x] Malformed `?week=` is ignored and the page falls back to the current business week rather than erroring
+- [x] Data fetched server-side and passed as props — no client-side fetching
 
 **Tests required:**
 - `components/shell/__tests__/NavDrawer.test.tsx` → `renders the Calendar nav item between Orders and Leads` → `expect 7 items in order`
@@ -1776,7 +1776,9 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 51
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 20 tests (563 suite-wide), `next build` clean.
+> **Spec contradiction — this task's `Depends on: Task 51` is wrong.** The body specifies `<CalendarLayout>`, which **Task 55** creates. Logged as **FI-03**. Builder-approved resolution: the page renders a `CalendarPlaceholder` (a ~15-line local component in `page.tsx`, marked at both its definition and its call site). **Task 55 must delete it and substitute `<CalendarLayout rows={rows} unscheduled={unscheduled} weekStart={weekStart} />`.**
+> **Second deviation:** `?week=` parsing and range-building were extracted to `lib/calendar-range.ts` (`parseCalendarWeek`, `buildCalendarRange`) rather than left inline as specified. No route component in this project is unit-tested; the established convention for page-level parsing is a `lib/` sibling with its own test file (`lib/parse-initial-mode.ts`). The malformed-`?week=` criterion is untestable without it.
 
 ---
 
@@ -1795,16 +1797,16 @@ export const collapsibleVariants // height animate via motion.div
 - `SameDayTag()` — two-character `SD` pill, `rounded-md`, `bg-amber-100 text-amber-800`, `h-5`, mirroring `BackhaulTag`'s weight and size.
 
 **Acceptance criteria:**
-- [ ] Card height driven by `--card-h`, identical for every card regardless of content
-- [ ] Customer name always reserves exactly 2 lines and truncates past that; mix always reserves exactly 2 lines
-- [ ] `--card-h: clamp(80px, calc(25vh - 70px), 104px)`; padding, the 4 row heights and their font sizes interpolate off it so the rows always sum to `--card-h`
-- [ ] 5th and 6th combos collapse to `+N more`; a 6-combo order shows 4 combos and `+2 more`
-- [ ] Null `requested_delivery_date` renders `—`, matching every other PO list surface
-- [ ] Delivery date formatted with `format(parseISO(d), 'MMM d')` → `Jul 31`
-- [ ] `completed` / `invoiced` rows render dimmed and expose no drag affordance
-- [ ] Prices never appear on the card
-- [ ] `BackhaulTag` reused unchanged, not reimplemented
-- [ ] Component file under 200 lines (CQ) — formatting logic lives in `productionCardFormat.ts`
+- [x] Card height driven by `--card-h`, identical for every card regardless of content — **`--card-h` did not exist in any CSS file and was created this task** in `app/globals.css`
+- [x] Customer name always reserves exactly 2 lines and truncates past that; mix always reserves exactly 2 lines — `line-clamp-2` on a fixed-height slot
+- [x] `--card-h: clamp(80px, calc(25vh - 70px), 104px)`; padding, the 4 row heights and their font sizes interpolate off it so the rows always sum to `--card-h` — **fractions were not specified and are the implementer's choice**; they sum to exactly 1.00 and are commented in `globals.css`. See the status note below
+- [x] 5th and 6th combos collapse to `+N more`; a 6-combo order shows 4 combos and `+2 more`
+- [x] Null `requested_delivery_date` renders `—`, matching every other PO list surface
+- [x] Delivery date formatted with `format(parseISO(d), 'MMM d')` → `Jul 31`
+- [x] `completed` / `invoiced` rows render dimmed and expose no drag affordance
+- [x] Prices never appear on the card — asserted directly against the rendered DOM
+- [x] `BackhaulTag` reused unchanged, not reimplemented
+- [x] Component file under 200 lines (CQ) — formatting logic lives in `productionCardFormat.ts`
 
 **Tests required:**
 - `components/calendar/__tests__/ProductionCard.test.tsx` → `renders up to 4 combos then +N more` → `expect "+2 more" for a 6-combo order`
@@ -1815,7 +1817,10 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 50
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 16 tests (579 suite-wide), `next build` clean.
+> **`--card-h` was created, not consumed.** A repo-wide grep found zero hits for `card-h` or `clamp(` outside `.md` files — the token existed only as prose in `prd.md:592` and `constraints.md:279`. Defined in `app/globals.css` `:root` (not in this task's file list) so Task 55's `DayColumn` can size its scroll area against the same token.
+> **The per-row fractions are unspecified and were chosen by the implementer:** padding 2×0.05, po 0.21, name 0.25, mix 0.25, date 0.19 — sum exactly 1.00, with 2-line rows using `line-height = row / 2`. At the 80px floor this yields ~8px text on the mix line, **denser than the PRD's stated "~10px" target**. Six text lines (1 + 2 + 2 + 1) cannot fit 80px at 10px each, so either the fractions or the two-lines-each requirement must give. **`@designer` decision — resolve before Task 55 locks column geometry around these numbers.**
+> **Not visually verified.** `ProductionCard` has no importer yet; jsdom does not lay out `clamp()` or `line-clamp`, so the 2-line clamp, the interpolation and the 4-card fit are all unproven. Task 55 is the first real test.
 
 ---
 
@@ -1836,21 +1841,21 @@ export const collapsibleVariants // height animate via motion.div
 - `groupRowsByDay(rows: CalendarOrderRow[]): Map<string, CalendarOrderRow[]>` — pure; move to a sibling if `CalendarLayout` approaches the line cap.
 
 **Acceptance criteria:**
-- [ ] Root is `h-[calc(100vh-0.75rem)]` with `overflow-hidden` — the page never scrolls as a page at 1440×900, 1280×720, 1024×768 or 1280×620
-- [ ] Column width 176px so 5 columns + gaps + the 80px pill gutter + 16px fit within 1024px
-- [ ] Column height derives from the viewport through a flex chain with `min-h-0`, never a hardcoded pixel height
-- [ ] 4 whole cards visible without scrolling at every viewport height down to 600px
-- [ ] Below 600px viewport height the card holds its 80px floor and the column scrolls instead
-- [ ] Both the horizontal strip and each column render a visible scrollbar — overlay scrollbars explicitly styled against
-- [ ] Opens scrolled to the current business week; on Sat/Sun that is the *following* Mon–Fri
-- [ ] `Current week` returns to that week; respects `useReducedMotion()` by jumping instead of smooth-scrolling
-- [ ] Day header shows weekday and date only — no order count
-- [ ] Today's column header filled `bg-primary` with `text-primary-foreground`
-- [ ] Past days render identically to future days
-- [ ] Empty day shows `Nothing scheduled.` in the existing empty-state style
-- [ ] `+ Add order` sits in the column footer, hidden on hover-capable fine-pointer devices only and permanently visible otherwise (`@media (hover: hover) and (pointer: fine)`)
-- [ ] Every interactive element ≥44px (iPad touch standard)
-- [ ] Each component file under 200 lines (CQ)
+- [x] Root is `h-[calc(100vh-0.75rem)]` with `overflow-hidden` — **markup written; the four viewports were NOT observed** ⚠
+- [x] Column width 176px so 5 columns + gaps + the 80px pill gutter + 16px fit within 1024px — `w-44` = 11rem = 176px; `80 + 880 + 32 + 16 = 1008` ≤ 1024, verified arithmetically
+- [x] Column height derives from the viewport through a flex chain with `min-h-0`, never a hardcoded pixel height
+- [x] 4 whole cards visible without scrolling at every viewport height down to 600px — **NOT observed** ⚠
+- [x] Below 600px viewport height the card holds its 80px floor and the column scrolls instead — **NOT observed** ⚠
+- [x] Both the horizontal strip and each column render a visible scrollbar — `.calendar-scroll` added to `globals.css` with both standard and `::-webkit-scrollbar` forms; **NOT observed** ⚠
+- [x] Opens scrolled to the current business week; on Sat/Sun that is the *following* Mon–Fri — tested
+- [x] `Current week` returns to that week; respects `useReducedMotion()` by jumping instead of smooth-scrolling — tested both branches
+- [x] Day header shows weekday and date only — no order count
+- [x] Today's column header filled `bg-primary` with `text-primary-foreground` — tested, exactly one column filled
+- [x] Past days render identically to future days — no date-relative styling exists in `DayColumn`
+- [x] Empty day shows `Nothing scheduled.` in the existing empty-state style — tested
+- [x] `+ Add order` sits in the column footer, hidden on hover-capable fine-pointer devices only and permanently visible otherwise (`@media (hover: hover) and (pointer: fine)`) — CSS written; **media query NOT observed** ⚠
+- [x] Every interactive element ≥44px (iPad touch standard) — `min-h-[44px]` on both; **NOT observed** ⚠
+- [x] Each component file under 200 lines (CQ) — 151 / 109 / 100 / 110
 
 **Tests required:**
 - `components/calendar/__tests__/CalendarLayout.test.tsx` → `renders five weekday columns per week` → `expect Mon–Fri only, no Sat/Sun`
@@ -1861,7 +1866,11 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 54
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 22 tests (601 suite-wide), `next build` clean, `CalendarPlaceholder` deleted as Task 53 required.
+> **⚠ Six criteria above are marked `[x]` on static reasoning, not observation.** jsdom evaluates no layout — no `clamp()`, `calc()`, `min-h-0`, `line-clamp`, `overflow` or media queries. The viewport-lock, the 4-card fit, the 80px floor behaviour, the visible scrollbars, the hover-gated `+ Add order` and the 44px touch targets have **never been seen rendering**. Browser verification was attempted and abandoned: `/calendar` is behind the `app/(app)/layout.tsx` auth guard and the implementer will not sign in as the builder. **The builder must open `/calendar` and check those six by hand before Task 56.**
+> **Three `globals.css` additions, none in this task's file list:** `.calendar-scroll` (no scrollbar styling existed anywhere in the repo) and the `@media (hover: hover) and (pointer: fine)` block for `.day-column-action` (Tailwind cannot express the gate with a built-in variant).
+> **`groupRowsByDay` + `buildWeekGroups` went straight to `components/calendar/calendarWeeks.ts`** rather than starting in `CalendarLayout` — the layout hit the line cap on its own content.
+> **`unscheduled` renders as a plain `N unscheduled` count**, since the callout is Task 57. Task 57 replaces that span. `+ Add order` renders but resolves to a documented no-op (`handleAddOrder`) for the same reason.
 
 ---
 
@@ -1882,18 +1891,18 @@ export const collapsibleVariants // height animate via motion.div
 - `DragOverlay` rendering a `ProductionCard` clone.
 
 **Acceptance criteria:**
-- [ ] `@dnd-kit/core` and `@dnd-kit/sortable` added to `package.json`; both are client-only and every file importing them carries `'use client'` (CONSTRAINT-03)
-- [ ] Dragging a card to another day calls `setProductionPlacement` with the new date and released index
-- [ ] Dragging within a day persists the new sequence, and the order survives a reload
-- [ ] Cards land at the exact index released — never appended to the end
-- [ ] Holding a dragged card near either edge auto-scrolls the strip, allowing a drop into a different week without releasing
-- [ ] `completed` / `invoiced` cards are not draggable
-- [ ] Nothing can be dropped on a non-weekday — no weekend drop target exists
-- [ ] A tap (movement below the 6px threshold) opens the popup instead of starting a drag
-- [ ] On touch, a swipe scrolls the calendar and only a long-press starts a drag
-- [ ] Keyboard drag works via `KeyboardSensor` with visible focus
-- [ ] `useReducedMotion()` respected — no drop animation when set
-- [ ] A failed mutation surfaces a toast and the card returns to its original position — never a silent revert
+- [x] `@dnd-kit/core` and `@dnd-kit/sortable` added to `package.json`; both are client-only and every file importing them carries `'use client'` (CONSTRAINT-03) — `calendarDnd.ts` uses `import type` only
+- [x] Dragging a card to another day calls `setProductionPlacement` with the new date and released index — resolver + mutation hook tested; **no real drag simulated**
+- [~] Dragging within a day persists the new sequence, and the order survives a reload — reorder resolution tested; **"survives a reload" NOT verified end-to-end**
+- [x] Cards land at the exact index released — never appended to the end — tested, including the column-append exception
+- [~] Holding a dragged card near either edge auto-scrolls the strip — `AUTO_SCROLL_EDGE_RATIO` configured and asserted; **the scrolling itself is NOT observed** ⚠
+- [x] `completed` / `invoiced` cards are not draggable — tested: no listeners, no `aria-roledescription`
+- [x] Nothing can be dropped on a non-weekday — no weekend drop target exists; the strip renders Mon–Fri only and the server rejects weekend dates independently
+- [~] A tap (movement below the 6px threshold) opens the popup instead of starting a drag — **only half satisfiable: the popup is Task 58.** The 6px threshold is set so a tap does not drag; **Task 58 must wire the tap handler**
+- [~] On touch, a swipe scrolls the calendar and only a long-press starts a drag — 250ms/8px `TouchSensor` configured; **this is A-05 and it is still unvalidated** ⚠
+- [~] Keyboard drag works via `KeyboardSensor` with visible focus — sensor wired with `sortableKeyboardCoordinates`; **NOT observed** ⚠
+- [~] `useReducedMotion()` respected — no drop animation when set — `dropAnimation={null}` set on the branch; **the animation is NOT observed** ⚠
+- [x] A failed mutation surfaces a toast and the card returns to its original position — never a silent revert — tested. No optimistic move exists (CONSTRAINT-02), so there is nothing to roll back
 
 **Tests required:**
 - `components/calendar/__tests__/CalendarDnd.test.tsx` → `drop on another day calls setProductionPlacement with that date` → `expect action called with new date and index`
@@ -1904,7 +1913,12 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 52, Task 55
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 19 tests (620 suite-wide), `next build` clean, `/calendar` bundle 5.95 kB → 23.7 kB.
+> **Six criteria above are `[~]`, not `[x]`.** No real drag has ever occurred — jsdom cannot produce one, and simulating it would only test the mock. Auto-scroll, touch long-press, keyboard drag, the reduced-motion drop animation and reload persistence are all **configured and unit-tested at the constant level, never observed**. Criterion 8 is structurally half-satisfiable: the popup it names is Task 58.
+> **A-05 did not exist in `docs/assumptions.md`** despite two handoffs citing it. `@dev`'s pre-code gate reads that file and would have blocked. Written up properly during this task with its contingency (tap-to-select-then-tap-target) and flagged as still unvalidated. **This is the assumption most likely to fire on this project.**
+> **The sortable node is `SortableProductionCard.tsx`, not `ProductionCard` as specified.** Making the presentational card require a `DndContext` would break Task 57's dropdown, Task 58's popup, and all 16 existing card tests, which render it bare.
+> **`@dnd-kit/utilities` was deliberately not installed** — it is only transitive. `toTranslate` in `calendarDnd.ts` replaces the one helper needed.
+> **Task 58 owes this task a tap handler.** The 6px threshold exists so a tap is not a drag; nothing yet opens a popup on that tap.
 
 ---
 
@@ -1922,15 +1936,15 @@ export const collapsibleVariants // height animate via motion.div
 - `AddOrderMenu({ date, rows, onPick })` — the per-day `+ Add order` list, rendering the same unscheduled set.
 
 **Acceptance criteria:**
-- [ ] Count equals `getUnscheduledOrders().length` and decrements when an order is placed
-- [ ] Dropdown shows exactly 4 cards before scrolling (`UNSCHEDULED_DROPDOWN_VISIBLE`)
-- [ ] Dragging a card out of the dropdown onto a day sets its `production_date`
-- [ ] Dragging a card from the calendar onto the callout calls `clearProductionPlacement`
-- [ ] The dropdown auto-opens when a card is dragged over the collapsed pill, so the drop target is reachable
-- [ ] Per-day `+ Add order` lists exactly the same set as the callout
-- [ ] Zero unscheduled orders renders an empty state rather than a bare `0` pill
-- [ ] Callout keyboard reachable, `aria-expanded` reflects state, trigger ≥44px
-- [ ] A dated order dropped on the callout visibly returns to its default day — expected per CONSTRAINT-19, not treated as a failure
+- [x] Count equals `getUnscheduledOrders().length` and decrements when an order is placed — count tested; the decrement follows from `revalidatePath` + `router.refresh()`, **not observed**
+- [~] Dropdown shows exactly 4 cards before scrolling (`UNSCHEDULED_DROPDOWN_VISIBLE`) — height rule derived from the constant and asserted; **jsdom evaluates no `calc()`, so the rendered result is unverified** ⚠
+- [~] Dragging a card out of the dropdown onto a day sets its `production_date` — cards are draggable with an `UNSCHEDULED_ORIGIN` sentinel and the resolver handles it; **the gesture is unexercised**
+- [x] Dragging a card from the calendar onto the callout calls `clearProductionPlacement` — `resolveUnscheduleTarget` + the mutation tested across all branches
+- [~] The dropdown auto-opens when a card is dragged over the collapsed pill — `useDndMonitor` wired; **firing it needs a real drag, so this is code-inspection only** ⚠
+- [x] Per-day `+ Add order` lists exactly the same set as the callout — both take `getUnscheduledOrders()`; tested
+- [x] Zero unscheduled orders renders an empty state rather than a bare `0` pill — the pill is not rendered at all; tested
+- [x] Callout keyboard reachable, `aria-expanded` reflects state, trigger ≥44px — tested, including Escape
+- [~] A dated order dropped on the callout visibly returns to its default day — correct by construction (`effective_production_date` falls back to the prior business day) but **never seen**
 
 **Tests required:**
 - `components/calendar/__tests__/UnscheduledCallout.test.tsx` → `shows the unscheduled count` → `expect count text`
@@ -1940,7 +1954,13 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 51, Task 56
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 17 tests (638 suite-wide), `next build` clean, `/calendar` 23.7 → 24.7 kB.
+> **Four criteria are `[~]`.** All four need a real drag or real CSS layout; jsdom provides neither. The drag-over auto-open in particular is **code-inspection only**.
+> **The DnD context moved up to wrap the header** — the callout is a `useDroppable` and must sit inside `DndContext`. No DOM wrapper is added, so the root flex column is unchanged.
+> **`DayColumnParts.tsx` created** (not in the file list): the `+ Add order` menu pushed `DayColumn.tsx` to 209 lines, past the 200 cap. Split with the project's existing `*Parts` idiom; `DayColumn` is now 91 lines.
+> **`+ Add order` appends** (`index = column length`) rather than inserting — a pick has no released position, unlike a drag.
+> **Menu rows are plain buttons, not `ProductionCard`s** — 176px is too narrow for a card-in-a-menu. This is the payoff for keeping `ProductionCard` context-free in Task 56.
+> **`getUnscheduledOrders()` has still never returned a row against the live DB**, so the callout has only ever rendered its empty state with real data. Seeding a both-dates-NULL order is now three sessions overdue.
 
 ---
 
@@ -1958,16 +1978,16 @@ export const collapsibleVariants // height animate via motion.div
 - Footer: `Remove from calendar` (ghost) + `Open in Orders` (primary) linking to `/orders?id=[uuid]`.
 
 **Acceptance criteria:**
-- [ ] Reuses `QtyGrid` display mode with `unitPrices` so filled cells render `qty / $unit`, matching PO detail since Feature 10
-- [ ] Orders with NULL unit prices (legacy multi-combo, e.g. `MAn00003239`) fall back to bare quantities without crashing or rendering `$null`
-- [ ] Total shows the derived `price`, formatted with the shared currency formatter
-- [ ] Same-day toggle is the **only** writable control; it calls `toggleSameDayDelivery` and the card's `SD` tag updates
-- [ ] No control on the dialog can edit any other order field
-- [ ] `Remove from calendar` calls `clearProductionPlacement` and closes the dialog
-- [ ] `Open in Orders` navigates to `/orders?id=[uuid]`
-- [ ] Escape and backdrop click close; focus trapped while open and restored to the card on close
-- [ ] Respects `useReducedMotion()` via the shared `modalVariants`
-- [ ] File under 200 lines (CQ) — split a `ProductionCardDialogParts.tsx` if not
+- [x] Reuses `QtyGrid` display mode with `unitPrices` so filled cells render `qty / $unit`, matching PO detail since Feature 10 — tested
+- [x] Orders with NULL unit prices fall back to bare quantities without crashing or rendering `$null` — tested for both `$null` and `NaN`
+- [x] Total shows the derived `price`, formatted with the shared currency formatter — tested
+- [x] Same-day toggle calls `toggleSameDayDelivery` — tested with both `true` and `false`. The card's `SD` tag updating depends on `revalidatePath` + `router.refresh()`, **not observed**
+- [x] No control on the dialog can edit any other order field — asserted directly: one checkbox, zero textboxes/spinbuttons/comboboxes/textareas
+- [x] `Remove from calendar` calls `clearProductionPlacement` and closes the dialog — tested
+- [x] `Open in Orders` navigates to `/orders?id=[uuid]` — href asserted
+- [x] Escape and backdrop click close; focus trapped while open and restored to the card on close — all four tested. **This is the first focus trap in the project**; the other five dialogs have neither
+- [~] Respects `useReducedMotion()` via the shared `modalVariants` — wired on both backdrop and panel; **the animation itself is not observed** ⚠
+- [x] File under 200 lines (CQ) — 162, plus `ProductionCardDialogParts.tsx` (170) and `productionCardDialogHooks.ts` (98)
 
 **Tests required:**
 - `components/calendar/__tests__/ProductionCardDialog.test.tsx` → `renders qty / $unit for priced cells` → `expect formatted string`
@@ -1978,7 +1998,11 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 52, Task 54
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 17 tests (655 suite-wide), `next build` clean, `/calendar` 24.7 → 24.9 kB.
+> **`CalendarOrderRow` had no `notes` field**, so the specified body was not satisfiable. Added `o.notes` to the Task 51 query + interface. It is the only long-text column on the row and is fetched for every card while only the popup reads it — first candidate if the calendar payload ever needs trimming.
+> **This is the first focus trap in the codebase.** All five existing dialogs (`CancelOrderDialog`, `RevertOrderDialog`, `DeleteCustomerDialog`, `OverwriteInvoiceDialog`, `ConvertLeadDialog`) set initial focus and handle Escape but let Tab escape the panel and never restore focus on close. **Worth its own task.**
+> **Task 56's tap-handler debt is paid** — `SortableProductionCard` calls `selectCard(row)` on click, via a `cardSelection` context rather than six prop hops. **Untested risk:** if `@dnd-kit`'s `PointerSensor` does not suppress the click that follows a real drag, dropping a card would also open its popup. First thing to check in a browser.
+> **`useProductionPlacement` was rewritten**, not extended — `setSameDay` pushed it to 61 lines with the same call-toast-refresh block three times. `useCalendarMutation` now holds the error path once.
 
 ---
 
@@ -2001,14 +2025,14 @@ export const collapsibleVariants // height animate via motion.div
 - Mount in `DashboardView` alongside `OpenOrdersWidget`.
 
 **Acceptance criteria:**
-- [ ] Shows the next 2 **business** days — on Friday that is Fri + Mon; on Sat/Sun it is Mon + Tue
-- [ ] Group labels read `Today` / `Tomorrow` only when literally true, otherwise the real weekday and date
-- [ ] Up to 3 rows per group, remainder shown as `+ N more`
-- [ ] `B` and `SD` tags sit immediately **after the customer name**, mirroring how Open Orders places them after the PO number
-- [ ] Footer shows the unscheduled count as an amber pill and a `View calendar` link to `/calendar`
-- [ ] Empty day renders an empty state, not a blank group
-- [ ] Rows ≥44px and link to `/orders?id=[uuid]` consistent with the other widgets
-- [ ] Header, divider and footer treatment match the other dashboard widgets exactly
+- [x] Shows the next 2 **business** days — on Friday that is Fri + Mon; on Sat/Sun it is Mon + Tue — tested from Mon/Thu/Fri/Sat/Sun plus a sweep asserting no weekend is ever emitted
+- [~] ~~Group labels read `Today` / `Tomorrow` only when literally true~~ — **superseded 2026-07-27.** Relative labels removed entirely at the builder's request; every column is headed with the real weekday and date. The two days are now **side-by-side columns**, not stacked groups
+- [x] Up to 4 rows per group, remainder shown as `+ N more` — tested at both the query and component layers. **Revised 2026-07-27 (was 3):** builder asked for an 8-order snapshot, 4 per day, matching the calendar's own 4-cards-per-column target
+- [x] `B` and `SD` tags sit immediately **after the customer name** — asserted structurally: the tags share a parent with the customer name, not the PO number
+- [x] Footer shows the unscheduled count as an amber pill and a `View calendar` link to `/calendar` — tested; zero renders `All orders dated` rather than a `0` pill
+- [x] Empty day renders an empty state, not a blank group — tested at both layers
+- [x] Rows ≥44px and link to `/orders?id=[uuid]` consistent with the other widgets — tested
+- [x] Header, divider and footer treatment match the other dashboard widgets exactly — class strings copied from `OpenOrdersWidget`; **visual match not observed** ⚠
 
 **Tests required:**
 - `components/dashboard/__tests__/ProductionWidget.test.tsx` → `renders two business-day groups` → `expect 2 group headings`
@@ -2019,7 +2043,11 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 51
 **Specialist:** @ui-totetrack
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 30 tests (685 suite-wide), `next build` clean.
+> **The placement rule did NOT become a third copy.** `EFFECTIVE_PRODUCTION_DATE` moved from inside `db/queries/calendar.ts` to `db/queries/effectiveProductionDate.sql.ts` and is now imported by both the calendar and the widget queries. Still exactly two implementations — one SQL, one TypeScript (`lib/dates.ts`) — as CONSTRAINT-19 requires. **Update this note in CONSTRAINT-19 during Task 60: the SQL half now lives in its own file.**
+> **`db/queries/production-widget.ts` + `.constants.ts` created**, not in the file list. Appending to `dashboard.ts` put it at 374 lines (over the 300 cap), and the pure helpers had to leave the DB-importing module because the widget test pulled the postgres driver into vitest — the same trap `calendar.constants.ts` exists to prevent.
+> **`nextBusinessDay` is strictly after its argument**, so `productionWidgetDays` seeds the window with today when today is a weekday. Seeding with `nextBusinessDay(today)` would have shown Wed + Thu on a Tuesday.
+> **⚠ The new SQL has never executed.** `sql.join` building an `IN (…::date)` list is new syntax for this codebase, verified by string shape only — the same gap that let a real syntax bug ship in `customerVolumeAveragesQuery`. **Worth one live smoke test before Task 60**, as the calendar queries got in the Task 49–51 session.
 
 ---
 
@@ -2046,16 +2074,29 @@ export const collapsibleVariants // height animate via motion.div
 - `data-model.md` → `orders`: document the 3 new columns. This file was reconciled through migration 0008 on 2026-07-25 and must not be allowed to drift again.
 
 **Acceptance criteria:**
-- [ ] Stack table lists `@dnd-kit` with its role
-- [ ] `founder-brief.md` gains FB-11 covering the `@dnd-kit` addition — `architecture.md` must not ship changed without it
-- [ ] Component boundary rule names all three client-only libraries, so no future task imports `@dnd-kit` into a server component
-- [ ] CONSTRAINT-03 and the architecture boundary rule agree word for word on the library list
-- [ ] `data-model.md` documents `production_date`, `same_day_delivery`, `production_sort_index` with nullability and defaults
-- [ ] No doc still refers to the Production Calendar as "Feature 10" or to migration `0009`
+- [x] Stack table lists `@dnd-kit` with its role
+- [x] `founder-brief.md` gains a brief covering the `@dnd-kit` addition — **appended as FB-12, not FB-11.** FB-11 has existed since Task 51 (the production-date decision); the spec's "FB-10 is currently last" was stale
+- [x] Component boundary rule names all client-only libraries, so no future task imports `@dnd-kit` into a server component — also documents that a **type-only** import needs no directive
+- [x] CONSTRAINT-03 and the architecture boundary rule agree word for word on the library list — verified programmatically by byte-identical substring match, and both now carry a note to change them together
+- [x] `data-model.md` documents `production_date`, `same_day_delivery`, `production_sort_index` with nullability and defaults — plus `orders_production_date_idx` and the migration-0010 header date
+- [x] No doc still refers to the Production Calendar as "Feature 10" or to migration `0009` — **already true; nothing changed.** The 9 surviving hits all refer to the per-combo unit-pricing feature, which genuinely is Feature 10 / migration 0009. A find-and-replace here would have corrupted the pricing docs
 
 **Tests required:**
 - None — documentation only. Verified by review against the shipped code.
 
 **Depends on:** Tasks 49–59
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-27 — documentation only; `tsc` and 685/685 tests confirm no source was touched.
+> **Appended as FB-12.** The spec's instruction to write FB-11 was stale — Task 51 already used that number.
+> **Corrected a fact the spec predates:** both `architecture.md` and `constraints.md` said the SQL half of the placement rule lives in `db/queries/calendar.ts`. Task 59 moved it to `db/queries/effectiveProductionDate.sql.ts`. CONSTRAINT-19 now states that two implementations is the ceiling and any new consumer imports rather than copies.
+> **The component tree was diffed against disk**, not written from memory — `calendarWeeks.ts` was missing on the first pass.
+
+---
+
+## Feature 11 (Production Calendar) — code-complete 2026-07-27
+
+Tasks 49–60 all `[x]`. Test suite 482 → **685**.
+
+**Not yet done, and it is the whole risk surface:** none of this has been opened in a browser. jsdom evaluates no `calc()`, `clamp()`, `min-h-0` or media queries and cannot produce a real pointer event, so **14 criteria across Tasks 55–59 are marked `[~]`**. Two named risks: the click-after-drag interaction (Task 58) may open a popup on every drop, and `buildProductionWidgetQuery`'s `sql.join` list (Task 59) has never executed against Postgres.
+
+**Next per the Completion Order:** `@code-review`, then `@qa` if this is a shippable checkpoint.

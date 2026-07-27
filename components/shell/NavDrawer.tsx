@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Users,
   Package,
+  CalendarDays,
   Target,
   Receipt,
   HelpCircle,
@@ -21,6 +22,9 @@ const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Customers', href: '/customers', icon: Users },
   { label: 'Orders', href: '/orders', icon: Package },
+  // Calendar sits directly after Orders: it is a view *of* orders, so the two
+  // read as a pair before the drawer moves on to Leads and billing.
+  { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'Leads', href: '/leads', icon: Target },
   { label: 'Invoices', href: '/invoices', icon: Receipt },
   { label: 'Support', href: '/support', icon: HelpCircle },

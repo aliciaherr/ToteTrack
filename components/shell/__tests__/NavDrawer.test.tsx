@@ -1,9 +1,11 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import NavDrawer from '../NavDrawer'
 
+const mockUsePathname = vi.hoisted(() => vi.fn().mockReturnValue('/dashboard'))
+
 vi.mock('next/navigation', () => ({
-  usePathname: vi.fn().mockReturnValue('/dashboard'),
+  usePathname: mockUsePathname,
 }))
 
 vi.mock('next/link', () => ({
@@ -36,16 +38,49 @@ vi.mock('@/lib/actions/auth', () => ({
   signOut: vi.fn(),
 }))
 
+const EXPECTED_NAV_ORDER = [
+  { name: 'Dashboard', href: '/dashboard' },
+  { name: 'Customers', href: '/customers' },
+  { name: 'Orders', href: '/orders' },
+  { name: 'Calendar', href: '/calendar' },
+  { name: 'Leads', href: '/leads' },
+  { name: 'Invoices', href: '/invoices' },
+  { name: 'Support', href: '/support' },
+]
+
+beforeEach(() => {
+  mockUsePathname.mockReturnValue('/dashboard')
+})
+
 describe('NavDrawer', () => {
-  it('renders all 6 nav items with correct href values', () => {
+  it('renders all 7 nav items with correct href values', () => {
     render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
 
-    expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute('href', '/dashboard')
-    expect(screen.getByRole('link', { name: /customers/i })).toHaveAttribute('href', '/customers')
-    expect(screen.getByRole('link', { name: /orders/i })).toHaveAttribute('href', '/orders')
-    expect(screen.getByRole('link', { name: /leads/i })).toHaveAttribute('href', '/leads')
-    expect(screen.getByRole('link', { name: /invoices/i })).toHaveAttribute('href', '/invoices')
-    expect(screen.getByRole('link', { name: /support/i })).toHaveAttribute('href', '/support')
+    for (const { name, href } of EXPECTED_NAV_ORDER) {
+      expect(screen.getByRole('link', { name: new RegExp(name, 'i') })).toHaveAttribute(
+        'href',
+        href,
+      )
+    }
+  })
+
+  it('renders the Calendar nav item between Orders and Leads', () => {
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    const hrefs = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'))
+
+    expect(hrefs).toEqual(EXPECTED_NAV_ORDER.map((item) => item.href))
+  })
+
+  it('marks Calendar active on /calendar', () => {
+    mockUsePathname.mockReturnValue('/calendar')
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    const calendarLink = screen.getByRole('link', { name: /calendar/i })
+    expect(calendarLink.className).toContain('border-primary')
+    expect(screen.getByRole('link', { name: /orders/i }).className).not.toContain('border-primary')
   })
 
   it('calls onClose when backdrop is clicked', () => {

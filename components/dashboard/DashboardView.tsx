@@ -7,8 +7,10 @@ import HeroCards from './HeroCards'
 import NeedToContactWidget from './NeedToContactWidget'
 import OpenOrdersWidget from './OpenOrdersWidget'
 import LeadsFollowUpWidget from './LeadsFollowUpWidget'
+import ProductionWidget from './ProductionWidget'
 import InvoiceChart from './InvoiceChart'
 import QuickAddFab from './QuickAddFab'
+import type { ProductionWidgetData } from '@/db/queries/production-widget.constants'
 import type {
   DashboardPeriod,
   DashboardStats,
@@ -24,6 +26,7 @@ interface DashboardViewProps {
   openOrders: OpenOrderRow[]
   leadsFollowUp: LeadFollowUpRow[]
   invoiceTrend: InvoiceTrendRow[]
+  production: ProductionWidgetData
 }
 
 const PERIOD_OPTIONS: Array<{ value: DashboardPeriod; label: string }> = [
@@ -114,6 +117,7 @@ export default function DashboardView({
   openOrders,
   leadsFollowUp,
   invoiceTrend,
+  production,
 }: DashboardViewProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -148,6 +152,10 @@ export default function DashboardView({
         <OpenOrdersWidget rows={openOrders} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ProductionWidget
+          groups={production.groups}
+          unscheduledCount={production.unscheduledCount}
+        />
         <LeadsFollowUpWidget rows={leadsFollowUp} />
       </div>
       <QuickAddFab />

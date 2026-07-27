@@ -17,6 +17,8 @@ vi.mock('@/db', () => ({
 vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 
 import { createOrder, updateOrder, updateOrderStatus } from '../orders'
+import { defaultProductionDate } from '../orders.internal'
+import { InvalidDateError } from '@/lib/errors'
 
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
 const ORDER_ID = '33333333-3333-3333-3333-333333333333'
@@ -671,5 +673,42 @@ describe('updateOrderStatus', () => {
     expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
     expect(consoleSpy).toHaveBeenCalled()
     consoleSpy.mockRestore()
+  })
+})
+
+describe('defaultProductionDate', () => {
+  it('is the business day before the delivery date', () => {
+    // Wed 2026-07-29 → Tue 2026-07-28.
+    expect(defaultProductionDate('2026-07-29')).toBe('2026-07-28')
+  })
+
+  it.each([
+    ['Monday', '2026-07-27', '2026-07-24'],
+    ['Sunday', '2026-07-26', '2026-07-24'],
+    ['Saturday', '2026-07-25', '2026-07-24'],
+  ])('resolves a %s delivery to the prior Friday', (_label, delivery, expected) => {
+    expect(defaultProductionDate(delivery)).toBe(expected)
+  })
+
+  it('never returns a weekend', () => {
+    for (let day = 1; day <= 28; day += 1) {
+      const delivery = `2026-07-${String(day).padStart(2, '0')}`
+      const result = defaultProductionDate(delivery)
+      const dayOfWeek = new Date(`${result}T12:00:00`).getDay()
+      expect(dayOfWeek, `${delivery} → ${result}`).not.toBe(0)
+      expect(dayOfWeek, `${delivery} → ${result}`).not.toBe(6)
+    }
+  })
+
+  it('throws InvalidDateError on an unparseable delivery date', () => {
+    // Coverage removed with the old effectiveProductionDate suite; this helper
+    // calls the same parseDbDate and throws identically.
+    expect(() => defaultProductionDate('07/29/2026')).toThrow(InvalidDateError)
+    expect(() => defaultProductionDate('2026-02-31')).toThrow(InvalidDateError)
+  })
+
+  it('returns null when there is no delivery date, leaving the order unscheduled', () => {
+    // Correct: nobody has decided when to build it, so it sits in the callout.
+    expect(defaultProductionDate(null)).toBeNull()
   })
 })

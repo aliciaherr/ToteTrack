@@ -1,5 +1,7 @@
+import { format } from 'date-fns'
 import { orders } from '@/db/schema'
 import type { PoStatus } from '@/db/queries/orders'
+import { DB_DATE_FORMAT, parseDbDate, prevBusinessDay } from '@/lib/dates'
 import {
   UNIT_PRICE_COMBOS,
   computeOrderPrice,
@@ -88,10 +90,41 @@ function buildOrderWriteBase(data: ValidatedCreate | ValidatedUpdate) {
 }
 
 /**
- * Insert payload for a new PO: the shared write-base plus the initial status.
+ * The build day a brand-new PO starts on: the business day before its promised
+ * delivery date, or null when no delivery date was given.
+ *
+ * This is the **only** place a production date is ever derived from a delivery
+ * date, and it happens **once**, at creation, as a stored value. Nothing
+ * recomputes a card's position afterwards — a card's day *is* its
+ * `production_date` (CONSTRAINT-19). Writing the default here instead of
+ * deriving it on read is what lets `clearProductionPlacement` genuinely
+ * unschedule an order rather than bounce it back to a computed day.
+ *
+ * An order created with no delivery date starts unscheduled, in the callout,
+ * which is correct: nobody has decided when to build it. Adding a delivery date
+ * later does not place it — that stays a deliberate act.
+ *
+ * `prevBusinessDay` guarantees a weekday, so the no-weekend invariant holds
+ * without a separate check.
+ */
+export function defaultProductionDate(deliveryDate: string | null): string | null {
+  if (deliveryDate === null) return null
+  const delivery = parseDbDate('defaultProductionDate', deliveryDate)
+  return format(prevBusinessDay(delivery), DB_DATE_FORMAT)
+}
+
+/**
+ * Insert payload for a new PO: the shared write-base, the initial status, and
+ * the starting production date so the PO appears on the calendar without
+ * anyone having to drag it there.
  */
 export function normalizeCreate(data: ValidatedCreate) {
-  return { ...buildOrderWriteBase(data), status: data.initial_status }
+  const base = buildOrderWriteBase(data)
+  return {
+    ...base,
+    status: data.initial_status,
+    production_date: defaultProductionDate(base.requested_delivery_date),
+  }
 }
 
 /**

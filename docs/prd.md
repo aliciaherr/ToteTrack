@@ -561,7 +561,7 @@ As the production director, I want a weekday calendar of active orders positione
 | `same_day_delivery` | `boolean NOT NULL DEFAULT false` | Visual marker; toggled only from the calendar popup. |
 | `production_sort_index` | `integer` NULL | Build sequence within a day. |
 
-**Positioning** — a card's column is `COALESCE(production_date, prevBusinessDay(requested_delivery_date))`. Not on the calendar when both are NULL.
+**Positioning** — a card's column **is** its `production_date`. Nothing is derived at read time. An order with no production date is not on the calendar; it sits in the unscheduled callout, whatever its delivery date. The delivery date seeds `production_date` **once**, at order creation (`prevBusinessDay(requested_delivery_date)`), so new POs appear without being dragged in.
 
 **`prevBusinessDay(d)`** — the last Mon–Fri strictly before `d`. Sat, Sun, and Mon delivery dates all resolve to the prior Friday. Weekends only; holidays are not modelled.
 
@@ -571,13 +571,13 @@ As the production director, I want a weekday calendar of active orders positione
 
 **Eligibility** — `status <> 'cancelled'`. `completed` and `invoiced` cards render dimmed, are not draggable, and keep their `production_sort_index` slot interleaved with scheduled cards.
 
-**Unscheduled set** — `status <> 'cancelled' AND production_date IS NULL AND requested_delivery_date IS NULL`. This is the single source for the top-right callout, its dropdown, and every per-day `+` list.
+**Unscheduled set** — `status <> 'cancelled' AND production_date IS NULL`. This is the single source for the top-right callout, its dropdown, and every per-day `+` list.
 
 **Drag semantics** — a drop writes `production_date` and `production_sort_index` in one action. Cards land at the exact index released, not appended. Mutations go through a server action + `revalidatePath` per the existing pattern; no optimistic-only state.
 
 **Cross-week dragging** — while a drag is active, holding the card within ~80px of either edge of the scroll strip auto-scrolls it continuously (speed proportional to edge proximity), so a card can be carried into any week without dropping it first. Provided by `@dnd-kit`'s auto-scroll activator.
 
-**Dragging back to unscheduled** — the callout and its dropdown are also a drop target. Dropping a card there clears `production_date` and `production_sort_index`, identically to the popup's `Remove from calendar`. Same caveat: an order that has a `requested_delivery_date` cannot rest in the unscheduled list — it reappears on `prevBusinessDay(requested_delivery_date)`. Only orders with neither date stay in the dropdown.
+**Dragging back to unscheduled** — the callout and its dropdown are also a drop target. Dropping a card there clears `production_date` and `production_sort_index`, identically to the popup's `Remove from calendar`, and the order **stays** in the dropdown until someone gives it a build day. A delivery date does not pull it back onto the calendar: the two dates are separate, and production may legitimately fall after delivery when work slips. A delivery date can therefore move under a placed card unnoticed, in either direction, and nothing flags it. Accepted: the calendar is reviewed daily and production scheduling is a deliberate act, so a stale build day surfaces in normal use.
 
 **Card anatomy** — no tag rail. Top line: PO number (muted) with the `B` (backhaul) and `SD` (same-day) tags right-aligned on the same line. Then customer name (always 2 lines tall, truncated past that), product mix (always 2 lines tall), and `requested_delivery_date` bottom-right (`—` when NULL). `B` reuses the existing circular `BackhaulTag`; `SD` is a two-character `rounded-md` pill in the `bg-amber-100 / text-amber-800` pair already used by the Leads widget.
 
@@ -595,7 +595,7 @@ As the production director, I want a weekday calendar of active orders positione
 
 **Per-day `+`** — sits in the column footer, in the same slot and `text-primary` link style as the widgets' "View all". Hidden until column hover **only** on devices matching `(hover: hover) and (pointer: fine)`; always visible otherwise, so it is permanently present on iPad and any touch device.
 
-**Dashboard widget** — the next 2 business days, up to 3 rows each, plus the unscheduled count and a link to `/calendar`. Labels use real dates when they aren't literally today/tomorrow: Friday shows Fri + Mon; Sat/Sun shows Mon + Tue. Rows put the `B` / `SD` tags immediately after the customer name, mirroring how Open Orders places them after the PO number.
+**Dashboard widget** — the next 2 business days as **two side-by-side columns**, up to **4 rows each** (an 8-order snapshot), plus the unscheduled count and a link to `/calendar`. Column widths and the widget's outer height match the neighbouring dashboard widgets. Each column is headed with the **real weekday and date** — `Today` / `Tomorrow` are deliberately not used, because the label would hold for at most one column and on a Friday or weekend for neither. Friday shows Fri + Mon; Sat/Sun shows Mon + Tue. Rows put the `B` / `SD` tags immediately after the customer name, mirroring how Open Orders places them after the PO number; long customer names truncate. Revised 2026-07-27 after the first visual review — the original stacked single-column list read as one continuous list with no clear break between the two days.
 
 **Drag-and-drop** — `@dnd-kit/core` + `@dnd-kit/sortable`. Desktop mouse, keyboard, and tablet touch (long-press ≈250 ms starts a drag; tap opens the popup; swipe scrolls the calendar). All drag affordances respect `useReducedMotion()`. `@dnd-kit` is client-only and therefore falls under CONSTRAINT-03 alongside `framer-motion` and `recharts`.
 
@@ -639,8 +639,8 @@ As the production director, I want a weekday calendar of active orders positione
 - **Production date set but delivery date NULL** — valid. Card sits on its production date with `—` as the delivery date.
 - **Delivery date changed after an explicit drag** — card stays put, silently. Only the printed delivery date updates.
 - **Production date on or after the delivery date** — allowed, unflagged.
-- **Undated order marked complete** — `CONSTRAINT-16` stamps `CURRENT_DATE`, so the card appears at `prevBusinessDay(today)`, i.e. dimmed and in the past. Accepted.
-- **`Remove from calendar` on a dated order** — card jumps to its default day instead of disappearing.
+- **Undated order marked complete** — `CONSTRAINT-16` stamps `requested_delivery_date`, but production placement is untouched: the order stays in the unscheduled callout until someone gives it a build day. Accepted.
+- **`Remove from calendar` on a dated order** — the card leaves the calendar and appears in the unscheduled callout, whatever its delivery date.
 - **More than 4 cards in a day** — column scrolls vertically; the day header and footer stay fixed.
 - **6-combo order** — 4 combos shown plus `+2 more`; full mix in the popup.
 - **Order with NULL unit prices** (legacy multi-combo, per Feature 10) — popup grid falls back to bare quantities for those cells; the card is unaffected since it never shows prices.

@@ -30,51 +30,21 @@ export interface CalendarOrderRow {
   unit_price_330_rebot: string | null
   unit_price_330_new: string | null
   backhaul: boolean
+  // Fetched for the card popup only — cards themselves never show notes. Added
+  // in Feature 11 Task 58; it is the one long-text column on the row, so if the
+  // calendar payload ever needs trimming this is the first thing to move behind
+  // a per-order fetch.
+  notes: string | null
   same_day_delivery: boolean
   production_date: string | null
   requested_delivery_date: string | null
   production_sort_index: number | null
-  // The resolved calendar column, computed by EFFECTIVE_PRODUCTION_DATE below.
-  // Returned rather than recomputed client-side so the column a card filters
-  // into and the column it renders into can never disagree. Null only on the
-  // unscheduled rows returned by `getUnscheduledOrders`.
-  effective_production_date: string | null
 }
 
 export interface CalendarRange {
   from: string
   to: string
 }
-
-/**
- * The COALESCE rule from CONSTRAINT-19, in SQL. Must stay behaviourally
- * identical to `effectiveProductionDate` in `lib/dates.ts` — that helper is the
- * client-side twin of this expression, and the two disagreeing would place a
- * card in one column and filter it into another.
- *
- * An explicit `production_date` wins. Otherwise the card falls back to the
- * business day before the requested delivery date, using ISO day-of-week
- * (1 = Monday … 7 = Sunday):
- *   - Monday (1) → minus 3 days → the prior Friday
- *   - Sunday (7) → minus 2 days → the prior Friday
- *   - every other day → minus 1 day, which is always a weekday
- * Weekends only; there is no holiday calendar and none is planned.
- *
- * `date - integer` yields a date in Postgres (an INTERVAL would widen it to a
- * timestamp). When both columns are NULL the whole expression is NULL, so
- * unscheduled orders fall out of any range comparison — which is what makes
- * them exclusively `getUnscheduledOrders`' business.
- */
-const EFFECTIVE_PRODUCTION_DATE = sql`
-  COALESCE(
-    o.production_date,
-    CASE EXTRACT(ISODOW FROM o.requested_delivery_date)::int
-      WHEN 1 THEN o.requested_delivery_date - 3
-      WHEN 7 THEN o.requested_delivery_date - 2
-      ELSE o.requested_delivery_date - 1
-    END
-  )
-`
 
 // Shared projection for both calendar queries so a card rendered from the
 // unscheduled dropdown and the same card rendered in a day column carry
@@ -100,11 +70,11 @@ const CALENDAR_SELECT_LIST = sql`
   o.unit_price_330_rebot::text AS unit_price_330_rebot,
   o.unit_price_330_new::text AS unit_price_330_new,
   o.backhaul,
+  o.notes,
   o.same_day_delivery,
   o.production_date,
   o.requested_delivery_date,
-  o.production_sort_index,
-  ${EFFECTIVE_PRODUCTION_DATE}::text AS effective_production_date
+  o.production_sort_index
 `
 
 // `cancelled` is the only status the calendar hides. `completed` and
@@ -119,10 +89,10 @@ function buildCalendarRangeQuery(from: string, to: string): SQL {
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     WHERE ${NOT_CANCELLED}
-      AND ${EFFECTIVE_PRODUCTION_DATE} >= ${from}
-      AND ${EFFECTIVE_PRODUCTION_DATE} <= ${to}
+      AND o.production_date >= ${from}
+      AND o.production_date <= ${to}
     ORDER BY
-      ${EFFECTIVE_PRODUCTION_DATE} ASC,
+      o.production_date ASC,
       o.production_sort_index ASC NULLS LAST,
       o.po_number ASC
   `
@@ -136,18 +106,22 @@ function buildUnscheduledQuery(): SQL {
     LEFT JOIN customers c ON c.id = o.customer_id
     WHERE ${NOT_CANCELLED}
       AND o.production_date IS NULL
-      AND o.requested_delivery_date IS NULL
     ORDER BY o.po_number ASC
   `
 }
 
 /**
- * Loads every non-cancelled order whose effective production date falls inside
+ * Loads every non-cancelled order whose `production_date` falls inside
  * `[from, to]`, ordered by column, then intra-day sequence, then PO number.
  *
- * Orders with no production date and no requested delivery date have a NULL
- * effective date and are therefore never returned here — they belong to
- * `getUnscheduledOrders`. Between the two, no active order can be invisible.
+ * A card's column **is** its `production_date` — there is no derivation. An
+ * order with no production date is unscheduled and belongs to
+ * `getUnscheduledOrders`, whatever its delivery date says. Between the two, no
+ * active order can be invisible.
+ *
+ * The filter is a bare column comparison rather than an expression, so
+ * `orders_production_date_idx` can actually serve it. The previous
+ * `COALESCE(...)` form was not sargable and forced a sequential scan (FI-02).
  *
  * @throws {InvalidDateError} when `from` or `to` is not a `DB_DATE_FORMAT`
  * string, or when the range is inverted — either would silently return an
@@ -179,12 +153,17 @@ export async function getCalendarOrders(input: CalendarRange): Promise<CalendarO
 }
 
 /**
- * Loads every non-cancelled order that has neither a production date nor a
- * requested delivery date, ordered by PO number.
+ * Loads every non-cancelled order with no `production_date`, ordered by PO
+ * number — regardless of whether it has a requested delivery date.
  *
- * This is the exact complement of `getCalendarOrders`' date filter: an active
- * order is in one set or the other, never both and never neither. It drives the
+ * This is the exact complement of `getCalendarOrders`' filter: an active order
+ * is in one set or the other, never both and never neither. It drives the
  * top-right unscheduled callout, its dropdown, and every per-day `+` list.
+ *
+ * A delivery date does not put an order on the calendar. Production scheduling
+ * is its own decision, so an order sits here until someone gives it a build day
+ * — which is what makes `clearProductionPlacement` genuinely unschedule rather
+ * than bounce a card to a derived day (CONSTRAINT-19).
  *
  * @throws {DatabaseError} when the underlying SQL query fails.
  */

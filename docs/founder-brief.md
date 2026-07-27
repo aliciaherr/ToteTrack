@@ -158,10 +158,12 @@
 
 ## FB-11 — Production Date as a Separate Column, with the Placement Rule Written Twice
 
+> **Partly superseded by FB-13 (2026-07-27).** The decision to keep production date separate from the delivery promise still stands and is the foundation of the feature. The part about the placement rule being written twice no longer applies — both copies were deleted when card position became the stored column itself.
+
 **Date:** 2026-07-26
 **Architecture section:** `docs/architecture.md` → Data Model (Production date vs delivery promise), Database Layer, Performance Considerations; also CONSTRAINT-19
 
-**Decided:** The build day lives in its own database column, `production_date`, rather than reusing the delivery date. Where a PO has no build day set, the calendar shows it on the business day before its promised delivery — and that fallback rule is written twice on purpose: once in TypeScript (`lib/dates.ts`, for the browser) and once in SQL (`db/queries/calendar.ts`, for filtering). The two were verified to agree on all 43 rows of the live database.
+**Decided:** The build day lives in its own database column, `production_date`, rather than reusing the delivery date. *(As originally shipped, a PO with no build day set was shown on the business day before its promised delivery — and that fallback rule was written twice on purpose, once in TypeScript and once in SQL. Both were deleted on 2026-07-27; see FB-13.)*
 
 **Means for your product:** Dragging a card on the calendar reschedules *production* and never touches what you promised the customer. That separation is the whole point of the feature — the first version of the idea would have had dragging silently rewrite delivery commitments. The cost is that a PO can now have a build day and a delivery day that disagree, and nothing flags it: if you set a build day and later change the delivery date, the card stays where you put it. That is intended (your explicit placement wins) but it means the calendar can drift from the orders list without warning.
 
@@ -170,3 +172,41 @@ Writing the rule twice is a real risk you should know about. If someone later ch
 **Check before approving:** (a) Are you comfortable that changing a delivery date does *not* move an already-placed card, with no visual flag on the divergence? (b) The no-weekend rule is enforced when a date is *saved*, not when it is *read* — so a weekend date arriving by some other route (manual SQL, a future import) would display rather than error. There is no such route today. (c) The calendar query does not use the database index built for it, because wrapping a column in COALESCE makes indexes unusable. At tens of rows this is unmeasurable; it would matter at tens of thousands.
 
 **What this closes off:** Collapsing production and delivery back into one date would mean deciding what happens to a card's placement when a promise moves — not a revert, a redesign. Holiday awareness needs a holidays table, an admin screen, and holiday-aware math everywhere `prevBusinessDay` is used. Weekend production needs 6–7 calendar columns and invalidates the no-weekend invariant the whole layout assumes.
+
+---
+
+## FB-12 — Drag-and-Drop Library Added to a Locked Stack
+
+**Date:** 2026-07-27
+**Architecture section:** `docs/architecture.md` → Stack, Component Boundary Rule; also CONSTRAINT-03 and CONSTRAINT-19
+
+**Decided:** Two new packages were added to the project — `@dnd-kit/core` and `@dnd-kit/sortable` — to make the production calendar's cards draggable. Nothing already in the stack could do it. The calendar needs four things at once: dragging a card into a position *within* a day rather than just onto it, the strip scrolling itself when a card is dragged to the edge, keyboard-only dragging, and — hardest — telling the difference on an iPad between a finger dragging a card and a finger scrolling the page. Hand-writing that is weeks of work and a permanent source of bugs.
+
+**Means for your product:** The calendar works by dragging, which is the whole point of it, and it works with a keyboard as well as a finger. The cost is two more dependencies to keep current — this is the first time anything has been added to the stack since it was set. It is worth being explicit that **no rule was broken**: CONSTRAINT-01 locks the stack against *substitutions* (swapping Framer Motion for something else, swapping Drizzle for Prisma), not against additions where the stack has a genuine hole. You approved this directly on 2026-07-26 without a `@cto` review, on that reading.
+
+There is one open question this does not answer. The iPad touch behaviour is configured but has **never been tested on an actual iPad** — it is logged as assumption A-05, accepted with a fallback plan (tap a card to select it, then tap a day to place it) rather than validated up front. If the drag-versus-scroll distinction turns out to feel wrong on the real device, that fallback replaces the touch handling; the mouse and keyboard paths are unaffected.
+
+**Check before approving:** (a) Are you comfortable that adding a dependency is now an established precedent — the next feature that needs something the stack lacks will point at this decision? (b) Would you rather future additions route through `@cto` for a second opinion, or is your direct approval the process? You raised this yourself as an open question and it is still unanswered. (c) A-05 remains unvalidated: the touch experience is a guess until someone drags a card on an iPad.
+
+**What this closes off:** Very little, which is why it was an easy call. `@dnd-kit` is self-contained — it touches only the calendar components and could be removed by deleting them. What it *does* close off is the argument that the stack is immutable; from here, "the stack is locked" means "we don't swap what works," not "we never add." That is a weaker guarantee than before, and worth saying out loud rather than discovering later.
+
+---
+
+## FB-13 — Where a Card Sits *Is* Its Production Date (supersedes the second half of FB-11)
+
+**Date:** 2026-07-27
+**Architecture section:** `docs/architecture.md` → Data Model, Database Layer, Performance Considerations; also CONSTRAINT-19 (revised) and migration `0011`
+
+**Decided:** A card's position on the production calendar is now simply the production date stored against that order. Nothing is worked out on the fly any more. If an order has no production date, it is not on the calendar — it sits in the amber "needs a production date" list at the top, no matter what delivery date it carries. The delivery date is used exactly once, when an order is first created, to pick a sensible starting day so you never face an empty calendar. After that it has no say in where a card sits.
+
+**Means for your product:** "Remove from calendar" now removes the order from the calendar. Previously it didn't — the card sprang back to a day worked out from the delivery date, which is the behaviour you flagged the first time you used it. The deeper fix is that a card sitting on a day now always means *someone decided that day*. Before, a card that had been deliberately placed and a card that had never been touched looked identical and behaved differently, and there was no way to tell them apart.
+
+There is a real trade. Because a card's day is now stored rather than calculated, **changing a delivery date will never move a card.** If a customer pushes their delivery out by a week, the production card stays exactly where it is and nothing rearranges itself. That is deliberate — production scheduling is your decision, and delivery dates are guidance, not instructions. The cost is that the two can drift apart quietly. That drift is unflagged, and deliberately so. An indicator was built and then removed on 2026-07-27: marking only "production is later than promised" was the wrong signal, and marking "the promise moved at all" would have required the database to remember which delivery date each production date was chosen against — a new column and a migration for a warning you judged you did not need. You look at the calendar daily; a build day that has drifted from its promise shows up in that review.
+
+The other trade: the amber "needs a production date" list is now load-bearing. Previously the system could not lose an order — anything with a delivery date was auto-placed whether you asked or not. Now an order you unschedule waits in that list until you deal with it. That is the point, but it means the amber count is something to actually look at.
+
+**Check before approving:** (a) Are you comfortable that a delivery-date change never moves a card, with nothing flagging the divergence? (b) The amber unscheduled list is now the only thing standing between an unscheduled order and being forgotten — is a count badge at the top of the calendar enough, or would you want it surfaced somewhere harder to miss? (c) A one-time database update (`0011`) wrote today's calculated positions into the database. You ran it and confirmed every card stayed put; that is what makes this change invisible rather than disruptive.
+
+**What this closes off:** Very little, and it *opens* something up. The riskiest part of the original design is gone: the placement rule used to be written twice — once in TypeScript for the browser, once in SQL for filtering — and FB-11 called out that if the two ever drifted, a card would be filtered into one day and drawn in another, a bug that is nearly invisible by eye. Both copies have been deleted. There is now one stored fact and nothing to keep in sync. A performance caveat also disappeared: the calendar's date filter can finally use its database index, which it never could while the position was being calculated inside the query.
+
+Going back would mean reintroducing derived positions, and with them both the drift risk and the "remove doesn't remove" behaviour. Holiday awareness, weekend production, and phone layouts remain closed off for the same reasons as before.

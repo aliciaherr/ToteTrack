@@ -128,6 +128,29 @@ This is standard Next.js App Router + Framer Motion practice used in production 
 
 ---
 
+### A-05 — Touch drag-and-drop works on iPad inside a horizontally scrolling strip
+
+**Category:** Technical feasibility
+
+**Assumption:** `@dnd-kit`'s `TouchSensor` can distinguish a *drag* from a *scroll* on iPadOS well enough that a salesperson can drag a production card between day columns without accidentally scrolling the week strip, and without a long press that feels sluggish.
+
+**Why it's critical:** iPad landscape is the documented primary device (`design-decisions.md` → Audience). The production calendar's core interaction is dragging cards, and the strip scrolls horizontally in exactly the same gesture space a drag starts in. If the two cannot be disambiguated, drag-and-drop is unusable on the only device that matters — and the feature's entire interaction model has to change, not just its tuning.
+
+**Resolution approach:** Accepted risk — deliberately not validated before building.
+
+**Resolution detail:**
+No spike was run. The builder accepted the rework risk on 2026-07-26 and chose to discover the answer at implementation time rather than pay for a prototype first. Task 56 configures `TouchSensor` with a ~250ms activation delay and an 8px tolerance, which is the conventional setting for this exact problem: a press shorter than the delay, or a finger that travels past the tolerance, is treated as a scroll rather than a drag.
+
+**Contingency:** If `TouchSensor` misbehaves on a real iPad, the agreed fallback is **tap-to-select then tap-target** — the card is selected by a tap, the destination column is chosen by a second tap, and no dragging occurs. This replaces the touch sensor rather than tuning it, and leaves the pointer and keyboard paths untouched.
+
+**Outcome:** Accepted risk. **Still unvalidated as of Task 56** — the sensor configuration is written and unit-tested for its constants, but jsdom cannot simulate touch, and the calendar has not yet been opened on an iPad or in any browser.
+
+**Status:** [x] Accepted risk — **contingency not yet needed or ruled out; requires a real-device check**
+
+> **Bookkeeping note (2026-07-26, Task 56):** A-05 was referenced by `docs/plan.md` and `docs/session-handoff.md` for two sessions before this entry existed. It was written here during Task 56 because `@dev`'s pre-code assumption gate reads *this* file, and would have blocked on an assumption the builder had in fact already accepted. Same failure shape as the missing `manifest.md`: the decision was made and recorded, just not in the file the process checks.
+
+---
+
 ## Summary
 
 | # | Assumption | Category | Approach | Status |
@@ -136,8 +159,9 @@ This is standard Next.js App Router + Framer Motion practice used in production 
 | A-02 | Single-password auth not natively supported | Service capability | Research | Resolved — fixed dummy email pattern |
 | A-03 | Cold start: low value before data entered | User behavior | Accepted risk | Accepted — build data-entry screens first |
 | A-04 | Framer Motion requires client components | Technical feasibility | Accepted risk | Accepted — document boundary rule in architecture |
+| A-05 | iPad touch drag-and-drop inside a scrolling strip | Technical feasibility | Accepted risk | Accepted — **unvalidated**; fallback is tap-to-select-then-tap-target |
 
-**Open count:** 0 — `@plan` is unblocked.
+**Open count:** 0 — `@plan` is unblocked. A-05 is accepted but **not yet exercised on a real device**; it is the one assumption on this project whose contingency may still fire.
 
 ---
 

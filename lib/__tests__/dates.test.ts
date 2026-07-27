@@ -3,7 +3,6 @@ import { format } from 'date-fns'
 import {
   DB_DATE_FORMAT,
   businessWeekDays,
-  effectiveProductionDate,
   isBusinessDay,
   nextBusinessDay,
   parseDbDate,
@@ -140,36 +139,5 @@ describe('businessWeekDays', () => {
 
   it('throws InvalidDateError when given an invalid Date', () => {
     expect(() => businessWeekDays(new Date(NaN))).toThrow(InvalidDateError)
-  })
-})
-
-describe('effectiveProductionDate', () => {
-  it('returns production_date verbatim when it is set', () => {
-    expect(effectiveProductionDate('2026-06-03', '2026-06-05')).toBe('2026-06-03')
-  })
-
-  it('falls back to the business day before the requested delivery date', () => {
-    // Mon 2026-06-01 delivery → builds Fri 2026-05-29
-    expect(effectiveProductionDate(null, '2026-06-01')).toBe('2026-05-29')
-    // Sun 2026-06-07 delivery → builds Fri 2026-06-05
-    expect(effectiveProductionDate(null, '2026-06-07')).toBe('2026-06-05')
-  })
-
-  it('returns null when both inputs are null (unscheduled)', () => {
-    expect(effectiveProductionDate(null, null)).toBeNull()
-  })
-
-  it('never derives a weekend date from any delivery date in the reference week', () => {
-    const deliveryDates = [FRI_MAY_29, MON_JUN_1, WED_JUN_3, SAT_JUN_6, SUN_JUN_7].map(iso)
-    for (const delivery of deliveryDates) {
-      const derived = effectiveProductionDate(null, delivery)
-      expect(derived).not.toBeNull()
-      expect(isBusinessDay(new Date(`${derived}T00:00:00`)), delivery).toBe(true)
-    }
-  })
-
-  it('throws InvalidDateError on an unparseable date string', () => {
-    expect(() => effectiveProductionDate(null, 'not-a-date')).toThrow(InvalidDateError)
-    expect(() => effectiveProductionDate('06/03/2026', null)).toThrow(/yyyy-MM-dd/)
   })
 })

@@ -56,18 +56,25 @@ Do this once per Supabase project. The migrations and auth user are persistent �
 
 ### 2. Apply the database migrations
 
-There are three migration files under `db/migrations/`. They must all run, in order, on a fresh Supabase project:
+There are **eleven** migration files under `db/migrations/`. They must **all** run, **in numerical order**, on a fresh Supabase project. Skipping any of them leaves the schema behind the application code and screens will fail at query time.
 
 - `0001_initial_schema.sql` — tables, enums, foreign keys (generated from the Drizzle schema)
 - `0002_rls_policies.sql` — enables Row Level Security on all eight tables (CONSTRAINT-05 — mandatory, never disable)
 - `0003_storage_buckets.sql` — creates the private `po-documents` and `support-attachments` storage buckets (CONSTRAINT-06)
+- `0004_drop_pending_status.sql` — PO status model v2
+- `0005_customer_default_delivery_address.sql`
+- `0006_optional_delivery_date.sql` — makes `requested_delivery_date` nullable
+- `0007_invoice_v3_drop_status_and_customer.sql` — invoice model v3 (CONSTRAINT-17)
+- `0008_po_multi_combo.sql` — the six `qty_*` columns (Feature 9 / CONSTRAINT-09)
+- `0009_po_unit_prices.sql` — the six `unit_price_*` columns; `price` becomes a derived total (Feature 10)
+- `0010_production_calendar.sql` — `production_date`, `same_day_delivery`, `production_sort_index` (Feature 11 / CONSTRAINT-19)
+- `0011_backfill_production_date.sql` — **data migration, no schema change.** Writes a starting `production_date` for existing rows. Must run *after* `0010`. Idempotent, and a no-op on a genuinely fresh database with no orders.
 
-The simplest way to apply them on a fresh project is to paste each file into the Supabase SQL Editor and run them in sequence:
+There is **no CLI migration runner** in this repo. Apply each file by pasting it into the Supabase SQL Editor and running them in sequence:
 
 1. Open the Supabase Dashboard → SQL Editor → New query.
 2. Paste the contents of `db/migrations/0001_initial_schema.sql` → Run.
-3. New query → paste `db/migrations/0002_rls_policies.sql` → Run.
-4. New query → paste `db/migrations/0003_storage_buckets.sql` → Run.
+3. Repeat for each remaining file **in numerical order**, through `0011`.
 
 Verify the result by running `SELECT tablename FROM pg_tables WHERE schemaname = 'public';` — you should see `customers`, `customer_contacts`, `orders`, `leads`, `lead_notes`, `invoices`, `support_tickets`, and `support_attachments`.
 

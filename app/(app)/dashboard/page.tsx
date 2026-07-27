@@ -8,6 +8,7 @@ import {
   getOpenOrdersForDashboard,
   type DashboardPeriod,
 } from '@/db/queries/dashboard'
+import { getProductionWidgetData } from '@/db/queries/production-widget'
 
 function parsePeriod(raw: string | string[] | undefined): DashboardPeriod {
   const value = Array.isArray(raw) ? raw[0] : raw
@@ -26,13 +27,15 @@ interface DashboardPageProps {
  */
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const period = parsePeriod(searchParams.period)
-  const [stats, needToContact, openOrders, leadsFollowUp, invoiceTrend] = await Promise.all([
-    getDashboardStats(period),
-    getNeedToContactList(),
-    getOpenOrdersForDashboard(),
-    getLeadsFollowUp(),
-    getInvoiceTrendData(),
-  ])
+  const [stats, needToContact, openOrders, leadsFollowUp, invoiceTrend, production] =
+    await Promise.all([
+      getDashboardStats(period),
+      getNeedToContactList(),
+      getOpenOrdersForDashboard(),
+      getLeadsFollowUp(),
+      getInvoiceTrendData(),
+      getProductionWidgetData(new Date()),
+    ])
   return (
     <PageTransition>
       <DashboardView
@@ -41,6 +44,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         openOrders={openOrders}
         leadsFollowUp={leadsFollowUp}
         invoiceTrend={invoiceTrend}
+        production={production}
       />
     </PageTransition>
   )

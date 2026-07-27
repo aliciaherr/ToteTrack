@@ -38,13 +38,17 @@
 
 ---
 
-### CONSTRAINT-03 — Component boundary rule (Framer Motion = 'use client')
+### CONSTRAINT-03 — Component boundary rule (client-only libraries = 'use client')
 
-**Decision:** Any component that imports from `framer-motion` or `recharts` must have `'use client'` at the top of the file. Server components fetch data only — no animation or chart imports.
+**Decision:** Any file that imports from `framer-motion`, `recharts`, `@dnd-kit/core`, or `@dnd-kit/sortable` must be a client component (`'use client'` at the top of the file). Server components fetch data only — no animation, chart, or drag-and-drop imports.
 
-**What it means in practice:** The pattern is always: server component (fetch data, pass as props) → client component (render with animation). Never import Framer Motion in a file without `'use client'`. Violating this causes runtime errors.
+> This sentence is duplicated verbatim in `docs/architecture.md` → Component Boundary Rule. The two must stay identical; if a library is added to one list, add it to the other in the same change.
 
-**Who decided and when:** @plan (A-04 resolution), 2026-04-20
+**What it means in practice:** The pattern is always: server component (fetch data, pass as props) → client component (render with animation). Never import one of these libraries in a file without `'use client'`. Violating this causes runtime errors.
+
+A **type-only** import is erased at compile time and does not require the directive — `import type { DragEndEvent } from '@dnd-kit/core'` in `components/calendar/calendarDnd.ts` is deliberate and correct.
+
+**Who decided and when:** @plan (A-04 resolution), 2026-04-20. `@dnd-kit` added to the list 2026-07-27 (Feature 11 Task 60; the dependency itself was approved 2026-07-26 — see FB-12).
 
 **What this closes off:** Nothing — this is a correctness requirement, not an option.
 
@@ -263,25 +267,34 @@
 
 ### CONSTRAINT-19 — Production date is separate from the delivery promise (Feature 11)
 
-**Decision:** The build day is its own nullable column, `production_date`, on `orders`. The Production Calendar reads and writes **only** `production_date` (plus `production_sort_index` for intra-day sequence) and must never write `requested_delivery_date` — that column stays the customer-facing promise, editable only in the Orders tab. A card's calendar position is `COALESCE(production_date, prevBusinessDay(requested_delivery_date))`. `prevBusinessDay` is **weekends-only** — no holiday calendar exists or is planned — so Mon, Sat, and Sun delivery dates all resolve to the prior Friday. No production date may fall on a weekend. Order editing is not available from the calendar: the card popup is read-only apart from the `same_day_delivery` toggle.
+**Decision:** The build day is its own nullable column, `production_date`, on `orders`. The Production Calendar reads and writes **only** `production_date` (plus `production_sort_index` for intra-day sequence) and must never write `requested_delivery_date` — that column stays the customer-facing promise, editable only in the Orders tab.
+
+**A card's position on the calendar IS its `production_date`.** Nothing is derived at read time. `production_date IS NULL` means one thing only: the order has no production date, so it belongs in the unscheduled callout — irrespective of any delivery date it carries. The two dates are separate entities; a delivery date is guidance for scheduling, not a fact about when something will be built, and production may legitimately fall *after* it when work slips.
+
+The delivery date is used **once**, at order creation, to seed a starting `production_date` of `prevBusinessDay(requested_delivery_date)` so a new PO lands on the calendar without anyone dragging it there. That is a stored value, written once. Adding a delivery date to an existing undated order does **not** place it — that stays a deliberate act. `prevBusinessDay` is **weekends-only** — no holiday calendar exists or is planned — so Mon, Sat and Sun delivery dates all resolve to the prior Friday, and no production date can fall on a weekend. Order editing is not available from the calendar: the card popup is read-only apart from the `same_day_delivery` toggle.
+
+> **Revised 2026-07-27**, after the first browser review. The original design derived a card's position with `COALESCE(production_date, prevBusinessDay(requested_delivery_date))` at read time, which meant `Remove from calendar` did not remove anything — a card with a delivery date bounced straight back to a derived day. It also left a defaulted card visually indistinguishable from a deliberately placed one. Migration `0011` materialised the derived value into the column so the derivation could be deleted without moving a single card.
 
 **What it means in practice:**
 - Migration `0010` adds `production_date` (`date` NULL), `same_day_delivery` (`boolean NOT NULL DEFAULT false`), `production_sort_index` (`integer` NULL). RLS on `orders` unchanged (CONSTRAINT-05).
 - `prevBusinessDay` lives in `lib/dates.ts` alongside `DB_DATE_FORMAT` and is the single source of the weekday rule — no inline date math in components.
-- **The placement rule exists in two implementations and they must stay equivalent:** `effectiveProductionDate` in `lib/dates.ts` (TypeScript) and `EFFECTIVE_PRODUCTION_DATE` in `db/queries/calendar.ts` (SQL, an ISO-day-of-week `CASE`: Mon `−3`, Sun `−2`, else `−1`). Verified equal on all 43 live rows on 2026-07-26. Any change to the weekday rule lands in both, or a card is filtered into one column and drawn in another.
-- **`getCalendarOrders` returns `effective_production_date` as a column.** Client code consumes it and must not recompute placement locally — the SQL answer is authoritative, which is what makes the two implementations unable to disagree at runtime.
-- **The no-weekend invariant is enforced on write, never on read.** The Task 52 server actions reject a Saturday/Sunday `production_date`; `effectiveProductionDate` and the SQL expression both pass a stored `production_date` through verbatim. Relocating a stored date on read would hide a data bug; throwing on read would take down the whole calendar over one row.
+- **There is no placement rule to keep in sync any more.** The former requirement — that `effectiveProductionDate` (TypeScript) and `EFFECTIVE_PRODUCTION_DATE` (SQL) stay verified-equal, or a card would be filtered into one column and drawn in another — **no longer applies.** Both were deleted on 2026-07-27. `prevBusinessDay` survives in `lib/dates.ts`, called from exactly one place: `defaultProductionDate` in `lib/actions/orders.internal.ts`, at order creation. Queries and components read `production_date` directly.
+- **The calendar range filter is a bare column comparison** (`o.production_date >= from AND <= to`), so `orders_production_date_idx` can serve it. The previous `COALESCE(...)` form was not sargable and forced a sequential scan — logged as **FI-02**, now moot.
+- **`getCalendarOrders` returns `production_date`.** There is no `effective_production_date` — the field was dropped with the derivation. `groupRowsByDay` keys cards on `production_date` directly.
+- **The no-weekend invariant is enforced on write, never on read.** The Task 52 server actions reject a Saturday/Sunday `production_date`; Read paths pass a stored `production_date` through verbatim. Relocating a stored date on read would hide a data bug; throwing on read would take down the whole calendar over one row.
 - Once `production_date` is explicitly set, a later change to `requested_delivery_date` does **not** move the card, and nothing flags the divergence.
 - The calendar shows every order with `status <> 'cancelled'`; `completed` and `invoiced` render dimmed and non-draggable but keep their sequence slot.
-- The unscheduled set is exactly `status <> 'cancelled' AND production_date IS NULL AND requested_delivery_date IS NULL` and drives the top-right callout, its dropdown, and every per-day `+` list. No active order may be invisible.
-- `Remove from calendar` nulls both production columns; a dated order therefore returns to its default day rather than leaving the calendar. Dragging a card onto the unscheduled callout does exactly the same thing — two entry points, one operation.
+- The unscheduled set is exactly `status <> 'cancelled' AND production_date IS NULL` and drives the top-right callout, its dropdown, and every per-day `+` list. A delivery date does not put an order on the calendar. No active order may be invisible: it is either on a day or in the callout, never neither.
+- `Remove from calendar` nulls both production columns and the order **leaves the calendar** for the unscheduled callout, whatever its delivery date. Dragging a card onto the callout does exactly the same thing — two entry points, one operation.
+- **Changing a delivery date never moves a card, and nothing flags the divergence.** It cannot move it: position is stored, not computed. A promise can therefore shift out from under a placed card silently — including to a date earlier than the build day. This is accepted, deliberately: production scheduling is the salesperson's decision, and the calendar is checked daily. A flag for it was built and removed on 2026-07-27; the builder's call was that the indicator is not worth its cost.
 - Mutations use server actions + `revalidatePath` like every other write (CONSTRAINT-02) — no optimistic-only client state.
 - The `/calendar` screen is exactly one viewport tall and **never scrolls as a page** on any device; only the week strip and individual day columns scroll. Layout priority when space is short is fixed: never scroll the page → keep text legible (80px card floor) → show 4 cards. Card height is `clamp(80px, calc(25vh - 70px), 104px)` and all its inner metrics interpolate off it, so the visible count is a design target the card size serves rather than a consequence of a hardcoded card.
 - Columns are 176px so a full Mon–Fri fits within iPad landscape's 1024px — the documented primary device (`design-decisions.md` → Audience).
-- `@dnd-kit/core` + `@dnd-kit/sortable` are client-only and fall under **CONSTRAINT-03** alongside `framer-motion` and `recharts`.
+- `@dnd-kit/core` + `@dnd-kit/sortable` are client-only and fall under **CONSTRAINT-03** alongside `framer-motion` and `recharts`. The addition itself is recorded in **FB-12**.
+- **The dashboard production widget reads `production_date` directly**, exactly as the calendar does, over the next two *business* days via `productionWidgetDays`. `nextBusinessDay` is strictly after its argument, so the window seeds with today when today is a weekday.
 - The calendar popup renders `<QtyGrid mode="display">` with `unitPrices` supplied, so it matches PO detail's `qty / $unit` cells (Feature 10). Cards never show prices.
 
-**Who decided and when:** Builder (Q1–Q17 clarification pass + design review), 2026-07-26
+**Who decided and when:** Builder (Q1–Q17 clarification pass + design review), 2026-07-26. Position-is-the-column revision: Builder, 2026-07-27, during the first browser review.
 
 **What this closes off:** Making the calendar edit delivery dates directly would collapse the two concepts and silently rewrite customer commitments — reopening requires deciding what happens to production placement when a promise moves. Holiday awareness needs a `holidays` table plus an admin UI and holiday-aware date math everywhere `prevBusinessDay` is used. Weekend production needs 6–7 columns and invalidates the no-weekend invariant. A phone layout needs a second, narrow single-day layout rather than a responsive tweak of the 5-column grid. Allowing the page itself to scroll would remove the constraint that forces the card-scaling system to exist.
 

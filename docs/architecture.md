@@ -22,6 +22,7 @@
 | UI components | shadcn/ui + Tailwind CSS | Latest |
 | Animation | Framer Motion | Latest |
 | Charts | Recharts | Latest |
+| Drag and drop | @dnd-kit/core + @dnd-kit/sortable | Latest |
 | Forms | react-hook-form + Zod | Latest |
 | Hosting | Vercel | Free tier |
 
@@ -58,7 +59,7 @@
 
 **Production date vs delivery promise (CONSTRAINT-19, FB-11):**
 - `production_date` is the build day and is **separate** from `requested_delivery_date`, the customer-facing promise. Calendar code reads and writes only the production columns — it must never write the delivery date.
-- A PO's calendar position is `COALESCE(production_date, prevBusinessDay(requested_delivery_date))`. This rule exists in exactly two places and they are verified equivalent: `effectiveProductionDate` in `lib/dates.ts` (TypeScript) and `EFFECTIVE_PRODUCTION_DATE` in `db/queries/calendar.ts` (SQL). Any change must land in both.
+- **A PO's calendar position IS its `production_date`** — nothing is derived at read time (revised 2026-07-27, migration `0011`). `production_date IS NULL` means unscheduled, and the order sits in the callout whatever its delivery date. The delivery date seeds the column **once**, at creation, via `defaultProductionDate` in `lib/actions/orders.internal.ts` — the only caller of `prevBusinessDay`. The former two-implementation rule (`effectiveProductionDate` + `EFFECTIVE_PRODUCTION_DATE`) was **deleted**, and with it the risk of a card being filtered into one column and drawn in another.
 - `prevBusinessDay` is weekends-only — no holiday calendar exists or is planned. Mon, Sat and Sun delivery dates all resolve to the prior Friday.
 - The no-weekend invariant is enforced **on write** (the Task 52 server actions reject a Saturday/Sunday `production_date`), never on read. Read paths pass a stored `production_date` through verbatim rather than silently relocating it.
 
@@ -99,6 +100,8 @@ app/
       page.tsx              ← server component — fetches customer list
     orders/
       page.tsx              ← server component — fetches order list
+    calendar/
+      page.tsx              ← server component — parses ?week=, fetches calendar + unscheduled rows (Feature 11)
     leads/
       page.tsx              ← server component — fetches lead list
     invoices/
@@ -131,6 +134,7 @@ components/
     OpenOrdersWidget.tsx    ← 'use client' — was PendingOrdersWidget; renamed in PO model v2
     LeadsFollowUpWidget.tsx ← 'use client'
     InvoiceChart.tsx        ← 'use client' — Recharts
+    ProductionWidget.tsx    ← 'use client' — next 2 business days + unscheduled count (Feature 11)
   customers/
     CustomerLayout.tsx      ← 'use client' — two-panel state
     CustomerList.tsx        ← 'use client'
@@ -147,6 +151,24 @@ components/
     CancelOrderDialog.tsx   ← 'use client'
     RevertOrderDialog.tsx   ← 'use client' — status-aware copy for invoiced revert
     PODocumentUpload.tsx    ← 'use client' (placeholder — Tasks 19/33 cut)
+  calendar/                 ← Feature 11 — every file is 'use client' (@dnd-kit + Framer Motion)
+    CalendarLayout.tsx      ← composition root; hosts the DnD context, the strip and the card dialog
+    calendarScroll.ts       ← useWeekScroll — strip scroll position + the viewer's local "today"
+    calendarWeeks.ts        ← buildWeekGroups + groupRowsByDay (keys cards by production_date)
+    WeekStrip.tsx           ← week groups with a 2px Fri│Mon divider
+    DayColumn.tsx           ← one weekday; droppable + SortableContext
+    DayColumnParts.tsx      ← DayHeader / ColumnBody / ColumnFooter (line-cap split)
+    ProductionCard.tsx      ← presentational card, context-free; also exports SameDayTag + isBuiltStatus
+    productionCardFormat.ts ← formatProductionMix (the `12×275 REC` line)
+    SortableProductionCard.tsx ← drag wrapper; the tap target that opens the popup
+    CalendarDndContext.tsx  ← sensors, collision detection, auto-scroll, DragOverlay
+    calendarDnd.ts          ← pure drop resolution + sensor constants (type-only @dnd-kit import)
+    cardSelection.tsx       ← context carrying "open this card's popup" to the card wrapper
+    useProductionPlacement.ts ← the three calendar mutations + toast/refresh
+    UnscheduledCallout.tsx  ← amber count pill, dropdown, and drop-target for unscheduling
+    AddOrderMenu.tsx        ← the per-day `+ Add order` pick list
+    ProductionCardDialog.tsx ← read-only popup (same-day toggle is its only writable control)
+    ProductionCardDialogParts.tsx / productionCardDialogHooks.ts ← line-cap splits; the hooks file holds the project's only focus trap
   leads/
     LeadLayout.tsx          ← 'use client' — two-panel state
     LeadList.tsx            ← 'use client'
@@ -170,9 +192,11 @@ components/
 
 ### ⚠ Component Boundary Rule
 
-**If a file imports from `framer-motion` or `recharts`, it must be a client component (`'use client'` at the top).**
+**Any file that imports from `framer-motion`, `recharts`, `@dnd-kit/core`, or `@dnd-kit/sortable` must be a client component (`'use client'` at the top of the file).**
 
-Server components: fetch data only. Never import from animation or chart libraries. Pass fetched data as props to client components.
+All three are browser-only: they touch the DOM, pointer events, or measurement APIs that do not exist on the server. A type-only import (`import type { DragEndEvent } from '@dnd-kit/core'`) is erased at compile time and does **not** require the directive — `components/calendar/calendarDnd.ts` relies on this.
+
+Server components: fetch data only. Never import from animation, chart, or drag-and-drop libraries. Pass fetched data as props to client components.
 
 Client components: render UI, handle interactions, run animations. Never do async data fetching (use props from server parent or server actions for mutations).
 
@@ -205,6 +229,8 @@ db/
     orders.constants.ts ← ORDERS_PAGE_SIZE (client-safe sibling — see Platform-Native Rules)
     calendar.ts       ← getCalendarOrders, getUnscheduledOrders + CalendarOrderRow (Feature 11)
     calendar.constants.ts ← UNSCHEDULED_DROPDOWN_VISIBLE, CALENDAR_WEEKS_BUFFER (client-safe sibling)
+    production-widget.ts ← getProductionWidgetData — the dashboard's next-2-business-days widget
+    production-widget.constants.ts ← productionWidgetDays + row/group types (client-safe sibling)
     leads.ts          ← getLeads, getLeadDetail, getLeadNotes
     invoices.ts       ← getInvoiceableOrders, getInvoices, getInvoiceDetail
     support.ts        ← getTickets, getTicketDetail
@@ -221,6 +247,8 @@ lib/
     orders.ts        ← createOrder, updateOrder, updateOrderStatus
     orders.revert.ts ← revertOrderToScheduled (FB-08; sibling extracted at the 300-line cap)
     orders.validation.ts ← Zod schemas + helpers + constants for the orders actions (FB-10 / Platform-Native Rule sibling — `'use server'` files export async only)
+    calendar.ts      ← setProductionPlacement, clearProductionPlacement, toggleSameDayDelivery (Feature 11)
+    calendar.validation.ts ← Zod schemas + SORT_INDEX_MAX; enforces the no-weekend invariant on write (Platform-Native Rule sibling)
     leads.ts         ← createLead, updateLead, addLeadNote, setNextAction, convertLeadToCustomer
     invoices.ts      ← createInvoice (v3; markInvoicePaid removed)
     invoices.constants.ts ← INVOICE_EXISTS_CODE sentinel (Platform-Native Rule sibling)
@@ -228,12 +256,14 @@ lib/
   hooks/
     useToast.ts       ← toast queue hook
   animations.ts       ← shared Framer Motion variant constants
+  calendar-range.ts   ← parseCalendarWeek + buildCalendarRange for the /calendar route's ?week= param
   format-currency.ts  ← shared USD formatter, drops trailing zeros (e.g. 25.50 → $25.5)
   dates.ts            ← DB_DATE_FORMAT + the business-day helpers (isBusinessDay,
                         prevBusinessDay, nextBusinessDay, startOfBusinessWeek,
-                        businessWeekDays, effectiveProductionDate, parseDbDate).
-                        Single source of the weekday rule — no inline date math
-                        anywhere else (CONSTRAINT-19)
+                        businessWeekDays, parseDbDate). `prevBusinessDay` has
+                        exactly one caller — defaultProductionDate at order
+                        creation. Nothing derives a card's position at read
+                        time (CONSTRAINT-19)
   errors.ts           ← named error classes (DatabaseError, *NotFoundError, InvalidDateError)
 ```
 
@@ -312,7 +342,7 @@ Currently applied to:
 ## Performance Considerations
 
 - Need-to-Contact calculation: computed at query time via SQL aggregation. Single-user with hundreds of orders — runs in milliseconds. No background job or materialized view needed.
-- **Calendar range filter is deliberately not index-backed.** `getCalendarOrders` filters on `COALESCE(production_date, …)`, which is not sargable — `orders_production_date_idx` cannot serve it and Postgres seq-scans `orders`. Accepted: the table holds tens of rows, and the scan is faster than the round-trip carrying the result. If the table ever reaches tens of thousands of rows, the fix is an IMMUTABLE functional index on the same expression, not a change to the query.
+- **Calendar range filter is index-backed again (2026-07-27).** `getCalendarOrders` now filters on the bare column (`o.production_date >= from AND <= to`), which is sargable, so `orders_production_date_idx` serves it. The previous `COALESCE(production_date, …)` form forced a sequential scan and was logged as **FI-02**; removing the read-time derivation removed the problem rather than working around it. No functional index is needed.
 - Server Components: data fetched before page renders — no client-side loading state for initial content.
 - Animations: `useReducedMotion()` checked in all animated components — instant transitions when accessibility preference set.
 - Recharts: `animationDuration={0}` when `useReducedMotion()` is true.

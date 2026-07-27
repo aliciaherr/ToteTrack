@@ -167,3 +167,55 @@ export const INVOICE_TREND_QUERY = sql`
   GROUP BY billing_month
   ORDER BY billing_month ASC
 `
+
+/**
+ * Rows for the production widget: every non-cancelled order whose calendar
+ * column falls on one of `days`.
+ *
+ * Reads `production_date` directly, exactly as the calendar does — a card's day
+ * *is* that column, with no derivation anywhere (CONSTRAINT-19). The widget and
+ * the calendar therefore cannot disagree about which day an order falls on.
+ *
+ * Ordered by day, then by the same intra-day sequence the calendar column uses
+ * — explicit `production_sort_index` first, unplaced rows after, `po_number` as
+ * the stable tiebreak — so the widget's top 3 are the calendar's top 3.
+ *
+ * @param days Business days as `yyyy-MM-dd`. Never empty; callers pass exactly two.
+ */
+export function buildProductionWidgetQuery(days: string[]) {
+  const dayList = sql.join(
+    days.map((day) => sql`${day}::date`),
+    sql`, `,
+  )
+  return sql`
+    SELECT
+      o.id,
+      o.po_number,
+      c.company_name AS customer_name,
+      o.backhaul,
+      o.same_day_delivery,
+      o.production_date::text AS production_day
+    FROM orders o
+    LEFT JOIN customers c ON c.id = o.customer_id
+    WHERE o.status <> 'cancelled'
+      AND o.production_date IN (${dayList})
+    ORDER BY
+      production_day ASC,
+      o.production_sort_index ASC NULLS LAST,
+      o.po_number ASC
+  `
+}
+
+/**
+ * Count of orders with no production date — the same set `getUnscheduledOrders`
+ * returns, counted rather than fetched. The widget shows only the number and
+ * links to `/calendar` for the list.
+ */
+export function buildUnscheduledCountQuery() {
+  return sql`
+    SELECT COUNT(*)::int AS count
+    FROM orders o
+    WHERE o.status <> 'cancelled'
+      AND o.production_date IS NULL
+  `
+}

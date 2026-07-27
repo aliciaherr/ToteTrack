@@ -1,6 +1,6 @@
 # Data Model: ToteTrack
 
-**Date:** 2026-04-25 (reconciled against live Supabase DB through migration `0008_po_multi_combo`)
+**Date:** 2026-07-27 (reconciled through migration `0011_backfill_production_date`; previously reconciled against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
 **Status:** Approved — reflects production schema
 
 ---
@@ -92,12 +92,21 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `unit_price_330_recon` | numeric(10,2) | nullable | Per-unit price, 330L reconditioned (migration 0009) |
 | `unit_price_330_rebot` | numeric(10,2) | nullable | Per-unit price, 330L rebottled (migration 0009) |
 | `unit_price_330_new` | numeric(10,2) | nullable | Per-unit price, 330L brand new (migration 0009) |
+| `production_date` | date | nullable | The build day, and **the card's calendar column verbatim** — nothing is derived (migration 0010; semantics revised by 0011, CONSTRAINT-19). NULL means the order has **no** production date and sits in the unscheduled callout, whatever its delivery date. Seeded once at creation to `prevBusinessDay(requested_delivery_date)`. Never a Saturday or Sunday — enforced on write by `lib/actions/calendar.ts`, not by a DB constraint |
+| `same_day_delivery` | boolean | NOT NULL, default false | Visual `SD` marker on the calendar card. Toggled only from the calendar popup (migration 0010) |
+| `production_sort_index` | integer | nullable | Position within a day column. NULL = never placed by hand; those rows sort after explicitly placed ones (migration 0010) |
 
 **Per-combo unit prices (migration 0009, live 2026-07-25):** 6 nullable `unit_price_*` columns hold the per-unit price for each combo. `price` is now the DERIVED total = Σ(qty × unit price); the legacy `price` value was per-unit and was backfilled (multiplied by total qty) for single-combo rows.
 
 **Multi-combo schema (Feature 9, migration 0008):** A single PO now holds quantities for all six size×type combinations in one wide row, replacing the old single `container_size` / `container_type` / `quantity` columns. Each `qty_*` column is a count for that combo; sum > 0 enforced app-level. The `container_size` and `container_type` enums still exist in the DB and encode the column-name suffixes.
 
-**Indexes:** `customer_id`, `status`, `invoice_id`, `requested_delivery_date`
+**Production calendar columns (migration 0010, live 2026-07-26):** `production_date`, `same_day_delivery` and `production_sort_index` were added purely additively — no backfill, every guard `IF NOT EXISTS`. `production_date` is the build day and is deliberately **not** the same thing as `requested_delivery_date`, which remains the customer-facing promise and is editable only from the Orders tab.
+
+**Position is the column (migration 0011, 2026-07-27):** a PO's calendar day **is** `production_date`, with no read-time derivation. `production_date IS NULL` means unscheduled, full stop — the order appears in the calendar's callout regardless of any delivery date. `0011` is a **data-only** backfill: it wrote `prevBusinessDay(requested_delivery_date)` into every row still holding NULL, so the derivation could be removed without moving a single card. Idempotent, and it skips rows with no delivery date. See CONSTRAINT-19 and FB-13.
+
+**Indexes:** `customer_id`, `status`, `invoice_id`, `requested_delivery_date`, `production_date` (`orders_production_date_idx`)
+
+> **Note on `orders_production_date_idx`:** since migration `0011` the calendar's range query filters on the bare column, so the index **can** serve it. The earlier non-sargable `COALESCE(...)` form — logged as FI-02 — is gone.
 
 ---
 

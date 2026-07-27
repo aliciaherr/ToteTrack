@@ -1,5 +1,11 @@
 -- Production Calendar — Feature 11 (D16 / CONSTRAINT-19).
 --
+-- ⚠ SUPERSEDED IN PART BY 0011. The comments below describe the original design,
+-- in which a NULL production_date was positioned by deriving
+-- prevBusinessDay(requested_delivery_date) at read time. That derivation was
+-- removed on 2026-07-27: a card's day IS production_date, and NULL now means
+-- the order is unscheduled and sits in the callout. See 0011 and CONSTRAINT-19.
+--
 -- Adds the build-day columns that back the /calendar screen. The build day is
 -- deliberately its own column: `requested_delivery_date` stays the customer-facing
 -- promise and is editable only in the Orders tab. The calendar reads and writes

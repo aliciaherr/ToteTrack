@@ -46,11 +46,11 @@ const sampleRow: CalendarOrderRow = {
   unit_price_330_rebot: null,
   unit_price_330_new: null,
   backhaul: true,
+  notes: null,
   same_day_delivery: false,
   production_date: null,
   requested_delivery_date: '2026-06-01',
   production_sort_index: null,
-  effective_production_date: '2026-05-29',
 }
 
 beforeEach(() => {
@@ -58,17 +58,37 @@ beforeEach(() => {
 })
 
 describe('getCalendarOrders', () => {
-  it('builds range query with COALESCE + prior-business-day fallback', async () => {
+  it('filters on production_date directly, with no derivation', async () => {
     mockExecute.mockResolvedValueOnce([sampleRow])
     await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
     const compiled = compileLastCall()
 
-    expect(compiled.sql).toMatch(/coalesce\s*\(\s*o\.production_date\s*,/i)
-    expect(compiled.sql).toMatch(/extract\s*\(\s*isodow\s+from\s+o\.requested_delivery_date\s*\)/i)
-    // Monday → prior Friday, Sunday → prior Friday, everything else → prior day.
-    expect(compiled.sql).toMatch(/when\s+1\s+then\s+o\.requested_delivery_date\s*-\s*3/i)
-    expect(compiled.sql).toMatch(/when\s+7\s+then\s+o\.requested_delivery_date\s*-\s*2/i)
-    expect(compiled.sql).toMatch(/else\s+o\.requested_delivery_date\s*-\s*1/i)
+    expect(compiled.sql).toMatch(/o\.production_date\s*>=/i)
+    expect(compiled.sql).toMatch(/o\.production_date\s*<=/i)
+  })
+
+  it('contains no placement rule at all — the day IS production_date', async () => {
+    mockExecute.mockResolvedValueOnce([sampleRow])
+    await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
+    const { sql: text } = compileLastCall()
+
+    // The COALESCE + ISO-day-of-week fallback was removed in the CONSTRAINT-19
+    // revision. Reintroducing it here would resurrect the two-implementations
+    // divergence risk the change exists to delete.
+    expect(text, 'no COALESCE fallback').not.toMatch(/coalesce/i)
+    expect(text, 'no day-of-week arithmetic').not.toMatch(/isodow/i)
+    expect(text).not.toMatch(/requested_delivery_date\s*-\s*\d/i)
+  })
+
+  it('keeps the range filter sargable so the index can serve it', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
+    const { sql: text } = compileLastCall()
+
+    // FI-02: wrapping the column in an expression made orders_production_date_idx
+    // unusable and forced a sequential scan. A bare column comparison restores it.
+    const whereClause = text.slice(text.toLowerCase().indexOf('where'))
+    expect(whereClause).not.toMatch(/\w+\s*\(\s*o\.production_date/i)
   })
 
   it('binds the date range as parameters rather than interpolating it', async () => {
@@ -106,9 +126,8 @@ describe('getCalendarOrders', () => {
       'qty_330_recon', 'qty_330_rebot', 'qty_330_new',
       'unit_price_275_recon', 'unit_price_275_rebot', 'unit_price_275_new',
       'unit_price_330_recon', 'unit_price_330_rebot', 'unit_price_330_new',
-      'price', 'backhaul', 'same_day_delivery', 'status',
+      'price', 'backhaul', 'notes', 'same_day_delivery', 'status',
       'production_date', 'requested_delivery_date', 'production_sort_index',
-      'effective_production_date',
     ]
     for (const column of expectedColumns) {
       expect(text, `expected SELECT to include ${column}`).toMatch(new RegExp(`\\b${column}\\b`))
@@ -117,7 +136,7 @@ describe('getCalendarOrders', () => {
     expect(text).toMatch(/c\.company_name\s+AS\s+customer_name/i)
   })
 
-  it('orders by effective date, then sort index NULLS LAST, then po_number', async () => {
+  it('orders by production_date, then sort index NULLS LAST, then po_number', async () => {
     mockExecute.mockResolvedValueOnce([])
     await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
     const { sql: text } = compileLastCall()
@@ -176,13 +195,18 @@ describe('getCalendarOrders', () => {
 })
 
 describe('getUnscheduledOrders', () => {
-  it('requires both dates to be null', async () => {
+  it('requires only production_date to be null, whatever the delivery date says', async () => {
     mockExecute.mockResolvedValueOnce([])
     await getUnscheduledOrders()
     const { sql: text } = compileLastCall()
 
     expect(text).toMatch(/o\.production_date\s+IS\s+NULL/i)
-    expect(text).toMatch(/o\.requested_delivery_date\s+IS\s+NULL/i)
+    // The delivery-date clause was removed in the CONSTRAINT-19 revision: an
+    // order with a delivery date but no production date is unscheduled, which is
+    // what makes `clearProductionPlacement` genuinely unschedule a card instead
+    // of bouncing it to a derived day.
+    expect(text, 'delivery date must not gate the unscheduled set')
+      .not.toMatch(/requested_delivery_date\s+IS\s+NULL/i)
   })
 
   it('excludes cancelled orders', async () => {

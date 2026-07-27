@@ -41,6 +41,10 @@ function baseStats(overrides: Partial<DashboardStats> = {}): DashboardStats {
   }
 }
 
+// Feature 11 widget — every existing case renders it empty; its own behaviour
+// is covered in ProductionWidget.test.tsx.
+const emptyProduction = { groups: [], unscheduledCount: 0 }
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockSearchParams.value = new URLSearchParams()
@@ -48,32 +52,32 @@ beforeEach(() => {
 
 describe('DashboardView', () => {
   it('renders the Command Overview title and the real-time subtitle', () => {
-    render(<DashboardView stats={baseStats()} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} />)
+    render(<DashboardView stats={baseStats()} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} production={emptyProduction} />)
     expect(screen.getByRole('heading', { name: /command overview/i })).toBeInTheDocument()
     expect(screen.getByText(/real-time logistics matrix/i)).toBeInTheDocument()
   })
 
   it('marks Monthly as the selected tab when the period is monthly', () => {
-    render(<DashboardView stats={baseStats({ period: 'monthly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} />)
+    render(<DashboardView stats={baseStats({ period: 'monthly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} production={emptyProduction} />)
     expect(screen.getByRole('tab', { name: /monthly/i })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: /yearly/i })).toHaveAttribute('aria-selected', 'false')
   })
 
   it('navigates to ?period=yearly when the Yearly tab is clicked from monthly', () => {
-    render(<DashboardView stats={baseStats({ period: 'monthly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} />)
+    render(<DashboardView stats={baseStats({ period: 'monthly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} production={emptyProduction} />)
     fireEvent.click(screen.getByRole('tab', { name: /yearly/i }))
     expect(mockPush).toHaveBeenCalledWith('/dashboard?period=yearly')
   })
 
   it('navigates back to / (no period param) when clicking Monthly from the yearly view', () => {
     mockSearchParams.value = new URLSearchParams('period=yearly')
-    render(<DashboardView stats={baseStats({ period: 'yearly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} />)
+    render(<DashboardView stats={baseStats({ period: 'yearly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} production={emptyProduction} />)
     fireEvent.click(screen.getByRole('tab', { name: /monthly/i }))
     expect(mockPush).toHaveBeenCalledWith('/dashboard')
   })
 
   it('does not navigate when the already-active tab is clicked', () => {
-    render(<DashboardView stats={baseStats({ period: 'monthly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} />)
+    render(<DashboardView stats={baseStats({ period: 'monthly' })} needToContact={[]} openOrders={[]} leadsFollowUp={[]} invoiceTrend={[]} production={emptyProduction} />)
     fireEvent.click(screen.getByRole('tab', { name: /monthly/i }))
     expect(mockPush).not.toHaveBeenCalled()
   })

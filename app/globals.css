@@ -73,6 +73,85 @@
   --input: #CBD5E1;
   --ring: #007A8A;
   --radius: 0.5rem;
+
+  /* ── Production calendar card metrics (Feature 11, CONSTRAINT-19) ──────────
+     The calendar's design target is 4 whole cards visible without scrolling at
+     any viewport height, so the card scales and the count does not. 25vh minus
+     70px of fixed chrome per card, floored at 80px (below which the mix line
+     stops being readable on a shop floor) and capped at 104px.
+
+     Every other card metric is a fraction of --card-h so the four rows plus
+     both padding edges always sum to exactly --card-h at any size:
+       2×0.05 (padding) + 0.21 + 0.25 + 0.25 + 0.19 (rows) = 1.00
+     The name and mix rows each hold 2 lines, so their line-height is half the
+     row height. Change a row fraction and the others must be rebalanced to
+     keep the sum at 1.00, or cards stop being uniform. */
+  --card-h: clamp(80px, calc(25vh - 70px), 104px);
+  --card-pad: calc(var(--card-h) * 0.05);
+  --card-row-po: calc(var(--card-h) * 0.21);
+  --card-row-name: calc(var(--card-h) * 0.25);
+  --card-row-mix: calc(var(--card-h) * 0.25);
+  --card-row-date: calc(var(--card-h) * 0.19);
+  --card-line-name: calc(var(--card-row-name) / 2);
+  --card-line-mix: calc(var(--card-row-mix) / 2);
+  --card-fs-po: calc(var(--card-h) * 0.125);
+  --card-fs-name: calc(var(--card-h) * 0.105);
+  --card-fs-mix: calc(var(--card-h) * 0.1);
+  --card-fs-date: calc(var(--card-h) * 0.105);
+}
+
+/* ── Production calendar scroll surfaces (Feature 11, CONSTRAINT-19) ─────────
+   macOS and iPadOS render overlay scrollbars that fade out when idle, which
+   hides the fact that the week strip and the day columns scroll at all. The
+   calendar is the one screen where that matters — the page itself never
+   scrolls, so an invisible scrollbar reads as "this is everything." Both
+   vendor-prefixed and standard properties are set because WebKit (Safari,
+   iPadOS — the primary device) only honours the prefixed form. */
+.calendar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.calendar-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.calendar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.calendar-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* The horizontal week strip needs a darker thumb than the day columns do.
+   Columns scroll against `--card` (#FFFFFF), where `--border` (#CBD5E1) just
+   clears the contrast threshold; the strip scrolls against `--app-bg`
+   (#F0F4F8), where the same grey is effectively invisible. Nothing else on
+   screen signals that more weeks exist to the right, so this bar is the only
+   affordance for horizontal scroll (prd.md:590). */
+.calendar-scroll-strip {
+  scrollbar-color: var(--muted-foreground) transparent;
+}
+.calendar-scroll-strip::-webkit-scrollbar-thumb {
+  background-color: var(--muted-foreground);
+}
+
+/* The per-day `+ Add order` action. Visible at all times by default, and
+   revealed on hover *only* where hovering is actually possible. Gating on
+   `(hover: hover) and (pointer: fine)` rather than a breakpoint keeps it
+   permanently on screen for iPad and every other touch device, where a
+   hover-only affordance is unreachable. Focus keeps it visible for keyboards. */
+@media (hover: hover) and (pointer: fine) {
+  .day-column-action {
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  .day-column:hover .day-column-action,
+  .day-column:focus-within .day-column-action {
+    opacity: 1;
+  }
 }
 
 @layer base {

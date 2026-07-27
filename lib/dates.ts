@@ -52,8 +52,10 @@ export function isBusinessDay(date: Date): boolean {
  * The last Mon–Fri strictly before `date`. Monday, Saturday and Sunday all
  * resolve to the prior Friday. Crosses month and year boundaries naturally.
  *
- * This is the single source of the weekday rule behind a PO's default calendar
- * position (CONSTRAINT-19) — no component may inline its own date math.
+ * Called from exactly one place: order creation, where it sets the initial
+ * `production_date` so a new PO lands on the calendar without being dragged
+ * there. Nothing derives a card's position at read time — a card's day *is* its
+ * `production_date` (CONSTRAINT-19).
  */
 export function prevBusinessDay(date: Date): Date {
   let candidate = subDays(date, 1)
@@ -108,33 +110,4 @@ export function businessWeekDays(monday: Date): Date[] {
     )
   }
   return Array.from({ length: BUSINESS_DAYS_PER_WEEK }, (_, offset) => addDays(monday, offset))
-}
-
-/**
- * The calendar position of a PO, as a `DB_DATE_FORMAT` string.
- *
- * The COALESCE rule from CONSTRAINT-19 expressed as a pure function:
- * an explicitly placed `production_date` wins; otherwise the card falls back to
- * the business day before the customer's requested delivery date; a PO with
- * neither is unscheduled and returns null.
- *
- * `productionDate` is returned verbatim — it is an explicit placement, not a
- * derived value. The no-weekend invariant is enforced where the column is
- * written, never by silently relocating a stored date on read.
- *
- * @throws {InvalidDateError} when either argument is a non-null unparseable string.
- */
-export function effectiveProductionDate(
-  productionDate: string | null,
-  requestedDeliveryDate: string | null,
-): string | null {
-  if (productionDate !== null) {
-    parseDbDate('effectiveProductionDate', productionDate)
-    return productionDate
-  }
-  if (requestedDeliveryDate !== null) {
-    const delivery = parseDbDate('effectiveProductionDate', requestedDeliveryDate)
-    return format(prevBusinessDay(delivery), DB_DATE_FORMAT)
-  }
-  return null
 }

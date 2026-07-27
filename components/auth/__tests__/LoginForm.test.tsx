@@ -3,8 +3,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import LoginForm from '../LoginForm'
 
 const mockSignIn = vi.hoisted(() => vi.fn())
+const mockPush = vi.hoisted(() => vi.fn())
+const mockRefresh = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/actions/auth', () => ({ signIn: mockSignIn }))
+
+// The form routes to /dashboard itself on success — `signIn` deliberately does
+// not `redirect()`, because a server-action redirect throws and this action is
+// awaited from an event handler rather than a form action.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush, refresh: mockRefresh }),
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -48,5 +57,34 @@ describe('LoginForm', () => {
     fireEvent.submit(input.closest('form')!)
     await waitFor(() => screen.getByRole('alert'))
     expect(input.value).toBe('wrong-password')
+  })
+
+  it('navigates to /dashboard and refreshes on a successful sign-in', async () => {
+    mockSignIn.mockResolvedValueOnce({ error: null })
+    render(<LoginForm />)
+
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'))
+    expect(mockRefresh).toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('surfaces an error and stops loading when the action request throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSignIn.mockRejectedValueOnce(new Error('transport failure'))
+    render(<LoginForm />)
+
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Unable to connect.')
+    })
+    // The regression this guards: the button must never be left spinning.
+    expect(screen.getByRole('button', { name: /sign in/i })).not.toBeDisabled()
+    expect(mockPush).not.toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 })
