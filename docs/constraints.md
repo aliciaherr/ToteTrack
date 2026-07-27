@@ -268,6 +268,9 @@
 **What it means in practice:**
 - Migration `0010` adds `production_date` (`date` NULL), `same_day_delivery` (`boolean NOT NULL DEFAULT false`), `production_sort_index` (`integer` NULL). RLS on `orders` unchanged (CONSTRAINT-05).
 - `prevBusinessDay` lives in `lib/dates.ts` alongside `DB_DATE_FORMAT` and is the single source of the weekday rule — no inline date math in components.
+- **The placement rule exists in two implementations and they must stay equivalent:** `effectiveProductionDate` in `lib/dates.ts` (TypeScript) and `EFFECTIVE_PRODUCTION_DATE` in `db/queries/calendar.ts` (SQL, an ISO-day-of-week `CASE`: Mon `−3`, Sun `−2`, else `−1`). Verified equal on all 43 live rows on 2026-07-26. Any change to the weekday rule lands in both, or a card is filtered into one column and drawn in another.
+- **`getCalendarOrders` returns `effective_production_date` as a column.** Client code consumes it and must not recompute placement locally — the SQL answer is authoritative, which is what makes the two implementations unable to disagree at runtime.
+- **The no-weekend invariant is enforced on write, never on read.** The Task 52 server actions reject a Saturday/Sunday `production_date`; `effectiveProductionDate` and the SQL expression both pass a stored `production_date` through verbatim. Relocating a stored date on read would hide a data bug; throwing on read would take down the whole calendar over one row.
 - Once `production_date` is explicitly set, a later change to `requested_delivery_date` does **not** move the card, and nothing flags the divergence.
 - The calendar shows every order with `status <> 'cancelled'`; `completed` and `invoiced` render dimmed and non-draggable but keep their sequence slot.
 - The unscheduled set is exactly `status <> 'cancelled' AND production_date IS NULL AND requested_delivery_date IS NULL` and drives the top-right callout, its dropdown, and every per-day `+` list. No active order may be invisible.

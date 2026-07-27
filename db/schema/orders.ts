@@ -24,6 +24,9 @@ export const orders = pgTable('orders', {
   pickup_only: boolean('pickup_only').notNull().default(false),
   delivery_address: text('delivery_address'),
   requested_delivery_date: date('requested_delivery_date'),
+  production_date: date('production_date'),
+  same_day_delivery: boolean('same_day_delivery').notNull().default(false),
+  production_sort_index: integer('production_sort_index'),
   backhaul: boolean('backhaul').notNull().default(false),
   document_url: text('document_url'),
   notes: text('notes'),
@@ -35,4 +38,5 @@ export const orders = pgTable('orders', {
   index('orders_status_idx').on(t.status),
   index('orders_invoice_id_idx').on(t.invoice_id),
   index('orders_requested_delivery_date_idx').on(t.requested_delivery_date),
+  index('orders_production_date_idx').on(t.production_date),
 ])

@@ -37,7 +37,7 @@
 |--------|---------|
 | `customers` | Customer companies; includes `default_delivery_address` (auto-fills new orders) |
 | `customer_contacts` | Individual contacts per customer (1+ per customer); email + phone both optional |
-| `orders` | Purchase orders; `requested_delivery_date` is nullable |
+| `orders` | Purchase orders; `requested_delivery_date` is nullable. Also carries the production-calendar columns `production_date` / `same_day_delivery` / `production_sort_index` (migration `0010`) |
 | `leads` | Prospective customers; email + phone both optional |
 | `lead_notes` | Append-only note log per lead |
 | `invoices` | Month-level invoices (v3 — no customer association, no status) |
@@ -55,6 +55,12 @@
 - `invoiced` is a sub-state of "delivered" — every stats/aggregation query (volume averages, last-sale date, contact frequency, completed-order count) matches `status IN ('completed', 'invoiced')`
 - `getInvoiceableOrders` stays strict: `status = 'completed' AND invoice_id IS NULL`
 - Mark Complete on an undated order auto-sets `requested_delivery_date` to `CURRENT_DATE` via `COALESCE` (CONSTRAINT-16)
+
+**Production date vs delivery promise (CONSTRAINT-19, FB-11):**
+- `production_date` is the build day and is **separate** from `requested_delivery_date`, the customer-facing promise. Calendar code reads and writes only the production columns — it must never write the delivery date.
+- A PO's calendar position is `COALESCE(production_date, prevBusinessDay(requested_delivery_date))`. This rule exists in exactly two places and they are verified equivalent: `effectiveProductionDate` in `lib/dates.ts` (TypeScript) and `EFFECTIVE_PRODUCTION_DATE` in `db/queries/calendar.ts` (SQL). Any change must land in both.
+- `prevBusinessDay` is weekends-only — no holiday calendar exists or is planned. Mon, Sat and Sun delivery dates all resolve to the prior Friday.
+- The no-weekend invariant is enforced **on write** (the Task 52 server actions reject a Saturday/Sunday `production_date`), never on read. Read paths pass a stored `production_date` through verbatim rather than silently relocating it.
 
 **Invoice model v3 (CONSTRAINT-17, FB-07):**
 - One invoice per calendar month covers every customer's eligible POs
@@ -196,6 +202,9 @@ db/
     dashboard.ts      ← getDashboardStats, getNeedToContactList, getInvoiceTrendData, etc.
     customers.ts      ← getCustomers, getCustomerDetail, getCustomerOrders, getVolumeOverview
     orders.ts         ← getOrders, getOrderDetail
+    orders.constants.ts ← ORDERS_PAGE_SIZE (client-safe sibling — see Platform-Native Rules)
+    calendar.ts       ← getCalendarOrders, getUnscheduledOrders + CalendarOrderRow (Feature 11)
+    calendar.constants.ts ← UNSCHEDULED_DROPDOWN_VISIBLE, CALENDAR_WEEKS_BUFFER (client-safe sibling)
     leads.ts          ← getLeads, getLeadDetail, getLeadNotes
     invoices.ts       ← getInvoiceableOrders, getInvoices, getInvoiceDetail
     support.ts        ← getTickets, getTicketDetail
@@ -220,6 +229,12 @@ lib/
     useToast.ts       ← toast queue hook
   animations.ts       ← shared Framer Motion variant constants
   format-currency.ts  ← shared USD formatter, drops trailing zeros (e.g. 25.50 → $25.5)
+  dates.ts            ← DB_DATE_FORMAT + the business-day helpers (isBusinessDay,
+                        prevBusinessDay, nextBusinessDay, startOfBusinessWeek,
+                        businessWeekDays, effectiveProductionDate, parseDbDate).
+                        Single source of the weekday rule — no inline date math
+                        anywhere else (CONSTRAINT-19)
+  errors.ts           ← named error classes (DatabaseError, *NotFoundError, InvalidDateError)
 ```
 
 ---
@@ -297,6 +312,7 @@ Currently applied to:
 ## Performance Considerations
 
 - Need-to-Contact calculation: computed at query time via SQL aggregation. Single-user with hundreds of orders — runs in milliseconds. No background job or materialized view needed.
+- **Calendar range filter is deliberately not index-backed.** `getCalendarOrders` filters on `COALESCE(production_date, …)`, which is not sargable — `orders_production_date_idx` cannot serve it and Postgres seq-scans `orders`. Accepted: the table holds tens of rows, and the scan is faster than the round-trip carrying the result. If the table ever reaches tens of thousands of rows, the fix is an IMMUTABLE functional index on the same expression, not a change to the query.
 - Server Components: data fetched before page renders — no client-side loading state for initial content.
 - Animations: `useReducedMotion()` checked in all animated components — instant transitions when accessibility preference set.
 - Recharts: `animationDuration={0}` when `useReducedMotion()` is true.

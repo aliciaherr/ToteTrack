@@ -1596,7 +1596,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 49: Schema — add production_date, same_day_delivery, production_sort_index
+## Task 49: Schema — add production_date, same_day_delivery, production_sort_index ✅ Done 2026-07-26
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 > **Pre-check note:** `manifest.md` does not exist in this project and never has. The `@create-plan` pre-check was explicitly waived by the Builder on 2026-07-26. `**Specialist:**` fields below follow the convention already in use across Tasks 1–48 rather than a manifest lookup.
@@ -1615,13 +1615,13 @@ export const collapsibleVariants // height animate via motion.div
 - Drizzle additions in `db/schema/orders.ts`: `production_date: date('production_date')`, `same_day_delivery: boolean('same_day_delivery').notNull().default(false)`, `production_sort_index: integer('production_sort_index')`, plus the index alongside `orders_requested_delivery_date_idx`
 
 **Acceptance criteria:**
-- [ ] All 3 columns added; `production_date` and `production_sort_index` nullable, `same_day_delivery` NOT NULL DEFAULT false
-- [ ] No backfill — every existing row gets NULL / NULL / false, which is the correct starting state
-- [ ] Index created on `production_date` (calendar queries filter by date range)
-- [ ] RLS policies on `orders` untouched and still enforced (CONSTRAINT-05)
-- [ ] No existing column altered or dropped — purely additive and reversible
-- [ ] Drizzle schema mirrors the SQL exactly; `tsc --noEmit` passes
-- [ ] Statements use the `--> statement-breakpoint` convention with a leading comment block explaining intent
+- [x] All 3 columns added; `production_date` and `production_sort_index` nullable, `same_day_delivery` NOT NULL DEFAULT false
+- [x] No backfill — every existing row gets NULL / NULL / false, which is the correct starting state
+- [x] Index created on `production_date` (calendar queries filter by date range)
+- [x] RLS policies on `orders` untouched and still enforced (CONSTRAINT-05)
+- [x] No existing column altered or dropped — purely additive and reversible
+- [x] Drizzle schema mirrors the SQL exactly; `tsc --noEmit` passes
+- [x] Statements use the `--> statement-breakpoint` convention with a leading comment block explaining intent
 
 **Tests required:**
 - `db/migrations/__tests__/0010.test.ts` → `adds three production columns with correct nullability` → `expect ADD COLUMN statements and constraints to match`
@@ -1630,11 +1630,11 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** None
 **Specialist:** @db
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — migration written with `IF NOT EXISTS` idempotency guards (0009 precedent, hand-applied migrations). **Not yet applied to any DB.**
 
 ---
 
-## Task 50: Business-day date helpers in `lib/dates.ts`
+## Task 50: Business-day date helpers in `lib/dates.ts` ✅ Done 2026-07-26
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1651,13 +1651,13 @@ export const collapsibleVariants // height animate via motion.div
 - `effectiveProductionDate(productionDate: string | null, requestedDeliveryDate: string | null): string | null` — the COALESCE rule as a pure function; returns a `DB_DATE_FORMAT` string, or null when both inputs are null.
 
 **Acceptance criteria:**
-- [ ] `prevBusinessDay` maps Mon → prior Fri, Sat → Fri, Sun → Fri, Tue–Fri → previous day
-- [ ] No returned date from any helper ever falls on a Saturday or Sunday
-- [ ] `startOfBusinessWeek` on a weekend returns the *following* Monday, not the preceding one
-- [ ] `effectiveProductionDate` returns `production_date` when set, else `prevBusinessDay(requested_delivery_date)`, else null
-- [ ] All helpers are pure — no `Date.now()`, no timezone conversion; callers pass the reference date in
-- [ ] `DB_DATE_FORMAT` remains the single wire format for any string returned
-- [ ] Month and year boundaries handled (e.g. Mon 1 Jun → Fri 29 May)
+- [x] `prevBusinessDay` maps Mon → prior Fri, Sat → Fri, Sun → Fri, Tue–Fri → previous day
+- [x] No returned date from any helper ever falls on a Saturday or Sunday — holds for every *derived* date. `effectiveProductionDate` passes a stored `production_date` through verbatim by design; the no-weekend invariant is enforced at the write boundary (Task 52), not on read.
+- [x] `startOfBusinessWeek` on a weekend returns the *following* Monday, not the preceding one
+- [x] `effectiveProductionDate` returns `production_date` when set, else `prevBusinessDay(requested_delivery_date)`, else null
+- [x] All helpers are pure — no `Date.now()`, no timezone conversion; callers pass the reference date in
+- [x] `DB_DATE_FORMAT` remains the single wire format for any string returned
+- [x] Month and year boundaries handled (e.g. Mon 1 Jun → Fri 29 May)
 
 **Tests required:**
 - `lib/__tests__/dates.test.ts` → `prevBusinessDay maps Mon/Sat/Sun to prior Friday` → `expect Fri for all three inputs`
@@ -1667,11 +1667,11 @@ export const collapsibleVariants // height animate via motion.div
 
 **Depends on:** None
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 21 tests. Also added `InvalidDateError` to `lib/errors.ts` (EH-05). Task 52 must reject weekend `production_date` writes; the read helper does not.
 
 ---
 
-## Task 51: Calendar read queries
+## Task 51: Calendar read queries ✅ Done 2026-07-26
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1687,14 +1687,14 @@ export const collapsibleVariants // height animate via motion.div
 - `db/queries/calendar.constants.ts` — `UNSCHEDULED_DROPDOWN_VISIBLE = 4`, `CALENDAR_WEEKS_BUFFER = 4`. Client-safe values live here, never in `calendar.ts`.
 
 **Acceptance criteria:**
-- [ ] The COALESCE + prior-business-day rule is computed **in SQL** so date filtering can use `orders_production_date_idx`, and matches `effectiveProductionDate` exactly
-- [ ] `cancelled` orders excluded from both queries
-- [ ] `completed` and `invoiced` orders ARE included by `getCalendarOrders`
-- [ ] Orders with both dates NULL excluded from `getCalendarOrders` and returned by `getUnscheduledOrders`
-- [ ] Weekend `requested_delivery_date` values resolve to the prior Friday, never a Sat/Sun bucket
-- [ ] Results ordered by effective date, then `production_sort_index` NULLS LAST, then `po_number`
-- [ ] Parameterised SQL only — no string interpolation of the date range
-- [ ] `calendar.constants.ts` imports nothing from `db/index.ts` (client-safe)
+- [x] The COALESCE + prior-business-day rule is computed **in SQL** and matches `effectiveProductionDate` exactly — **but the index claim in this criterion is wrong.** `COALESCE(...)` in a WHERE predicate is not sargable, so `orders_production_date_idx` cannot serve the range filter; Postgres will seq-scan. Unmeasurable at ~130 rows. Fix if it ever matters: an IMMUTABLE functional index on the same expression.
+- [x] `cancelled` orders excluded from both queries
+- [x] `completed` and `invoiced` orders ARE included by `getCalendarOrders` (guarded by a test asserting no `status =`/`status IN` predicate exists)
+- [x] Orders with both dates NULL excluded from `getCalendarOrders` and returned by `getUnscheduledOrders`
+- [x] Weekend `requested_delivery_date` values resolve to the prior Friday, never a Sat/Sun bucket
+- [x] Results ordered by effective date, then `production_sort_index` NULLS LAST, then `po_number`
+- [x] Parameterised SQL only — test asserts the range values never appear inline in the compiled SQL text
+- [x] `calendar.constants.ts` imports nothing from `db/index.ts` (client-safe) — test reads the file and asserts zero `import`/`require`
 
 **Tests required:**
 - `db/queries/__tests__/calendar.test.ts` → `builds range query with COALESCE + prior-business-day fallback` → `expect SQL to contain the fallback expression and bound params`
@@ -1704,7 +1704,7 @@ export const collapsibleVariants // height animate via motion.div
 **Depends on:** Task 49, Task 50
 **Specialist:** @db
 
-**Status:** [ ]
+**Status:** [x] Done 2026-07-26 — 18 tests. `parseDbDate` promoted to an export in `lib/dates.ts`. **SQL-shape coverage only — never executed against Postgres.** Apply migration `0010` and load `/calendar` before trusting it.
 
 ---
 

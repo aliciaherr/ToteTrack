@@ -13,6 +13,25 @@ export class DatabaseError extends Error {
 }
 
 /**
+ * Thrown when a date helper receives a value it cannot work with — an
+ * unparseable `DB_DATE_FORMAT` string, or a Date that violates the helper's
+ * precondition (e.g. `businessWeekDays` given a day that is not a Monday).
+ * Carries the offending value and the helper that rejected it so the failure
+ * names its own cause instead of surfacing as a downstream `Invalid Date`.
+ */
+export class InvalidDateError extends Error {
+  readonly helper: string
+  readonly value: string
+
+  constructor(helper: string, value: string, reason: string) {
+    super(`${helper}: ${reason} (received: ${value})`)
+    this.name = 'InvalidDateError'
+    this.helper = helper
+    this.value = value
+  }
+}
+
+/**
  * Thrown when a customer lookup by id returns no row. Distinct from
  * `DatabaseError`: the query succeeded — the customer simply does not exist
  * (stale bookmark, deleted record). Callers can catch this specifically to
