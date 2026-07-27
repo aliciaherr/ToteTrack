@@ -18,8 +18,21 @@
 signIn(password: string): Promise<{ error: string | null }>
 ```
 Calls `supabase.auth.signInWithPassword({ email: process.env.ADMIN_EMAIL, password })`.
-On success: session cookie set, redirect to `/dashboard`.
+On success: session cookie set, `redirect('/dashboard')`.
 **Errors:** Wrong password → `{ error: "Incorrect password. Please try again." }` | Network error → `{ error: "Unable to connect..." }`
+
+> ⚠ **The `redirect()` is load-bearing. Do not replace it with a client-side `router.push`.**
+>
+> This was attempted on 2026-07-27 and took production login down. The reasoning
+> was that a Server Action `redirect()` "works by throwing", so the throw would
+> reject the promise awaited in `LoginForm` and leave the button stuck. That is
+> **not** how the App Router behaves: Next catches `NEXT_REDIRECT` at the action
+> boundary and returns a redirect the client router executes. The promise does
+> not reject.
+>
+> The replacement (`router.push('/dashboard')` in `LoginForm`) also dropped the
+> only `setLoading(false)` on the success path, so when the navigation failed the
+> button spun forever with no error. Reverted in `611b943`.
 
 ---
 

@@ -1708,7 +1708,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 52: Calendar server actions
+## Task 52: Calendar server actions ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1748,7 +1748,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 53: Nav entry + `/calendar` route
+## Task 53: Nav entry + `/calendar` route ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1782,7 +1782,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 54: `ProductionCard` component
+## Task 54: `ProductionCard` component ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1824,7 +1824,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 55: `CalendarLayout` + `DayColumn` — viewport-locked week strip
+## Task 55: `CalendarLayout` + `DayColumn` — viewport-locked week strip ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1874,7 +1874,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 56: `@dnd-kit` wiring — drag between days, reorder, edge auto-scroll
+## Task 56: `@dnd-kit` wiring — drag between days, reorder, edge auto-scroll ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1922,7 +1922,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 57: `UnscheduledCallout` + dropdown drop target
+## Task 57: `UnscheduledCallout` + dropdown drop target ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -1964,7 +1964,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 58: `ProductionCardDialog` — read-only popup
+## Task 58: `ProductionCardDialog` — read-only popup ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -2006,7 +2006,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 59: Dashboard Production widget
+## Task 59: Dashboard Production widget ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
@@ -2051,7 +2051,7 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 60: Documentation sync
+## Task 60: Documentation sync ✅ Done 2026-07-27
 
 > Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
 
