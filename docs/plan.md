@@ -2029,10 +2029,14 @@ export const collapsibleVariants // height animate via motion.div
 
 **Files:**
 - `docs/architecture.md` — modify
+- `docs/founder-brief.md` — modify (**required** — see below)
 - `docs/constraints.md` — modify
 - `docs/data-model.md` — modify
 
+> **Why `founder-brief.md` is mandatory here:** `@end-session` Step 2 states that `docs/architecture.md` cannot change without `docs/founder-brief.md` also updating — they are the technical and plain-language views of the same decision. This task changes the architecture stack table, so an FB entry is required. Caught during `@end-session` on 2026-07-26.
+
 **Functions to implement:**
+- `founder-brief.md` → append **FB-11 — Drag-and-Drop Library Added to a Locked Stack** (FB-10 is currently last). Use the established format: Decided / Means for your product / Check before approving / What this closes off. Content: `@dnd-kit/core` + `@dnd-kit/sortable` added for sortable reordering, edge auto-scroll, keyboard drag, and iPad touch drag-vs-scroll disambiguation; CONSTRAINT-01 forbids library *substitutions*, not additions, so no rule was broken; approved by Builder without `@cto` review; closes off nothing, but sets the precedent that dependency additions are allowed when no in-stack option exists.
 - `architecture.md` → Stack table: add `Drag and drop | @dnd-kit/core + @dnd-kit/sortable | Latest`
 - `architecture.md` → Routing Structure: add `calendar/page.tsx`
 - `architecture.md` → Component Tree: add the `components/calendar/` group
@@ -2043,6 +2047,7 @@ export const collapsibleVariants // height animate via motion.div
 
 **Acceptance criteria:**
 - [ ] Stack table lists `@dnd-kit` with its role
+- [ ] `founder-brief.md` gains FB-11 covering the `@dnd-kit` addition — `architecture.md` must not ship changed without it
 - [ ] Component boundary rule names all three client-only libraries, so no future task imports `@dnd-kit` into a server component
 - [ ] CONSTRAINT-03 and the architecture boundary rule agree word for word on the library list
 - [ ] `data-model.md` documents `production_date`, `same_day_delivery`, `production_sort_index` with nullability and defaults
