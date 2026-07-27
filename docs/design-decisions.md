@@ -27,7 +27,7 @@
 | Overdue / warning | Red-orange (as shown in mockup) |
 
 ### Typography
-- **Font:** Inter (both headline and body)
+- **Font:** ~~Inter (both headline and body)~~ — **as-built: the system sans stack.** `app/layout.tsx` loads Inter via `next/font/google` and sets `--font-inter`, but nothing maps `--font-sans` to it in the `@theme` block of `app/globals.css`, so `font-sans` resolves to Tailwind's default. Discovered 2026-07-26 during Feature 11 design review. Accepted as-is — see Deliberate Deviations.
 - **Display numbers** ($ amounts, PO counts): Large, bold, dark
 - **Category labels:** Small caps / uppercase, teal or neutral gray
 - **Body:** Regular weight, slate gray
@@ -146,6 +146,9 @@
 | Deviation | Mockup | Build | Reason |
 |-----------|--------|-------|--------|
 | Navigation | Persistent left sidebar (always visible) | Hamburger slide-over drawer (hidden by default) | iPad landscape: persistent 200px sidebar = 20% of viewport permanently consumed. Slide-over gives full screen real estate to content. User explicitly requested this change. |
+| Typeface | Inter | System sans stack (`ui-sans-serif, system-ui, …`) | Inter is loaded but never wired to `--font-sans`, so the app has always rendered in system sans. Found 2026-07-26. Left as-is by decision — switching now changes type metrics on every screen for no user-facing gain, and the build is internally consistent. Fix is one line in `app/globals.css` (`--font-sans: var(--font-inter)`) if ever wanted. |
+| Drag-and-drop | Not in the mockup — no calendar screen exists there | `@dnd-kit/core` + `@dnd-kit/sortable` | Feature 11 needs sortable reordering, edge auto-scroll, keyboard drag, and touch drag-vs-scroll disambiguation on iPad. "Accent libraries: None" refers to motion/hero libraries; this is interaction behaviour, not visual styling. Approved by Builder 2026-07-26 without `@cto` review — no existing rule prohibits a dependency addition. |
+| Calendar column width | n/a — screen not in mockup | 176px columns, not the 196px first drafted | 5 columns + gaps + the 80px pill gutter must total ≤1024px so a full Mon–Fri fits iPad landscape, the documented primary device. |
 | Top bar | Full bar with logo, search, notification bell, user avatar | No top bar — pill-contained hamburger top-left only | Single-user internal tool — no need for avatar/notifications/branding inside the app. Global search would either be inert (Dashboard) or duplicate scoped per-screen search (list screens). Removing it recovers ~56–64px of vertical real estate (8–9% of iPad-landscape viewport). Decided 2026-04-23, see PRD Cross-cutting: App Shell Chrome (D10). |
 
 All other visual decisions — colors, typography, layout, spacing, component shapes, density — must match the Stitch mockup as closely as possible.

@@ -1593,3 +1593,464 @@ export const collapsibleVariants // height animate via motion.div
 **Specialist:** @ui-totetrack
 
 **Status:** [x]
+
+---
+
+## Task 49: Schema — add production_date, same_day_delivery, production_sort_index
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+> **Pre-check note:** `manifest.md` does not exist in this project and never has. The `@create-plan` pre-check was explicitly waived by the Builder on 2026-07-26. `**Specialist:**` fields below follow the convention already in use across Tasks 1–48 rather than a manifest lookup.
+
+**Files:**
+- `db/migrations/0010_production_calendar.sql` — create
+- `db/migrations/__tests__/0010.test.ts` — create
+- `db/schema/orders.ts` — modify
+
+**Functions to implement:**
+- Migration SQL, in order:
+  1. `ALTER TABLE orders ADD COLUMN production_date DATE`
+  2. `ALTER TABLE orders ADD COLUMN same_day_delivery BOOLEAN NOT NULL DEFAULT false`
+  3. `ALTER TABLE orders ADD COLUMN production_sort_index INTEGER`
+  4. `CREATE INDEX orders_production_date_idx ON orders (production_date)`
+- Drizzle additions in `db/schema/orders.ts`: `production_date: date('production_date')`, `same_day_delivery: boolean('same_day_delivery').notNull().default(false)`, `production_sort_index: integer('production_sort_index')`, plus the index alongside `orders_requested_delivery_date_idx`
+
+**Acceptance criteria:**
+- [ ] All 3 columns added; `production_date` and `production_sort_index` nullable, `same_day_delivery` NOT NULL DEFAULT false
+- [ ] No backfill — every existing row gets NULL / NULL / false, which is the correct starting state
+- [ ] Index created on `production_date` (calendar queries filter by date range)
+- [ ] RLS policies on `orders` untouched and still enforced (CONSTRAINT-05)
+- [ ] No existing column altered or dropped — purely additive and reversible
+- [ ] Drizzle schema mirrors the SQL exactly; `tsc --noEmit` passes
+- [ ] Statements use the `--> statement-breakpoint` convention with a leading comment block explaining intent
+
+**Tests required:**
+- `db/migrations/__tests__/0010.test.ts` → `adds three production columns with correct nullability` → `expect ADD COLUMN statements and constraints to match`
+- `db/migrations/__tests__/0010.test.ts` → `is purely additive` → `expect no DROP COLUMN or ALTER COLUMN in the file`
+
+**Depends on:** None
+**Specialist:** @db
+
+**Status:** [ ]
+
+---
+
+## Task 50: Business-day date helpers in `lib/dates.ts`
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `lib/dates.ts` — modify
+- `lib/__tests__/dates.test.ts` — create
+
+**Functions to implement:**
+- `prevBusinessDay(date: Date): Date` — the last Mon–Fri strictly before `date`. Sat, Sun and Mon all return the prior Friday. Weekends only; no holiday awareness (CONSTRAINT-19).
+- `isBusinessDay(date: Date): boolean` — true for Mon–Fri.
+- `nextBusinessDay(date: Date): Date` — the next Mon–Fri strictly after `date`. Used by the dashboard widget's "next 2 business days".
+- `startOfBusinessWeek(date: Date): Date` — the Monday of `date`'s week; on Sat/Sun returns the **following** Monday, so `Current week` lands on the next Mon–Fri.
+- `businessWeekDays(monday: Date): Date[]` — the 5 weekday Dates from a given Monday.
+- `effectiveProductionDate(productionDate: string | null, requestedDeliveryDate: string | null): string | null` — the COALESCE rule as a pure function; returns a `DB_DATE_FORMAT` string, or null when both inputs are null.
+
+**Acceptance criteria:**
+- [ ] `prevBusinessDay` maps Mon → prior Fri, Sat → Fri, Sun → Fri, Tue–Fri → previous day
+- [ ] No returned date from any helper ever falls on a Saturday or Sunday
+- [ ] `startOfBusinessWeek` on a weekend returns the *following* Monday, not the preceding one
+- [ ] `effectiveProductionDate` returns `production_date` when set, else `prevBusinessDay(requested_delivery_date)`, else null
+- [ ] All helpers are pure — no `Date.now()`, no timezone conversion; callers pass the reference date in
+- [ ] `DB_DATE_FORMAT` remains the single wire format for any string returned
+- [ ] Month and year boundaries handled (e.g. Mon 1 Jun → Fri 29 May)
+
+**Tests required:**
+- `lib/__tests__/dates.test.ts` → `prevBusinessDay maps Mon/Sat/Sun to prior Friday` → `expect Fri for all three inputs`
+- `lib/__tests__/dates.test.ts` → `prevBusinessDay crosses a month boundary` → `expect Fri 29 May for Mon 1 Jun`
+- `lib/__tests__/dates.test.ts` → `startOfBusinessWeek on a weekend returns next Monday` → `expect following Mon`
+- `lib/__tests__/dates.test.ts` → `effectiveProductionDate falls back and returns null when both null` → `expect production_date, then prevBusinessDay, then null`
+
+**Depends on:** None
+
+**Status:** [ ]
+
+---
+
+## Task 51: Calendar read queries
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `db/queries/calendar.ts` — create
+- `db/queries/calendar.constants.ts` — create
+- `db/queries/__tests__/calendar.test.ts` — create
+
+**Functions to implement:**
+- `getCalendarOrders(input: { from: string; to: string }): Promise<CalendarOrderRow[]>` — every order with `status <> 'cancelled'` whose COALESCE(production_date, prior-business-day-of-requested_delivery_date) falls in `[from, to]`. Joins `customers` for `customer_name`. Returns the 6 qty columns, the 6 `unit_price_*` columns, `price`, `backhaul`, `same_day_delivery`, `status`, `production_date`, `requested_delivery_date`, `production_sort_index`.
+- `getUnscheduledOrders(): Promise<CalendarOrderRow[]>` — `status <> 'cancelled' AND production_date IS NULL AND requested_delivery_date IS NULL`, ordered by `po_number`.
+- `CalendarOrderRow` — exported type only; client components must `import type` from here (Platform-Native Rule).
+- `db/queries/calendar.constants.ts` — `UNSCHEDULED_DROPDOWN_VISIBLE = 4`, `CALENDAR_WEEKS_BUFFER = 4`. Client-safe values live here, never in `calendar.ts`.
+
+**Acceptance criteria:**
+- [ ] The COALESCE + prior-business-day rule is computed **in SQL** so date filtering can use `orders_production_date_idx`, and matches `effectiveProductionDate` exactly
+- [ ] `cancelled` orders excluded from both queries
+- [ ] `completed` and `invoiced` orders ARE included by `getCalendarOrders`
+- [ ] Orders with both dates NULL excluded from `getCalendarOrders` and returned by `getUnscheduledOrders`
+- [ ] Weekend `requested_delivery_date` values resolve to the prior Friday, never a Sat/Sun bucket
+- [ ] Results ordered by effective date, then `production_sort_index` NULLS LAST, then `po_number`
+- [ ] Parameterised SQL only — no string interpolation of the date range
+- [ ] `calendar.constants.ts` imports nothing from `db/index.ts` (client-safe)
+
+**Tests required:**
+- `db/queries/__tests__/calendar.test.ts` → `builds range query with COALESCE + prior-business-day fallback` → `expect SQL to contain the fallback expression and bound params`
+- `db/queries/__tests__/calendar.test.ts` → `excludes cancelled orders from both queries` → `expect status <> 'cancelled' predicate in each`
+- `db/queries/__tests__/calendar.test.ts` → `unscheduled query requires both dates null` → `expect both IS NULL predicates`
+
+**Depends on:** Task 49, Task 50
+**Specialist:** @db
+
+**Status:** [ ]
+
+---
+
+## Task 52: Calendar server actions
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `lib/actions/calendar.ts` — create
+- `lib/actions/calendar.validation.ts` — create
+- `lib/actions/__tests__/calendar.test.ts` — create
+
+**Functions to implement:**
+- `setProductionPlacement(id: string, input: { productionDate: string; sortIndex: number }): Promise<{ success: true } | { error: string }>` — writes `production_date` + `production_sort_index` in one statement. **Must never write `requested_delivery_date`** (CONSTRAINT-19).
+- `clearProductionPlacement(id: string): Promise<{ success: true } | { error: string }>` — sets both production columns to NULL. Backs both `Remove from calendar` and the drag-onto-callout gesture.
+- `toggleSameDayDelivery(id: string, next: boolean): Promise<{ success: true } | { error: string }>`
+- `lib/actions/calendar.validation.ts` — Zod schemas + `SORT_INDEX_MAX`. `'use server'` files export async only, so every constant and schema lives in this sibling (Platform-Native Rule).
+
+**Acceptance criteria:**
+- [ ] Every action calls `assertAuthenticated()` first and returns the auth error unchanged
+- [ ] Every action validates `id` with `UUID_RE` before any DB access
+- [ ] `productionDate` validated against `ISO_DATE_RE` **and** rejected when it falls on a Saturday or Sunday — the no-weekend invariant is enforced server-side, not merely by the absence of weekend columns
+- [ ] `cancelled` orders rejected with a clear message; `completed`/`invoiced` also rejected for placement changes, since those cards are not draggable
+- [ ] No action writes `requested_delivery_date` on any code path
+- [ ] All three call `revalidatePath('/calendar')` and `revalidatePath('/dashboard')` on success (CONSTRAINT-02 — no optimistic-only state)
+- [ ] Failures log with context via `console.error` and return `GENERIC_FAILURE_MESSAGE` — never swallowed
+- [ ] `lib/actions/calendar.ts` exports async functions only
+
+**Tests required:**
+- `lib/actions/__tests__/calendar.test.ts` → `setProductionPlacement writes production_date and sort index` → `expect payload to contain both and NOT requested_delivery_date`
+- `lib/actions/__tests__/calendar.test.ts` → `setProductionPlacement rejects a Saturday date` → `expect error`
+- `lib/actions/__tests__/calendar.test.ts` → `setProductionPlacement rejects a cancelled order` → `expect error`
+- `lib/actions/__tests__/calendar.test.ts` → `clearProductionPlacement nulls both columns` → `expect both set to null`
+- `lib/actions/__tests__/calendar.test.ts` → `toggleSameDayDelivery persists the boolean` → `expect update payload`
+- `lib/actions/__tests__/calendar.test.ts` → `unauthenticated calls are rejected before any DB access` → `expect auth error, db not called`
+
+**Depends on:** Task 49, Task 50
+**Specialist:** @db
+
+**Status:** [ ]
+
+---
+
+## Task 53: Nav entry + `/calendar` route
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `components/shell/NavDrawer.tsx` — modify
+- `app/(app)/calendar/page.tsx` — create
+- `components/shell/__tests__/NavDrawer.test.tsx` — modify
+
+**Functions to implement:**
+- Add `{ label: 'Calendar', href: '/calendar', icon: CalendarDays }` to `NAV_ITEMS`, between Orders and Leads (7 items total)
+- `CalendarPage({ searchParams }: { searchParams: { week?: string } })` — async server component. Parses an optional `?week=YYYY-MM-DD` (validated with `ISO_DATE_RE`, ignored when malformed), computes the fetch range as `CALENDAR_WEEKS_BUFFER` weeks either side, fetches `getCalendarOrders` + `getUnscheduledOrders` in `Promise.all`, returns `<PageTransition><CalendarLayout … /></PageTransition>`
+
+**Acceptance criteria:**
+- [ ] Nav drawer shows 7 items with Calendar between Orders and Leads
+- [ ] Active state highlights on `/calendar` via the existing `pathname === href || pathname.startsWith(href + '/')` rule
+- [ ] Page is a server component — no `'use client'`, no `@dnd-kit` or `framer-motion` import (CONSTRAINT-03)
+- [ ] Auth guard and `dynamic = 'force-dynamic'` inherited from `app/(app)/layout.tsx`; the page does not redeclare them
+- [ ] Malformed `?week=` is ignored and the page falls back to the current business week rather than erroring
+- [ ] Data fetched server-side and passed as props — no client-side fetching
+
+**Tests required:**
+- `components/shell/__tests__/NavDrawer.test.tsx` → `renders the Calendar nav item between Orders and Leads` → `expect 7 items in order`
+- `components/shell/__tests__/NavDrawer.test.tsx` → `marks Calendar active on /calendar` → `expect active styling`
+
+**Depends on:** Task 51
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 54: `ProductionCard` component
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `components/calendar/ProductionCard.tsx` — create
+- `components/calendar/productionCardFormat.ts` — create
+- `components/calendar/__tests__/ProductionCard.test.tsx` — create
+
+**Functions to implement:**
+- `formatProductionMix(values: QtyGridValues): { text: string; hiddenCount: number }` — builds `12×275 REC, 8×330 REB` from at most 4 non-zero combos, reporting how many were hidden. Codes: recon → `REC`, rebot → `REB`, new → `NEW`. Imports `SIZE_COLS` / `TYPE_ROWS` / `cellKey` from `components/shared/qtyGridValues` — these moved there in Feature 10 and are **no longer exported from `QtyGrid`**.
+- `ProductionCard({ row, isDragging }: ProductionCardProps)` — `'use client'`. Renders PO number with right-aligned `B` / `SD` tags, customer name, mix, and delivery date or `—`.
+- `SameDayTag()` — two-character `SD` pill, `rounded-md`, `bg-amber-100 text-amber-800`, `h-5`, mirroring `BackhaulTag`'s weight and size.
+
+**Acceptance criteria:**
+- [ ] Card height driven by `--card-h`, identical for every card regardless of content
+- [ ] Customer name always reserves exactly 2 lines and truncates past that; mix always reserves exactly 2 lines
+- [ ] `--card-h: clamp(80px, calc(25vh - 70px), 104px)`; padding, the 4 row heights and their font sizes interpolate off it so the rows always sum to `--card-h`
+- [ ] 5th and 6th combos collapse to `+N more`; a 6-combo order shows 4 combos and `+2 more`
+- [ ] Null `requested_delivery_date` renders `—`, matching every other PO list surface
+- [ ] Delivery date formatted with `format(parseISO(d), 'MMM d')` → `Jul 31`
+- [ ] `completed` / `invoiced` rows render dimmed and expose no drag affordance
+- [ ] Prices never appear on the card
+- [ ] `BackhaulTag` reused unchanged, not reimplemented
+- [ ] Component file under 200 lines (CQ) — formatting logic lives in `productionCardFormat.ts`
+
+**Tests required:**
+- `components/calendar/__tests__/ProductionCard.test.tsx` → `renders up to 4 combos then +N more` → `expect "+2 more" for a 6-combo order`
+- `components/calendar/__tests__/ProductionCard.test.tsx` → `renders em dash when delivery date is null` → `expect —`
+- `components/calendar/__tests__/ProductionCard.test.tsx` → `renders B and SD tags together` → `expect both present`
+- `components/calendar/__tests__/ProductionCard.test.tsx` → `built cards are dimmed and not draggable` → `expect no drag handle attrs`
+
+**Depends on:** Task 50
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 55: `CalendarLayout` + `DayColumn` — viewport-locked week strip
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `components/calendar/CalendarLayout.tsx` — create
+- `components/calendar/DayColumn.tsx` — create
+- `components/calendar/WeekStrip.tsx` — create
+- `components/calendar/__tests__/CalendarLayout.test.tsx` — create
+
+**Functions to implement:**
+- `CalendarLayout({ rows, unscheduled, weekStart }: CalendarLayoutProps)` — `'use client'`. Owns scroll position and the `Current week` action. Header band reuses the Orders idiom (`pl-20 pr-4 pt-4 pb-3 border-b border-border`); body sits on `bg-app-bg`.
+- `WeekStrip({ weeks, todayKey })` — renders week groups, each with a range label and a 2px Fri│Mon divider between groups.
+- `DayColumn({ date, rows, isToday, onAdd })` — reuses the `OpenOrdersWidget` skeleton exactly: `rounded-xl bg-card border border-border`, `px-4 py-2.5 border-b border-border bg-muted/50` header, footer with a `text-sm font-medium text-primary hover:underline` action.
+- `groupRowsByDay(rows: CalendarOrderRow[]): Map<string, CalendarOrderRow[]>` — pure; move to a sibling if `CalendarLayout` approaches the line cap.
+
+**Acceptance criteria:**
+- [ ] Root is `h-[calc(100vh-0.75rem)]` with `overflow-hidden` — the page never scrolls as a page at 1440×900, 1280×720, 1024×768 or 1280×620
+- [ ] Column width 176px so 5 columns + gaps + the 80px pill gutter + 16px fit within 1024px
+- [ ] Column height derives from the viewport through a flex chain with `min-h-0`, never a hardcoded pixel height
+- [ ] 4 whole cards visible without scrolling at every viewport height down to 600px
+- [ ] Below 600px viewport height the card holds its 80px floor and the column scrolls instead
+- [ ] Both the horizontal strip and each column render a visible scrollbar — overlay scrollbars explicitly styled against
+- [ ] Opens scrolled to the current business week; on Sat/Sun that is the *following* Mon–Fri
+- [ ] `Current week` returns to that week; respects `useReducedMotion()` by jumping instead of smooth-scrolling
+- [ ] Day header shows weekday and date only — no order count
+- [ ] Today's column header filled `bg-primary` with `text-primary-foreground`
+- [ ] Past days render identically to future days
+- [ ] Empty day shows `Nothing scheduled.` in the existing empty-state style
+- [ ] `+ Add order` sits in the column footer, hidden on hover-capable fine-pointer devices only and permanently visible otherwise (`@media (hover: hover) and (pointer: fine)`)
+- [ ] Every interactive element ≥44px (iPad touch standard)
+- [ ] Each component file under 200 lines (CQ)
+
+**Tests required:**
+- `components/calendar/__tests__/CalendarLayout.test.tsx` → `renders five weekday columns per week` → `expect Mon–Fri only, no Sat/Sun`
+- `components/calendar/__tests__/CalendarLayout.test.tsx` → `opens on the current business week` → `expect current Monday's group in view`
+- `components/calendar/__tests__/CalendarLayout.test.tsx` → `weekend visit targets the following Monday` → `expect next Mon–Fri`
+- `components/calendar/__tests__/CalendarLayout.test.tsx` → `empty day renders the empty state` → `expect "Nothing scheduled."`
+
+**Depends on:** Task 54
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 56: `@dnd-kit` wiring — drag between days, reorder, edge auto-scroll
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `package.json` — modify (`@dnd-kit/core`, `@dnd-kit/sortable`)
+- `components/calendar/CalendarDndContext.tsx` — create
+- `components/calendar/DayColumn.tsx` — modify (droppable + sortable context)
+- `components/calendar/ProductionCard.tsx` — modify (sortable node)
+- `components/calendar/__tests__/CalendarDnd.test.tsx` — create
+
+**Functions to implement:**
+- `CalendarDndContext({ children, onPlace })` — `'use client'`. Configures `PointerSensor` (6px distance activation, so a tap still opens the popup), `TouchSensor` (≈250ms long-press with tolerance, so a swipe scrolls instead of dragging) and `KeyboardSensor`. Wires `closestCenter` collision detection and the auto-scroll activator with a ~80px edge threshold.
+- `handleDragEnd(event: DragEndEvent)` — resolves target day and index, then calls `setProductionPlacement`. A drop at the origin position is a no-op and must not fire a mutation.
+- `DragOverlay` rendering a `ProductionCard` clone.
+
+**Acceptance criteria:**
+- [ ] `@dnd-kit/core` and `@dnd-kit/sortable` added to `package.json`; both are client-only and every file importing them carries `'use client'` (CONSTRAINT-03)
+- [ ] Dragging a card to another day calls `setProductionPlacement` with the new date and released index
+- [ ] Dragging within a day persists the new sequence, and the order survives a reload
+- [ ] Cards land at the exact index released — never appended to the end
+- [ ] Holding a dragged card near either edge auto-scrolls the strip, allowing a drop into a different week without releasing
+- [ ] `completed` / `invoiced` cards are not draggable
+- [ ] Nothing can be dropped on a non-weekday — no weekend drop target exists
+- [ ] A tap (movement below the 6px threshold) opens the popup instead of starting a drag
+- [ ] On touch, a swipe scrolls the calendar and only a long-press starts a drag
+- [ ] Keyboard drag works via `KeyboardSensor` with visible focus
+- [ ] `useReducedMotion()` respected — no drop animation when set
+- [ ] A failed mutation surfaces a toast and the card returns to its original position — never a silent revert
+
+**Tests required:**
+- `components/calendar/__tests__/CalendarDnd.test.tsx` → `drop on another day calls setProductionPlacement with that date` → `expect action called with new date and index`
+- `components/calendar/__tests__/CalendarDnd.test.tsx` → `drop at origin does not call the action` → `expect action not called`
+- `components/calendar/__tests__/CalendarDnd.test.tsx` → `built cards expose no drag listeners` → `expect disabled sortable`
+- `components/calendar/__tests__/CalendarDnd.test.tsx` → `failed placement shows a toast and reverts` → `expect toast and original position`
+
+**Depends on:** Task 52, Task 55
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 57: `UnscheduledCallout` + dropdown drop target
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `components/calendar/UnscheduledCallout.tsx` — create
+- `components/calendar/AddOrderMenu.tsx` — create
+- `components/calendar/__tests__/UnscheduledCallout.test.tsx` — create
+
+**Functions to implement:**
+- `UnscheduledCallout({ rows, onPlace, onClear })` — `'use client'`. Amber pill (`bg-amber-100 text-amber-800`, `rounded-full`, `min-h-[44px]`) showing the count plus "need a production date". Opens a dropdown of `ProductionCard`s, 4 visible then scroll. Registers as a `@dnd-kit` droppable so a card dragged onto it calls `clearProductionPlacement`.
+- `AddOrderMenu({ date, rows, onPick })` — the per-day `+ Add order` list, rendering the same unscheduled set.
+
+**Acceptance criteria:**
+- [ ] Count equals `getUnscheduledOrders().length` and decrements when an order is placed
+- [ ] Dropdown shows exactly 4 cards before scrolling (`UNSCHEDULED_DROPDOWN_VISIBLE`)
+- [ ] Dragging a card out of the dropdown onto a day sets its `production_date`
+- [ ] Dragging a card from the calendar onto the callout calls `clearProductionPlacement`
+- [ ] The dropdown auto-opens when a card is dragged over the collapsed pill, so the drop target is reachable
+- [ ] Per-day `+ Add order` lists exactly the same set as the callout
+- [ ] Zero unscheduled orders renders an empty state rather than a bare `0` pill
+- [ ] Callout keyboard reachable, `aria-expanded` reflects state, trigger ≥44px
+- [ ] A dated order dropped on the callout visibly returns to its default day — expected per CONSTRAINT-19, not treated as a failure
+
+**Tests required:**
+- `components/calendar/__tests__/UnscheduledCallout.test.tsx` → `shows the unscheduled count` → `expect count text`
+- `components/calendar/__tests__/UnscheduledCallout.test.tsx` → `drop on the callout clears the production date` → `expect clearProductionPlacement called`
+- `components/calendar/__tests__/UnscheduledCallout.test.tsx` → `renders empty state when nothing is unscheduled` → `expect empty copy, no pill count`
+
+**Depends on:** Task 51, Task 56
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 58: `ProductionCardDialog` — read-only popup
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `components/calendar/ProductionCardDialog.tsx` — create
+- `components/calendar/__tests__/ProductionCardDialog.test.tsx` — create
+
+**Functions to implement:**
+- `ProductionCardDialog({ open, row, onClose, onToggleSameDay, onRemove })` — `'use client'`. Reuses the `CancelOrderDialog` shell exactly: `fixed inset-0 z-50 bg-black/40` backdrop, `bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4` panel, `modalVariants` from `lib/animations`, Escape-to-close, backdrop-click-to-close.
+- Body: PO number + `OrderStatusBadge`, same-day toggle row, customer, `<QtyGrid mode="display" values={…} unitPrices={…} />`, derived total, production date, requested delivery date, backhaul, notes.
+- Footer: `Remove from calendar` (ghost) + `Open in Orders` (primary) linking to `/orders?id=[uuid]`.
+
+**Acceptance criteria:**
+- [ ] Reuses `QtyGrid` display mode with `unitPrices` so filled cells render `qty / $unit`, matching PO detail since Feature 10
+- [ ] Orders with NULL unit prices (legacy multi-combo, e.g. `MAn00003239`) fall back to bare quantities without crashing or rendering `$null`
+- [ ] Total shows the derived `price`, formatted with the shared currency formatter
+- [ ] Same-day toggle is the **only** writable control; it calls `toggleSameDayDelivery` and the card's `SD` tag updates
+- [ ] No control on the dialog can edit any other order field
+- [ ] `Remove from calendar` calls `clearProductionPlacement` and closes the dialog
+- [ ] `Open in Orders` navigates to `/orders?id=[uuid]`
+- [ ] Escape and backdrop click close; focus trapped while open and restored to the card on close
+- [ ] Respects `useReducedMotion()` via the shared `modalVariants`
+- [ ] File under 200 lines (CQ) — split a `ProductionCardDialogParts.tsx` if not
+
+**Tests required:**
+- `components/calendar/__tests__/ProductionCardDialog.test.tsx` → `renders qty / $unit for priced cells` → `expect formatted string`
+- `components/calendar/__tests__/ProductionCardDialog.test.tsx` → `falls back to bare quantities when unit prices are null` → `expect no $ rendered, no crash`
+- `components/calendar/__tests__/ProductionCardDialog.test.tsx` → `same-day toggle calls the action` → `expect toggleSameDayDelivery called with next value`
+- `components/calendar/__tests__/ProductionCardDialog.test.tsx` → `remove calls clearProductionPlacement and closes` → `expect action called and onClose fired`
+
+**Depends on:** Task 52, Task 54
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 59: Dashboard Production widget
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `components/dashboard/ProductionWidget.tsx` — create
+- `components/dashboard/DashboardView.tsx` — modify
+- `db/queries/dashboard.ts` — modify
+- `db/queries/dashboard.sql.ts` — modify
+- `app/(app)/dashboard/page.tsx` — modify
+- `components/dashboard/__tests__/ProductionWidget.test.tsx` — create
+
+**Functions to implement:**
+- `buildProductionWidgetQuery(days: string[])` in `dashboard.sql.ts` — rows for the given business days, using the same COALESCE + prior-business-day rule as Task 51.
+- `getProductionWidgetData(today: Date): Promise<{ groups: { date: string; rows: ProductionWidgetRow[]; total: number }[]; unscheduledCount: number }>` — the next 2 business days via `nextBusinessDay`, capped at 3 rows per group with the remainder as a count.
+- `ProductionWidget({ groups, unscheduledCount })` — `'use client'`. Copies the widget skeleton verbatim: `rounded-xl bg-card border border-border`, `px-4 py-2.5 border-b border-border bg-muted/50` header, `min-h-[44px]` rows, `px-4 py-3 border-t border-border` footer.
+- Mount in `DashboardView` alongside `OpenOrdersWidget`.
+
+**Acceptance criteria:**
+- [ ] Shows the next 2 **business** days — on Friday that is Fri + Mon; on Sat/Sun it is Mon + Tue
+- [ ] Group labels read `Today` / `Tomorrow` only when literally true, otherwise the real weekday and date
+- [ ] Up to 3 rows per group, remainder shown as `+ N more`
+- [ ] `B` and `SD` tags sit immediately **after the customer name**, mirroring how Open Orders places them after the PO number
+- [ ] Footer shows the unscheduled count as an amber pill and a `View calendar` link to `/calendar`
+- [ ] Empty day renders an empty state, not a blank group
+- [ ] Rows ≥44px and link to `/orders?id=[uuid]` consistent with the other widgets
+- [ ] Header, divider and footer treatment match the other dashboard widgets exactly
+
+**Tests required:**
+- `components/dashboard/__tests__/ProductionWidget.test.tsx` → `renders two business-day groups` → `expect 2 group headings`
+- `components/dashboard/__tests__/ProductionWidget.test.tsx` → `on Friday the second group is Monday` → `expect Mon label`
+- `components/dashboard/__tests__/ProductionWidget.test.tsx` → `caps at 3 rows and shows the remainder` → `expect "+2 more"`
+- `components/dashboard/__tests__/ProductionWidget.test.tsx` → `shows the unscheduled count` → `expect amber pill text`
+
+**Depends on:** Task 51
+**Specialist:** @ui-totetrack
+
+**Status:** [ ]
+
+---
+
+## Task 60: Documentation sync
+
+> Added 2026-07-26 via `@create-plan`. Source: `docs/prd.md` Feature 11 (D16 / CONSTRAINT-19).
+
+**Files:**
+- `docs/architecture.md` — modify
+- `docs/constraints.md` — modify
+- `docs/data-model.md` — modify
+
+**Functions to implement:**
+- `architecture.md` → Stack table: add `Drag and drop | @dnd-kit/core + @dnd-kit/sortable | Latest`
+- `architecture.md` → Routing Structure: add `calendar/page.tsx`
+- `architecture.md` → Component Tree: add the `components/calendar/` group
+- `architecture.md` → Component Boundary Rule: extend to name `@dnd-kit` alongside `framer-motion` and `recharts`
+- `architecture.md` → Database Layer: add `db/queries/calendar.ts` and `lib/actions/calendar.ts`
+- `constraints.md` → CONSTRAINT-03: add `@dnd-kit` to the client-only library list
+- `data-model.md` → `orders`: document the 3 new columns. This file was reconciled through migration 0008 on 2026-07-25 and must not be allowed to drift again.
+
+**Acceptance criteria:**
+- [ ] Stack table lists `@dnd-kit` with its role
+- [ ] Component boundary rule names all three client-only libraries, so no future task imports `@dnd-kit` into a server component
+- [ ] CONSTRAINT-03 and the architecture boundary rule agree word for word on the library list
+- [ ] `data-model.md` documents `production_date`, `same_day_delivery`, `production_sort_index` with nullability and defaults
+- [ ] No doc still refers to the Production Calendar as "Feature 10" or to migration `0009`
+
+**Tests required:**
+- None — documentation only. Verified by review against the shipped code.
+
+**Depends on:** Tasks 49–59
+
+**Status:** [ ]

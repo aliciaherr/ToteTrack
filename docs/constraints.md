@@ -261,6 +261,29 @@
 
 ---
 
+### CONSTRAINT-19 — Production date is separate from the delivery promise (Feature 11)
+
+**Decision:** The build day is its own nullable column, `production_date`, on `orders`. The Production Calendar reads and writes **only** `production_date` (plus `production_sort_index` for intra-day sequence) and must never write `requested_delivery_date` — that column stays the customer-facing promise, editable only in the Orders tab. A card's calendar position is `COALESCE(production_date, prevBusinessDay(requested_delivery_date))`. `prevBusinessDay` is **weekends-only** — no holiday calendar exists or is planned — so Mon, Sat, and Sun delivery dates all resolve to the prior Friday. No production date may fall on a weekend. Order editing is not available from the calendar: the card popup is read-only apart from the `same_day_delivery` toggle.
+
+**What it means in practice:**
+- Migration `0010` adds `production_date` (`date` NULL), `same_day_delivery` (`boolean NOT NULL DEFAULT false`), `production_sort_index` (`integer` NULL). RLS on `orders` unchanged (CONSTRAINT-05).
+- `prevBusinessDay` lives in `lib/dates.ts` alongside `DB_DATE_FORMAT` and is the single source of the weekday rule — no inline date math in components.
+- Once `production_date` is explicitly set, a later change to `requested_delivery_date` does **not** move the card, and nothing flags the divergence.
+- The calendar shows every order with `status <> 'cancelled'`; `completed` and `invoiced` render dimmed and non-draggable but keep their sequence slot.
+- The unscheduled set is exactly `status <> 'cancelled' AND production_date IS NULL AND requested_delivery_date IS NULL` and drives the top-right callout, its dropdown, and every per-day `+` list. No active order may be invisible.
+- `Remove from calendar` nulls both production columns; a dated order therefore returns to its default day rather than leaving the calendar. Dragging a card onto the unscheduled callout does exactly the same thing — two entry points, one operation.
+- Mutations use server actions + `revalidatePath` like every other write (CONSTRAINT-02) — no optimistic-only client state.
+- The `/calendar` screen is exactly one viewport tall and **never scrolls as a page** on any device; only the week strip and individual day columns scroll. Layout priority when space is short is fixed: never scroll the page → keep text legible (80px card floor) → show 4 cards. Card height is `clamp(80px, calc(25vh - 70px), 104px)` and all its inner metrics interpolate off it, so the visible count is a design target the card size serves rather than a consequence of a hardcoded card.
+- Columns are 176px so a full Mon–Fri fits within iPad landscape's 1024px — the documented primary device (`design-decisions.md` → Audience).
+- `@dnd-kit/core` + `@dnd-kit/sortable` are client-only and fall under **CONSTRAINT-03** alongside `framer-motion` and `recharts`.
+- The calendar popup renders `<QtyGrid mode="display">` with `unitPrices` supplied, so it matches PO detail's `qty / $unit` cells (Feature 10). Cards never show prices.
+
+**Who decided and when:** Builder (Q1–Q17 clarification pass + design review), 2026-07-26
+
+**What this closes off:** Making the calendar edit delivery dates directly would collapse the two concepts and silently rewrite customer commitments — reopening requires deciding what happens to production placement when a promise moves. Holiday awareness needs a `holidays` table plus an admin UI and holiday-aware date math everywhere `prevBusinessDay` is used. Weekend production needs 6–7 columns and invalidates the no-weekend invariant. A phone layout needs a second, narrow single-day layout rather than a responsive tweak of the 5-column grid. Allowing the page itself to scroll would remove the constraint that forces the card-scaling system to exist.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -283,3 +306,4 @@
 | 16 | Optional delivery date + auto-set on Mark Complete | NULL allowed; COALESCE to CURRENT_DATE on completion | Builder | 2026-04-22 |
 | 17 | Invoice v3: one per month, no status, no customer, overwrite via modal | Drops `customer_id` + `status` columns; chronological ledger | Builder | 2026-04-22 |
 | 18 | PO multi-combo wide-row schema + atomic completion + edit lock | Drops `container_size`/`container_type`/`quantity`; adds 6 qty cols; total `price` user-entered (no per-unit pricing); invoiced/cancelled blocks qty/price edits | Builder | 2026-04-24 |
+| 19 | Production date separate from delivery promise | Adds `production_date`/`same_day_delivery`/`production_sort_index`; calendar never writes `requested_delivery_date`; weekends-only business-day math, no holidays; calendar popup read-only; page never scrolls, card scales to keep 4 visible; `@dnd-kit` added under CONSTRAINT-03 | Builder | 2026-07-26 |
