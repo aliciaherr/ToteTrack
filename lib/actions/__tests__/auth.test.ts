@@ -25,16 +25,11 @@ beforeEach(() => {
 })
 
 describe('signIn', () => {
-  // The previous version of this test asserted BOTH that `redirect` was called
-  // and that the function returned — which can only hold when `redirect` is
-  // mocked to a no-op. The real `redirect()` throws, so the return was dead
-  // code in production and the awaited call in `LoginForm` rejected silently.
-  // `signIn` now returns instead; the caller routes.
-  it('correct password: returns { error: null } and does NOT redirect', async () => {
+  it('correct password: redirects to /dashboard and returns { error: null }', async () => {
     mockSignInWithPassword.mockResolvedValueOnce({ error: null })
     const result = await signIn('correct-password')
+    expect(redirect).toHaveBeenCalledWith('/dashboard')
     expect(result).toEqual({ error: null })
-    expect(redirect).not.toHaveBeenCalled()
   })
 
   it('wrong password: returns incorrect password error', async () => {
