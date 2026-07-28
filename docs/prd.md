@@ -803,4 +803,4 @@ As the salesperson, I want to find any PO instantly, and to plan a whole week �
 - [x] Cancelling removes the card and closes the popup
 - [x] Completed/invoiced orders are visually distinct on both the calendar and the dashboard widget
 - [x] `/calendar` still never scrolls as a page; the drawer scrolls internally
-- [ ] **Browser-verified on the iPad** — not yet done; shipped on unit tests alone
+- [x] **Browser-verified on the iPad** — confirmed by the builder 2026-07-27

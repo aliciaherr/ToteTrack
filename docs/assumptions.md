@@ -147,7 +147,7 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 
 **Contingency revision (2026-07-27):** The original tap-to-select fallback is no longer viable — Task 58 shipped the card popup, so a plain tap is already taken. The builder chose a revised fallback instead: **long-press-to-arm, then tap-to-place** (Feature 13, Task 68). A ~350ms still-finger press arms the card (shake + bold outline); while armed, a tap on another card inserts at that card's position (cards below shift down), a tap on empty column space appends to that day, a tap on the unscheduled callout unschedules, and any other tap — including the armed card itself — cancels. The card is never glued to the finger, so the strip stays freely scrollable while armed and a distant week is reachable by ordinary scrolling. Desktop pointer drag and the keyboard path are unchanged; `TouchSensor` is removed rather than tuned.
 
-**Status:** [x] Contingency fired — replacement interaction **built 2026-07-27** (Task 68), awaiting the real-iPad check. Task 68 carries a real-device acceptance criterion so this cannot be marked done unvalidated a second time.
+**Status:** [x] **Resolved 2026-07-27** — contingency fired, replacement built (Task 68, `60abf0a`), and **validated on the real iPad by the builder the same day**: arm, cross-week place, same-day reorder, unschedule, cancel, and popup all confirmed working. A-05 is closed.
 
 > **Bookkeeping note (2026-07-26, Task 56):** A-05 was referenced by `docs/plan.md` and `docs/session-handoff.md` for two sessions before this entry existed. It was written here during Task 56 because `@dev`'s pre-code assumption gate reads *this* file, and would have blocked on an assumption the builder had in fact already accepted. Same failure shape as the missing `manifest.md`: the decision was made and recorded, just not in the file the process checks.
 
@@ -161,9 +161,9 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 | A-02 | Single-password auth not natively supported | Service capability | Research | Resolved — fixed dummy email pattern |
 | A-03 | Cold start: low value before data entered | User behavior | Accepted risk | Accepted — build data-entry screens first |
 | A-04 | Framer Motion requires client components | Technical feasibility | Accepted risk | Accepted — document boundary rule in architecture |
-| A-05 | iPad touch drag-and-drop inside a scrolling strip | Technical feasibility | Accepted risk | **Failed on device 2026-07-27** — contingency fired; revised fallback is long-press-to-arm + tap-to-place (Task 68) |
+| A-05 | iPad touch drag-and-drop inside a scrolling strip | Technical feasibility | Accepted risk | **Resolved 2026-07-27** — failed on device, contingency fired, replacement (long-press-to-arm + tap-to-place, Task 68) built and device-validated the same day |
 
-**Open count:** 0 — `@plan` is unblocked. A-05's contingency fired on 2026-07-27: the one assumption flagged as likely to fire did. Its replacement interaction is specified as Feature 13 Task 68 and awaits implementation after Feature 12 lands.
+**Open count:** 0 — every assumption is resolved or accepted with its contingency exercised. A-05, the one assumption flagged as likely to fire, did fire and is now closed: its replacement interaction shipped and passed the real-device check on 2026-07-27.
 
 ---
 

@@ -2266,7 +2266,7 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 
 ---
 
-## Task 68: Long-press-to-arm + tap-to-place on touch devices
+## Task 68: Long-press-to-arm + tap-to-place on touch devices ✅ Done 2026-07-27
 
 **Why this exists:** Touch drag was unusable on a real iPad in every browser (all WebKit). Root causes: iPadOS's own long-press behaviours (text-selection callout, native drag) were never suppressed and fire on top of the `TouchSensor` drag; the 8px activation tolerance is tighter than natural fingertip drift; and nothing signals when activation happens. Per the A-05 contingency, the touch sensor is **replaced, not tuned** — but with a revised design, because the originally agreed tap-to-select fallback conflicts with tap-opens-popup (shipped in Task 58). Desktop pointer drag and the keyboard path are untouched.
 
@@ -2293,7 +2293,7 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 - `components/calendar/CalendarLayout.tsx` — modify: outside-tap cancel
 - `components/calendar/__tests__/` — modify `CalendarDnd.test.tsx`, `ProductionCard.test.tsx`, `UnscheduledCallout.test.tsx`; create `useLongPressArm.test.ts`
 
-**Status: built 2026-07-27 — open pending the real-iPad validation criterion below. Suite 685 → 791.**
+**Status: [x] Done 2026-07-27 — built at `60abf0a`, validated on the real iPad by the builder the same day. Suite 685 → 791. This closes A-05 and completes Feature 13.**
 
 **Acceptance:**
 - [x] Long-press arms; shake + bold outline; outline-only under `useReducedMotion` (shake disabled via `prefers-reduced-motion` in `globals.css` — same OS signal `useReducedMotion` reads)
@@ -2309,7 +2309,7 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 - [x] Desktop mouse drag and keyboard drag behave exactly as before; `PointerSensor` no longer activates from touch pointers (`MouseAndPenPointerSensor`); `TouchSensor` is gone
 - [x] iOS long-press system behaviours (selection callout, native drag) do not fire on cards (`.calendar-card-press` in `globals.css`) — *CSS is in place; observable only on the device, covered by the validation criterion*
 - [x] Tests: happy + error path per new function; insert-index math; unschedule parity; popup suppression while armed (`armPlacement.test.ts`, `useLongPressArm.test.tsx`, `armMode.test.tsx`, additions to `UnscheduledCallout.test.tsx`; 791/791 pass)
-- [ ] **Validated on a real iPad (Safari at minimum): arm, place across weeks with a scroll in between, same-day reorder, unschedule, cancel, popup unaffected.** This criterion cannot be marked `[~]` — A-05 fired precisely because the touch path shipped configured-but-unobserved
-- [ ] `docs/assumptions.md` A-05, `docs/prd.md`, `docs/architecture.md`, and `docs/founder-brief.md` (FB-14) updated to final state when the task closes — all four updated for the build 2026-07-27; A-05 flips to validated only after the device check
+- [x] **Validated on a real iPad: arm, place across weeks with a scroll in between, same-day reorder, unschedule, cancel, popup unaffected.** Confirmed by the builder 2026-07-27
+- [x] `docs/assumptions.md` A-05, `docs/prd.md`, `docs/architecture.md`, and `docs/founder-brief.md` (FB-14) updated to final state at close — A-05 marked validated 2026-07-27
 
 ---
