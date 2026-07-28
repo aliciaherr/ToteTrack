@@ -75,6 +75,8 @@
 
 **Pattern:** Next.js Server Actions for all mutations. Server Components for all data fetching. No separate REST API layer.
 
+> **Revalidation is multi-surface as of Feature 12.** An order write is no longer the Orders tab's business alone — the same row is drawn by `/calendar` and by the dashboard production widget. `createOrder`, `updateOrderStatus` and `revertOrderToScheduled` therefore revalidate `/orders`, `/calendar` **and** `/dashboard` via named path constants. None of them did before Feature 12, which meant a cancelled order stayed visible on the calendar until a hard reload. Use `/dashboard`, never `/` — `app/page.tsx` is a bare `redirect('/dashboard')`, so revalidating `/` is a no-op.
+
 - **Server Components** (in `app/(app)/[screen]/page.tsx`): fetch data server-side, pass as props to client components. Faster first paint; no client-side loading states for initial render.
 - **Server Actions** (in `lib/actions/[domain].ts`): handle all create/update/delete operations. Called from client components via event handlers. Type-safe. No HTTP boilerplate.
 - **Queries** (in `db/queries/[domain].ts`): read-only DB functions, called from server components or server actions.
@@ -123,7 +125,7 @@ components/
     PillHamburger.tsx       ← 'use client' — sole chrome element on authenticated routes; 44×44 white pill, fixed top-left at top-6 left-6 (FB-09)
     NavDrawer.tsx           ← 'use client' — Framer Motion slide-over (left); 6 nav items + Sign Out at bottom (FB-09)
     drawer-state.tsx        ← 'use client' — Context provider + useAppShellDrawerState hook (shared signal for components like QuickAddFab that need to react to drawer open/close) (FB-09)
-    DetailDrawer.tsx        ← 'use client' — CSS-only responsive right-panel wrapper (FB-06)
+    DetailDrawer.tsx        ← 'use client' — CSS-only responsive right-panel wrapper (FB-06). Optional `alwaysOverlay` (Feature 12) keeps the fixed-overlay classes at every breakpoint instead of docking inline at `lg:` — required by `/calendar`, whose root is `overflow-hidden` and must never scroll as a page (CONSTRAINT-19). Default is unchanged, so Orders/Customers/Leads/Invoices keep docking
     PageTransition.tsx      ← 'use client' — Framer Motion page fade
     ToastProvider.tsx       ← 'use client' — toast queue management
   dashboard/
@@ -167,8 +169,11 @@ components/
     useProductionPlacement.ts ← the three calendar mutations + toast/refresh
     UnscheduledCallout.tsx  ← amber count pill, dropdown, and drop-target for unscheduling
     AddOrderMenu.tsx        ← the per-day `+ Add order` pick list
-    ProductionCardDialog.tsx ← read-only popup (same-day toggle is its only writable control)
-    ProductionCardDialogParts.tsx / productionCardDialogHooks.ts ← line-cap splits; the hooks file holds the project's only focus trap
+    ProductionCardDialog.tsx ← the card popup. **No longer read-only** (Feature 12) — writes `same_day_delivery`, `backhaul` and status
+    ProductionCardDialogParts.tsx / productionCardDialogHooks.ts ← line-cap splits; the hooks file holds the project's only focus trap + the nested-dialog Escape gate
+    ProductionCardDialogControls.tsx ← the two pill toggles + the status section (Feature 12)
+    newOrderDay.tsx      ← context carrying "start a new order on this day" up to the layout, mirroring cardSelection.tsx
+    NewOrderDrawer.tsx   ← DetailDrawer + OrderForm mode="create", hosted on /calendar (Feature 12)
   leads/
     LeadLayout.tsx          ← 'use client' — two-panel state
     LeadList.tsx            ← 'use client'
@@ -246,8 +251,9 @@ lib/
     orders.ts        ← createOrder, updateOrder, updateOrderStatus
     orders.revert.ts ← revertOrderToScheduled (FB-08; sibling extracted at the 300-line cap)
     orders.validation.ts ← Zod schemas + helpers + constants for the orders actions (FB-10 / Platform-Native Rule sibling — `'use server'` files export async only)
-    calendar.ts      ← setProductionPlacement, clearProductionPlacement, toggleSameDayDelivery (Feature 11)
-    calendar.validation.ts ← Zod schemas + SORT_INDEX_MAX; enforces the no-weekend invariant on write (Platform-Native Rule sibling)
+    calendar.ts      ← setProductionPlacement, clearProductionPlacement, toggleSameDayDelivery, toggleBackhaul (Feature 11–12)
+    calendar.validation.ts ← Zod schemas + SORT_INDEX_MAX (Platform-Native Rule sibling)
+    dates.validation.ts ← the shared no-weekend `productionDateSchema` + ISO_DATE_RE. Extracted in Feature 12 so `createOrder` and the calendar actions enforce the invariant from ONE rule; a direct re-export between `orders.validation.ts` and `calendar.validation.ts` would have closed an import cycle and left ISO_DATE_RE in the TDZ
     leads.ts         ← createLead, updateLead, addLeadNote, setNextAction, convertLeadToCustomer
     invoices.ts      ← createInvoice (v3; markInvoicePaid removed)
     invoices.constants.ts ← INVOICE_EXISTS_CODE sentinel (Platform-Native Rule sibling)

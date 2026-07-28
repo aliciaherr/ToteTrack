@@ -768,3 +768,39 @@ No page title row is added to chrome. Authenticated screens orient the user via:
 | D14 | Invoice model v3 (Bundle H, 2026-04-22) → CONSTRAINT-17 | One invoice per calendar month covers all customers; no `customer_id` column on invoices; no status column (no draft/paid); "Mark as Paid" removed; existing-month invoice creation triggers `OverwriteInvoiceDialog`; retired invoice numbers never reused; ledger is flat chronological. Migration `0007` |
 | D15 | PO multi-combo restructure (2026-04-24) → Feature 9 | Single-combo PO model replaced with 6-quantity wide-row schema. Drop `container_size`, `container_type`, `quantity` columns; add 6 typed quantity columns (`qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new`). Total `price` stays as user-entered single value (no per-unit pricing, no settings, no per-PO overrides). Mark Complete remains atomic at PO level. New 2×3 grid display in PO detail (reuses Customer Volume Overview component); orders table shows `275` / `330` totals + compact `B` backhaul tag. Edit lock: `scheduled`/`completed` editable; `invoiced`/`cancelled` locked. Affects Feature 4 (Order Table, Detail Panel, Form, Error States) |
 | D16 | Production Calendar (2026-07-26) → Feature 11, CONSTRAINT-19 | Build day is a **separate** concept from the customer promise: new nullable `production_date` column, never `requested_delivery_date`. Default position = `prevBusinessDay(requested_delivery_date)` (Mon/Sat/Sun → prior Friday); weekends-only business-day math, no holiday calendar. Mon–Fri 176px columns sized so a full work week fits iPad landscape; page never scrolls, card height scales via `clamp()` to keep 4 visible. All non-cancelled orders shown; `completed`/`invoiced` dimmed and locked. Manual intra-day sequence persisted in `production_sort_index`. New `same_day_delivery` boolean toggled only from a read-only calendar popup — order editing stays exclusive to the Orders tab. Orders with neither date surfaced via a top-right unscheduled callout that doubles as a drop target. `@dnd-kit/core` + `@dnd-kit/sortable` added (approved by Builder without `@cto` review); desktop + tablet only. Migration `0010` |
+
+---
+
+## Feature 12: Orders List Ergonomics + Calendar Write Surface
+
+> Two independent changes shipped together on 2026-07-27 (Tasks 61–67). Revises Feature 11's read-only calendar and Feature 4's paginated orders list.
+
+### Problem Statement
+Two frictions, one on each screen. The orders list paginated at 20 rows with no way to find a specific PO, so locating one meant clicking through pages. And the production calendar could only *move* orders — creating one, or marking it complete, meant leaving the planning screen for the Orders tab and losing the week in view.
+
+### User Story
+As the salesperson, I want to find any PO instantly, and to plan a whole week — creating, completing and cancelling orders — without leaving the calendar.
+
+### User Flow
+- **Orders list:** no pagination. Every PO for the active status tab renders in one scroll. A search box sits beside the status tabs; typing filters by PO number or customer name.
+- **Calendar — new order:** a day's `+ Add order` menu offers **Add Purchase Order** above the unscheduled list. Choosing it opens the standard new-order form in a right drawer, over the calendar. On save the card appears on that day.
+- **Calendar — card popup:** two pill toggles at the top (Backhaul, Same-day delivery), and below them the same status block as the Orders tab — Mark as Complete and Cancel Order on a scheduled PO, Revert to Scheduled otherwise.
+- **Calendar — at a glance:** completed and invoiced cards sit on a grey background, clearly distinct from active ones. The dashboard production widget matches.
+
+### Business Logic
+- **Search:** case-insensitive partial match on `po_number` OR customer `company_name`, ANDed with the active status tab. URL-driven (`?search=`) like the customers tab, debounced 250ms because the result set is now unbounded.
+- **Day wins over delivery date:** a PO created from a day column takes that day as its `production_date`, whatever delivery date the form carries. Clicking a day is a deliberate placement and outranks the creation-time default (CONSTRAINT-19). Weekends are rejected on write.
+- **What the calendar still cannot edit:** quantities, prices, customer, address, notes, and `requested_delivery_date`. Those stay Orders-tab only.
+- **Cancel is one-way from the calendar.** The calendar excludes cancelled orders, so the card leaves the board and the popup closes. Reverting requires the Orders tab. Completing is not one-way — the card dims in place and can be reverted from the popup.
+- **Flag toggles are permitted on invoiced/cancelled orders** — CONSTRAINT-18's edit lock covers only quantity and price.
+
+### Acceptance Criteria
+- [x] Orders list shows every PO for the tab in one scroll; no pagination controls
+- [x] Search matches PO number or customer name, combines with the status tab, and survives tab switches and row selection
+- [x] "Add Purchase Order" creates an order on the clicked day without leaving `/calendar`
+- [x] Backhaul and same-day toggles persist and survive a reload
+- [x] Status transitions work from the popup and match the Orders tab exactly
+- [x] Cancelling removes the card and closes the popup
+- [x] Completed/invoiced orders are visually distinct on both the calendar and the dashboard widget
+- [x] `/calendar` still never scrolls as a page; the drawer scrolls internally
+- [ ] **Browser-verified on the iPad** — not yet done; shipped on unit tests alone

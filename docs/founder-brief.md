@@ -225,3 +225,24 @@ Going back would mean reintroducing derived positions, and with them both the dr
 **Check before approving:** (a) An armed card stays armed while you scroll and has no time-out — the only way out is a tap. Comfortable? (b) While a card is armed, tapping another card *places*, it does not open that card's popup — placement wins. That is the trade for keeping plain tap = popup. (c) The last touch design shipped marked "done" without ever touching an iPad, and that is exactly how this problem stayed hidden. Task 68 therefore has a hard rule: it cannot close until someone runs the whole gesture set on a real iPad. Hold this line.
 
 **What this closes off:** Very little. The drag library stays (desktop still drags), so nothing is added or removed from the stack. If hold-then-tap *also* disappoints on the real device — unlikely, since it avoids the browser behaviours that broke drag — the remaining fallback is a "Move to date" picker inside the card popup: slower, but immune to gesture problems entirely.
+
+---
+
+## FB-15 — The Calendar Became a Place You Change Things, Not Just Look at Them
+
+**Date:** 2026-07-27
+**Architecture reference:** `docs/architecture.md` → Component Architecture (calendar tree), API Structure (revalidation), Database Layer (`lib/actions/dates.validation.ts`)
+**Tasks:** Feature 12, Tasks 63–67
+
+**Decided:** The production calendar now creates orders, flips the backhaul and same-day flags, and moves orders through their status lifecycle — work that previously required going to the Orders tab. It still cannot change quantities, prices, the customer, or the delivery promise.
+
+**Means for your product:** The salesperson can plan a week without leaving the planning screen. A new PO can be created straight onto the day it will be built — and that day wins over the automatic "day before delivery" default, because clicking a specific day is a deliberate choice. An order can be marked complete or cancelled from the card itself. Cancelling removes it from the board; getting it back means going to the Orders tab, which is deliberate, since an accidental cancel should not be undoable with the same casual tap that caused it.
+
+**Check before approving:**
+- Is it right that creating an order from a day column **ignores** the delivery date you type into the form? A PO due Friday, created by clicking Tuesday, builds Tuesday.
+- Is cancelling from the calendar being one-way acceptable, or should it be reversible from the card too?
+- Completed orders now sit on a grey background rather than just faded. Clear enough at a glance on the iPad?
+
+**What this closes off:** The calendar is now a second writer to the order lifecycle, so any future status rule has two screens to satisfy, not one. Every write that can move, hide or restyle a card must revalidate three routes — a fourth surface would make that a real coupling problem worth solving properly. And the "calendar is a read-only view" simplification is gone for good: it is now a full participant in the order lifecycle, minus the fields it deliberately refuses.
+
+**Related:** supersedes the read-only clause of CONSTRAINT-19 (revised the same day). Independent of FB-14, which replaces the touch *interaction*; this changes what the popup can *do*.

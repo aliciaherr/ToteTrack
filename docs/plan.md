@@ -606,7 +606,9 @@ type VolumeOverview = {
 
 ---
 
-## Task 19: PO document upload (Supabase Storage)
+## Task 19: PO document upload (Supabase Storage) [~] Superseded 2026-07-27
+
+> **Cut — never built.** `components/orders/PODocumentUpload.tsx` is still a placeholder and `docs/architecture.md` records Tasks 19/33 as cut. Marked during `@end-session`: left unchecked, it made the plan's "first incomplete task" resolve here instead of to real work.
 
 **Status:** ~~DEFERRED~~ — permanently out of scope (builder decision 2026-04-22).
 
@@ -616,7 +618,9 @@ type VolumeOverview = {
 
 ---
 
-## Task 33: PO document extraction + form pre-fill (Claude vision)
+## Task 33: PO document extraction + form pre-fill (Claude vision) [~] Superseded 2026-07-27
+
+> **Cut alongside Task 19** — it replaced Task 19 and was cut with it. See `docs/architecture.md`.
 
 **Status:** [~] Superseded — cut from v1 scope (builder decision 2026-04-22).
 
@@ -1033,7 +1037,9 @@ export const collapsibleVariants // height animate via motion.div
 
 ---
 
-## Task 34: Remove top bar; ship pill hamburger on authenticated routes
+## Task 34: Remove top bar; ship pill hamburger on authenticated routes ✅ Done (verified on disk 2026-07-27)
+
+> Shipped long ago; the acceptance boxes were never ticked. Verified during `@end-session`: `components/shell/PillHamburger.tsx` exists and `components/shell/TopBar.tsx` is deleted.
 
 > Added 2026-04-23 via `@create-plan`. Source: `docs/prd.md` Cross-cutting: App Shell Chrome (D10).
 
