@@ -226,9 +226,8 @@ db/
     dashboard.ts      ← getDashboardStats, getNeedToContactList, getInvoiceTrendData, etc.
     customers.ts      ← getCustomers, getCustomerDetail, getCustomerOrders, getVolumeOverview
     orders.ts         ← getOrders, getOrderDetail
-    orders.constants.ts ← ORDERS_PAGE_SIZE (client-safe sibling — see Platform-Native Rules)
     calendar.ts       ← getCalendarOrders, getUnscheduledOrders + CalendarOrderRow (Feature 11)
-    calendar.constants.ts ← UNSCHEDULED_DROPDOWN_VISIBLE, CALENDAR_WEEKS_BUFFER (client-safe sibling)
+    calendar.constants.ts ← UNSCHEDULED_DROPDOWN_VISIBLE, CALENDAR_WEEKS_BUFFER (client-safe sibling — see Platform-Native Rules)
     production-widget.ts ← getProductionWidgetData — the dashboard's next-2-business-days widget
     production-widget.constants.ts ← productionWidgetDays + row/group types (client-safe sibling)
     leads.ts          ← getLeads, getLeadDetail, getLeadNotes
@@ -325,7 +324,7 @@ Files marked `'use server'` (every file under `lib/actions/`) may export **async
 ### Client components must not value-import from `db/queries/*`
 `db/queries/*` modules transitively import `db/index.ts`, which imports the `postgres` driver — a Node-only package that references `fs` / `perf_hooks`. A client component that value-imports anything from this tree drags the driver into the browser bundle, breaking the webpack production build with `Module not found: 'fs'`.
 
-**Rule:** client components may `import type { ... }` from `db/queries/*` (types are erased at build time, safe to cross the boundary). Value exports that client components need live in sibling `*.constants.ts` files. Precedent: `db/queries/orders.constants.ts` holds `ORDERS_PAGE_SIZE` for `OrderPagination.tsx`.
+**Rule:** client components may `import type { ... }` from `db/queries/*` (types are erased at build time, safe to cross the boundary). Value exports that client components need live in sibling `*.constants.ts` files. Precedent: `db/queries/calendar.constants.ts` holds `UNSCHEDULED_DROPDOWN_VISIBLE` and `CALENDAR_WEEKS_BUFFER` for the calendar client components.
 
 ### Authenticated routes opt out of static rendering
 Every route that reads session cookies via `supabase.auth.getUser()` must declare `export const dynamic = 'force-dynamic'`. Without it, Next.js attempts to prerender these routes at build time — when no cookies exist — and fails every one of them with `createClient (server): called outside server context`.

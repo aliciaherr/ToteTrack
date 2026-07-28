@@ -1,48 +1,49 @@
 'use client'
 
-import { useCallback, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useReducedMotion } from 'framer-motion'
+import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import OrderStatusTabs from './OrderStatusTabs'
 import OrderRow from './OrderRow'
-import OrderPagination from './OrderPagination'
 import type { OrderListStatus, OrderTableRow } from '@/db/queries/orders'
+
+// The list is unbounded (no pagination), so every keystroke would refetch the
+// full result set. Wait for a pause in typing before navigating.
+const SEARCH_DEBOUNCE_MS = 250
 
 interface OrderTableProps {
   orders: OrderTableRow[]
-  totalCount: number
-  totalPages: number
-  currentPage: number
   status: OrderListStatus
+  search: string
   selectedId: string | null
   onNewOrder: () => void
 }
 
-function buildListHref(status: OrderListStatus, selectedId: string | null): string {
+// Single href builder for both the status tabs and the row links, so switching
+// tabs or selecting an order always carries the other params along.
+function buildOrdersHref(
+  status: OrderListStatus,
+  search: string,
+  orderId: string | null,
+): string {
   const params = new URLSearchParams()
   if (status !== 'all') params.set('status', status)
-  if (selectedId) params.set('id', selectedId)
+  if (search.trim()) params.set('search', search)
+  if (orderId) params.set('id', orderId)
   const query = params.toString()
   return query ? `/orders?${query}` : '/orders'
 }
 
-function buildRowHref(
-  orderId: string,
-  status: OrderListStatus,
-  currentPage: number,
-): string {
-  const params = new URLSearchParams()
-  params.set('id', orderId)
-  if (status !== 'all') params.set('status', status)
-  if (currentPage > 1) params.set('page', String(currentPage))
-  return `/orders?${params.toString()}`
-}
-
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
+function EmptyState({ hasSearch, hasFilter }: { hasSearch: boolean; hasFilter: boolean }) {
   return (
     <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-      {hasFilter ? 'No orders match this filter.' : 'No orders yet.'}
+      {hasSearch
+        ? 'No orders match that search.'
+        : hasFilter
+          ? 'No orders match this filter.'
+          : 'No orders yet.'}
     </div>
   )
 }
@@ -67,36 +68,50 @@ function TableHeader() {
 }
 
 /**
- * Orders table with status filter tabs, "+ New Order" button, the row list,
- * and a pagination footer. Filter state is driven by URL query params
- * (`status`, `page`, `id`) so the server-rendered row list always reflects
- * the active view. Status changes reset pagination to page 1; row clicks
- * preserve the current filter and page.
+ * Orders table with status filter tabs, a PO/customer search box, the
+ * "+ New Order" button, and the row list. Filter state is driven by URL query
+ * params (`status`, `search`, `id`) so the server-rendered row list always
+ * reflects the active view; every row is rendered in one scroll. Tab changes
+ * and row clicks preserve the active search term.
  */
 export default function OrderTable({
   orders,
-  totalCount,
-  totalPages,
-  currentPage,
   status,
+  search,
   selectedId,
   onNewOrder,
 }: OrderTableProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const shouldReduceMotion = Boolean(useReducedMotion())
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    },
+    [],
+  )
 
   const handleStatusChange = useCallback(
     (nextStatus: OrderListStatus) => {
-      // Reset to page 1 whenever the status filter changes — the previous
-      // page number rarely maps to a meaningful position in the new result set.
-      const href = buildListHref(nextStatus, selectedId)
+      const href = buildOrdersHref(nextStatus, search, selectedId)
       startTransition(() => router.push(href))
     },
-    [router, selectedId],
+    [router, search, selectedId],
   )
 
-  const hasFilter = status !== 'all'
+  const handleSearchChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const term = event.target.value
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        const href = buildOrdersHref(status, term, selectedId)
+        startTransition(() => router.push(href))
+      }, SEARCH_DEBOUNCE_MS)
+    },
+    [router, status, selectedId],
+  )
 
   return (
     <div className="flex flex-col h-full bg-card">
@@ -111,7 +126,20 @@ export default function OrderTable({
             + New Order
           </Button>
         </div>
-        <OrderStatusTabs status={status} onChange={handleStatusChange} />
+        <div className="flex items-center justify-between gap-3">
+          <OrderStatusTabs status={status} onChange={handleStatusChange} />
+          <div className="relative w-64 max-w-[50%]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="search"
+              defaultValue={search}
+              placeholder="Search PO or customer..."
+              aria-label="Search orders"
+              onChange={handleSearchChange}
+              className="w-full pl-9 pr-3 h-11 text-sm bg-muted rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
       </div>
 
       <div
@@ -120,7 +148,7 @@ export default function OrderTable({
         }`}
       >
         {orders.length === 0 ? (
-          <EmptyState hasFilter={hasFilter} />
+          <EmptyState hasSearch={Boolean(search.trim())} hasFilter={status !== 'all'} />
         ) : (
           <table className="w-full border-collapse">
             <TableHeader />
@@ -132,23 +160,13 @@ export default function OrderTable({
                   isSelected={selectedId === order.id}
                   animationIndex={index}
                   shouldReduceMotion={shouldReduceMotion}
-                  href={buildRowHref(order.id, status, currentPage)}
+                  href={buildOrdersHref(status, search, order.id)}
                 />
               ))}
             </tbody>
           </table>
         )}
       </div>
-
-      {totalCount > 0 && (
-        <OrderPagination
-          totalCount={totalCount}
-          totalPages={totalPages}
-          currentPage={currentPage}
-          status={status}
-          selectedId={selectedId}
-        />
-      )}
     </div>
   )
 }

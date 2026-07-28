@@ -6,7 +6,7 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { getOrders, getOrderDetail, ORDERS_PAGE_SIZE } from '../orders'
+import { getOrders, getOrderDetail } from '../orders'
 import { DatabaseError, OrderNotFoundError } from '@/lib/errors'
 
 const dialect = new PgDialect()
@@ -15,26 +15,6 @@ function compileCall(callIndex: number): { sql: string; params: unknown[] } {
   const sqlArg = mockExecute.mock.calls[callIndex]?.[0] as SQL | undefined
   if (!sqlArg) throw new Error(`db.execute was not called ${callIndex + 1} time(s)`)
   return dialect.sqlToQuery(sqlArg)
-}
-
-// Two queries fire in Promise.all: one list query (contains LIMIT) and one
-// count query (contains COUNT). These helpers find each by SQL shape so the
-// tests don't depend on scheduler-specific call order. Matching is
-// case-insensitive because Drizzle's sql template preserves keyword case.
-function findListCall(): { sql: string; params: unknown[] } {
-  for (let i = 0; i < mockExecute.mock.calls.length; i++) {
-    const compiled = compileCall(i)
-    if (/limit/i.test(compiled.sql)) return compiled
-  }
-  throw new Error('List query call not found')
-}
-
-function findCountCall(): { sql: string; params: unknown[] } {
-  for (let i = 0; i < mockExecute.mock.calls.length; i++) {
-    const compiled = compileCall(i)
-    if (/count\(\*\)/i.test(compiled.sql)) return compiled
-  }
-  throw new Error('Count query call not found')
 }
 
 const sampleOrder = {
@@ -54,69 +34,55 @@ const sampleOrder = {
   backhaul: false,
 }
 
-function mockListAndCount(rows: unknown[], totalCount: number): void {
-  mockExecute.mockImplementation(async (sqlArg: SQL) => {
-    const { sql: compiled } = dialect.sqlToQuery(sqlArg)
-    if (/count\(\*\)/i.test(compiled)) return [{ total_count: totalCount }]
-    return rows
-  })
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('getOrders', () => {
-  it('returns rows, totalCount, totalPages, and currentPage for the first page', async () => {
-    mockListAndCount([sampleOrder], 25)
+  it('returns every matching row in a single un-paginated query', async () => {
+    mockExecute.mockResolvedValueOnce([sampleOrder])
     const result = await getOrders({ status: 'scheduled' })
     expect(result.rows).toEqual([sampleOrder])
-    expect(result.total_count).toBe(25)
-    expect(result.total_pages).toBe(Math.ceil(25 / ORDERS_PAGE_SIZE))
-    expect(result.current_page).toBe(1)
+    expect(mockExecute).toHaveBeenCalledOnce()
+    expect(compileCall(0).sql).not.toMatch(/\bLIMIT\b|\bOFFSET\b/i)
   })
 
-  it('status=scheduled: emits WHERE o.status = "scheduled" in both queries', async () => {
-    mockListAndCount([], 0)
+  it('status=scheduled: binds the status as a query parameter', async () => {
+    mockExecute.mockResolvedValueOnce([])
     await getOrders({ status: 'scheduled' })
-    const listCall = findListCall()
-    const countCall = findCountCall()
-    expect(listCall.params).toContain('scheduled')
-    expect(countCall.params).toContain('scheduled')
+    expect(compileCall(0).params).toContain('scheduled')
   })
 
   it('status=completed: matches both completed and invoiced rows', async () => {
-    mockListAndCount([], 0)
+    mockExecute.mockResolvedValueOnce([])
     await getOrders({ status: 'completed' })
-    const listCall = findListCall()
-    expect(listCall.sql).toMatch(/o\.status\s+IN\s*\(\s*'completed'\s*,\s*'invoiced'\s*\)/i)
+    expect(compileCall(0).sql).toMatch(
+      /o\.status\s+IN\s*\(\s*'completed'\s*,\s*'invoiced'\s*\)/i,
+    )
   })
 
   it('status=all: omits the status filter from the WHERE clause', async () => {
-    mockListAndCount([], 0)
+    mockExecute.mockResolvedValueOnce([])
     await getOrders({ status: 'all' })
-    const listCall = findListCall()
+    const listCall = compileCall(0)
     // Match WHERE-clause-style filter only — the ORDER BY contains its own
     // `o.status = 'scheduled'` in a CASE expression for sort bucketing.
-    expect(listCall.sql).not.toMatch(/WHERE\s+o\.status/i)
+    expect(listCall.sql).not.toMatch(/AND\s+o\.status/i)
     expect(listCall.params).not.toContain('all')
   })
 
-  it('page=2: shifts the OFFSET by one page so page 1 rows are skipped', async () => {
-    mockListAndCount([], 0)
-    await getOrders({ status: 'all', page: 2 })
-    const listCall = findListCall()
-    expect(listCall.params).toContain(ORDERS_PAGE_SIZE)
-    expect(listCall.params).toContain(ORDERS_PAGE_SIZE)
-    expect(listCall.params).toContain((2 - 1) * ORDERS_PAGE_SIZE)
+  it('emits a case-insensitive ILIKE clause on PO number and company name when a search term is provided', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getOrders({ search: 'acme' })
+    const { sql: compiled, params } = compileCall(0)
+    expect(compiled).toMatch(/o\.po_number ILIKE .+ OR c\.company_name ILIKE /i)
+    expect(params).toContain('%acme%')
   })
 
-  it('clamps page < 1 to page 1 instead of producing a negative offset', async () => {
-    mockListAndCount([], 0)
-    const result = await getOrders({ page: 0 })
-    expect(result.current_page).toBe(1)
-    const listCall = findListCall()
-    expect(listCall.params).toContain(0)
+  it('omits the ILIKE clause when the search term is whitespace-only', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getOrders({ search: '   ' })
+    expect(compileCall(0).sql).not.toMatch(/ILIKE/)
   })
 
   it('throws DatabaseError with cause when the underlying query fails', async () => {
@@ -140,9 +106,9 @@ describe('getOrders', () => {
   })
 
   it('selects all 6 qty columns from the wide-row schema (Feature 9)', async () => {
-    mockListAndCount([], 0)
+    mockExecute.mockResolvedValueOnce([])
     await getOrders({ status: 'all' })
-    const listCall = findListCall()
+    const listCall = compileCall(0)
     for (const col of [
       'qty_275_recon', 'qty_275_rebot', 'qty_275_new',
       'qty_330_recon', 'qty_330_rebot', 'qty_330_new',
@@ -152,9 +118,9 @@ describe('getOrders', () => {
   })
 
   it('does NOT select the dropped legacy columns', async () => {
-    mockListAndCount([], 0)
+    mockExecute.mockResolvedValueOnce([])
     await getOrders({ status: 'all' })
-    const listCall = findListCall()
+    const listCall = compileCall(0)
     expect(listCall.sql).not.toMatch(/\bcontainer_size\b/)
     expect(listCall.sql).not.toMatch(/\bcontainer_type\b/)
     // `quantity` would also fail — but the regex is loose enough that future

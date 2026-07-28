@@ -1,15 +1,10 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
-
-// OrderPagination imports ORDERS_PAGE_SIZE (a runtime value) from
-// @/db/queries/orders, which transitively pulls in @/db — and @/db throws at
-// module load when DATABASE_URL is unset. Mocking @/db short-circuits that
-// chain the same way the query tests do, so the component tree can render
-// without a real database.
-vi.mock('@/db', () => ({ db: { execute: vi.fn() } }))
+import { render, screen, within, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import OrderTable from '../OrderTable'
 import type { OrderTableRow } from '@/db/queries/orders'
+
+const mockPush = vi.hoisted(() => vi.fn())
 
 vi.mock('next/link', () => ({
   default: ({
@@ -30,7 +25,7 @@ vi.mock('next/link', () => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }))
 
 function makeOrder(index: number, overrides: Partial<OrderTableRow> = {}): OrderTableRow {
@@ -54,68 +49,66 @@ function makeOrder(index: number, overrides: Partial<OrderTableRow> = {}): Order
   }
 }
 
+function renderTable(props: Partial<React.ComponentProps<typeof OrderTable>> = {}) {
+  return render(
+    <OrderTable
+      orders={[]}
+      status="all"
+      search=""
+      selectedId={null}
+      onNewOrder={vi.fn()}
+      {...props}
+    />,
+  )
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
 describe('OrderTable', () => {
   it('renders the empty state when no orders exist and no filter is active', () => {
-    render(
-      <OrderTable
-        orders={[]}
-        totalCount={0}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable()
     expect(screen.getByText(/no orders yet/i)).toBeInTheDocument()
   })
 
   it('renders a filter-specific empty message when no orders match the active status', () => {
-    render(
-      <OrderTable
-        orders={[]}
-        totalCount={0}
-        totalPages={1}
-        currentPage={1}
-        status="scheduled"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable({ status: 'scheduled' })
     expect(screen.getByText(/no orders match this filter/i)).toBeInTheDocument()
   })
 
-  it('renders a Next page link when there is more than one page of results', () => {
-    const orders = Array.from({ length: 20 }, (_, index) => makeOrder(index))
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={25}
-        totalPages={2}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
-    const nextLink = screen.getByRole('link', { name: /next page/i })
-    expect(nextLink).toHaveAttribute('href', '/orders?page=2')
+  it('renders a search-specific empty message when no orders match the search term', () => {
+    renderTable({ status: 'scheduled', search: 'acme' })
+    expect(screen.getByText(/no orders match that search/i)).toBeInTheDocument()
   })
 
-  it('does not render a Next page link when there is only one page of results', () => {
-    const orders = Array.from({ length: 5 }, (_, index) => makeOrder(index))
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={5}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
+  it('renders the search input seeded with the active search term', () => {
+    renderTable({ search: 'PO-10' })
+    const input = screen.getByLabelText(/search orders/i)
+    expect(input).toBeInTheDocument()
+    expect(input).toHaveValue('PO-10')
+  })
+
+  it('preserves the search term when the status tab is switched', () => {
+    renderTable({ search: 'acme' })
+    fireEvent.click(screen.getByRole('tab', { name: /completed/i }))
+    expect(mockPush).toHaveBeenCalledWith('/orders?status=completed&search=acme')
+  })
+
+  it('preserves the search term when a row is selected', () => {
+    const order = makeOrder(0, { po_number: 'PO-1000' })
+    renderTable({ orders: [order], status: 'scheduled', search: 'acme' })
+    fireEvent.click(screen.getByRole('row', { name: /PO-1000/i }))
+    expect(mockPush).toHaveBeenCalledWith(
+      `/orders?status=scheduled&search=acme&id=${order.id}`,
     )
+  })
+
+  it('does not render pagination controls', () => {
+    const orders = Array.from({ length: 20 }, (_, index) => makeOrder(index))
+    renderTable({ orders })
     expect(screen.queryByRole('link', { name: /next page/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /previous page/i })).not.toBeInTheDocument()
   })
 
   it('renders a row for each order with the PO number visible', () => {
@@ -123,34 +116,13 @@ describe('OrderTable', () => {
       makeOrder(0, { po_number: 'PO-1000' }),
       makeOrder(1, { po_number: 'PO-1001' }),
     ]
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={2}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable({ orders })
     expect(screen.getByText('PO-1000')).toBeInTheDocument()
     expect(screen.getByText('PO-1001')).toBeInTheDocument()
   })
 
   it('renders the new column headers in order: PO, Customer, 275, 330, Status, Req Date, Price', () => {
-    const orders = [makeOrder(0)]
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={1}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable({ orders: [makeOrder(0)] })
     const headers = screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
     expect(headers).toEqual([
       'PO #',
@@ -176,17 +148,7 @@ describe('OrderTable', () => {
         qty_330_new: 4,
       }),
     ]
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={1}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable({ orders })
     const row = screen.getByRole('row', { name: /PO-MIX/i })
     expect(within(row).getByText('25')).toBeInTheDocument()
     expect(within(row).getByText('12')).toBeInTheDocument()
@@ -202,17 +164,7 @@ describe('OrderTable', () => {
         qty_330_new: 0,
       }),
     ]
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={1}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable({ orders })
     const row = screen.getByRole('row', { name: /PO-275-ONLY/i })
     expect(within(row).getByText('10')).toBeInTheDocument()
     expect(within(row).getByText('—')).toBeInTheDocument()
@@ -223,17 +175,7 @@ describe('OrderTable', () => {
       makeOrder(0, { po_number: 'PO-BACK', backhaul: true }),
       makeOrder(1, { po_number: 'PO-NORM', backhaul: false }),
     ]
-    render(
-      <OrderTable
-        orders={orders}
-        totalCount={2}
-        totalPages={1}
-        currentPage={1}
-        status="all"
-        selectedId={null}
-        onNewOrder={vi.fn()}
-      />,
-    )
+    renderTable({ orders })
     const rowBack = screen.getByRole('row', { name: /PO-BACK/i })
     const rowNorm = screen.getByRole('row', { name: /PO-NORM/i })
     expect(within(rowBack).getByLabelText(/backhaul/i)).toBeInTheDocument()

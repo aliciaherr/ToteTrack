@@ -27,10 +27,8 @@ import OrderLayout from '../OrderLayout'
 
 const baseProps = {
   orders: [],
-  totalCount: 0,
-  totalPages: 1,
-  currentPage: 1,
   status: 'all' as const,
+  search: '',
   selectedId: null,
   detail: null,
   customers: [],

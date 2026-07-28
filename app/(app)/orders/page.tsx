@@ -28,7 +28,7 @@ interface OrdersPageProps {
   searchParams: {
     id?: string
     status?: string
-    page?: string
+    search?: string
     new?: string
     customerId?: string
   }
@@ -38,12 +38,6 @@ function parseStatus(value: string | undefined): OrderListStatus {
   return VALID_STATUSES.includes(value as OrderListStatus)
     ? (value as OrderListStatus)
     : 'all'
-}
-
-function parsePage(value: string | undefined): number {
-  if (!value) return 1
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
 }
 
 function parseUuid(value: string | undefined): string | null {
@@ -62,21 +56,22 @@ async function loadOrderDetail(orderId: string): Promise<OrderDetail | null> {
 }
 
 /**
- * Orders list route. Reads filter + pagination state + form deep-link state
- * from query params (`status`, `page`, `id`, `new`, `customerId`), validates
- * each, and fetches orders + detail + the customer selector list in parallel.
+ * Orders list route. Reads filter + search + form deep-link state from query
+ * params (`status`, `search`, `id`, `new`, `customerId`), validates each, and
+ * fetches orders + detail + the customer selector list in parallel. The list
+ * is unbounded — every matching order renders in one scroll.
  * `?new=1` opens the create form in the right panel; `?customerId=[uuid]`
  * pre-selects and locks the customer field.
  */
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const status = parseStatus(searchParams.status)
-  const page = parsePage(searchParams.page)
+  const search = searchParams.search?.trim() ?? ''
   const selectedId = parseUuid(searchParams.id)
   const lockedCustomerId = parseUuid(searchParams.customerId)
   const initialMode = parseInitialMode(searchParams.new, 'new-order')
 
   const [listResult, detail, customers] = await Promise.all([
-    getOrders({ status, page }),
+    getOrders({ status, search }),
     selectedId ? loadOrderDetail(selectedId) : Promise.resolve(null),
     getActiveCustomersForSelect(),
   ])
@@ -85,10 +80,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     <PageTransition>
       <OrderLayout
         orders={listResult.rows}
-        totalCount={listResult.total_count}
-        totalPages={listResult.total_pages}
-        currentPage={listResult.current_page}
         status={status}
+        search={search}
         selectedId={selectedId}
         detail={detail}
         customers={customers}

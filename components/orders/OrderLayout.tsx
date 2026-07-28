@@ -17,10 +17,8 @@ export type OrderLayoutInitialMode = 'detail' | 'new-order'
 
 interface OrderLayoutProps {
   orders: OrderTableRow[]
-  totalCount: number
-  totalPages: number
-  currentPage: number
   status: OrderListStatus
+  search: string
   selectedId: string | null
   detail: OrderDetailType | null
   customers: CustomerSelectOption[]
@@ -32,17 +30,15 @@ type RightPanelMode = 'detail' | 'new-order' | 'edit-order'
 
 /**
  * Two-panel shell for the Orders screen. Left: orders table (status tabs +
- * pagination). Right: the order detail view (Task 16), the New Order form
+ * search). Right: the order detail view (Task 16), the New Order form
  * (Task 17 create mode), or the Edit Order form (Task 17 edit mode). The
  * New-Order mode can be initialized from the URL (`?new=1`) for deep links
  * from `CustomerDetail`'s "+ New Order" button.
  */
 export default function OrderLayout({
   orders,
-  totalCount,
-  totalPages,
-  currentPage,
   status,
+  search,
   selectedId,
   detail,
   customers,
@@ -97,10 +93,8 @@ export default function OrderLayout({
     <div className="h-[calc(100vh-0.75rem)] lg:grid lg:grid-cols-[1fr_minmax(320px,35%)] lg:grid-rows-[minmax(0,1fr)]">
       <OrderTable
         orders={orders}
-        totalCount={totalCount}
-        totalPages={totalPages}
-        currentPage={currentPage}
         status={status}
+        search={search}
         selectedId={selectedId}
         onNewOrder={openNewOrder}
       />

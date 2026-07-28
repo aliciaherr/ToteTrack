@@ -1,9 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { db } from '@/db'
 import { DatabaseError, OrderNotFoundError } from '@/lib/errors'
-import { ORDERS_PAGE_SIZE } from './orders.constants'
-
-export { ORDERS_PAGE_SIZE }
 
 export type PoStatus = 'scheduled' | 'completed' | 'cancelled' | 'invoiced'
 
@@ -12,7 +9,7 @@ export type OrderListStatus = PoStatus | 'all'
 
 export interface GetOrdersFilters {
   status?: OrderListStatus
-  page?: number
+  search?: string
 }
 
 export interface OrderTableRow {
@@ -64,13 +61,6 @@ export interface OrderDetail {
 
 export interface GetOrdersResult {
   rows: OrderTableRow[]
-  total_count: number
-  total_pages: number
-  current_page: number
-}
-
-interface CountRow {
-  total_count: number
 }
 
 // `scheduled` orders are "active" (sorted ASC by req date — earliest delivery
@@ -88,13 +78,26 @@ const ORDER_CLAUSE = sql`
 // model, `invoiced` is a sub-state of completed (a delivered order that has
 // also been billed) — the salesperson sees them as one bucket. The Invoices
 // screen is the right place to look at billing-specific state.
+//
+// Emitted as `AND ...` — the base query carries an always-true WHERE so the
+// status and search clauses can each append or omit themselves independently.
 function buildStatusClause(status: OrderListStatus): SQL {
   if (status === 'all') return sql``
-  if (status === 'completed') return sql`WHERE o.status IN ('completed', 'invoiced')`
-  return sql`WHERE o.status = ${status}`
+  if (status === 'completed') return sql`AND o.status IN ('completed', 'invoiced')`
+  return sql`AND o.status = ${status}`
 }
 
-function buildOrdersQuery(status: OrderListStatus, limit: number, offset: number): SQL {
+// Search clause: case-insensitive contains on PO number or customer company
+// name. Skipped when there is no search term so the base query has no
+// unnecessary WHERE branch.
+function buildSearchClause(search: string | undefined): SQL {
+  const term = search?.trim()
+  if (!term) return sql``
+  const pattern = `%${term}%`
+  return sql`AND (o.po_number ILIKE ${pattern} OR c.company_name ILIKE ${pattern})`
+}
+
+function buildOrdersQuery(status: OrderListStatus, search: string | undefined): SQL {
   return sql`
     SELECT
       o.id,
@@ -113,58 +116,35 @@ function buildOrdersQuery(status: OrderListStatus, limit: number, offset: number
       o.backhaul
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
+    WHERE TRUE
     ${buildStatusClause(status)}
+    ${buildSearchClause(search)}
     ${ORDER_CLAUSE}
-    LIMIT ${limit} OFFSET ${offset}
-  `
-}
-
-function buildOrdersCountQuery(status: OrderListStatus): SQL {
-  return sql`
-    SELECT COUNT(*)::int AS total_count
-    FROM orders o
-    ${buildStatusClause(status)}
   `
 }
 
 /**
- * Loads a paginated page of orders for the orders table, sorted so that
- * scheduled/pending orders appear first (ASC by requested_delivery_date) and
- * completed/cancelled/invoiced orders appear after (DESC by the same column).
+ * Loads every order matching the active filter for the orders table, sorted so
+ * that scheduled/pending orders appear first (ASC by requested_delivery_date)
+ * and completed/cancelled/invoiced orders appear after (DESC by the same
+ * column). The list is unbounded — the table scrolls rather than paginates.
  *
- * Returns both the page rows and the total match count so the caller can
- * render pagination controls ("Showing X–Y of Z orders") without a second
- * round-trip.
- *
- * `page` is clamped to a minimum of 1 — callers passing 0 or negative values
- * receive the first page rather than an empty result.
+ * `search` is an optional case-insensitive contains match on PO number or
+ * customer company name; an empty or whitespace-only term is ignored.
  *
  * @throws {DatabaseError} when the underlying SQL query fails.
  */
 export async function getOrders(filters: GetOrdersFilters = {}): Promise<GetOrdersResult> {
   const status = filters.status ?? 'all'
-  const requestedPage = filters.page ?? 1
-  const currentPage = requestedPage < 1 ? 1 : requestedPage
-  const limit = ORDERS_PAGE_SIZE
-  const offset = (currentPage - 1) * limit
+  const search = filters.search
 
   try {
-    const [rowsResult, countResult] = await Promise.all([
-      db.execute(buildOrdersQuery(status, limit, offset)),
-      db.execute(buildOrdersCountQuery(status)),
-    ])
-    const totalCount = (countResult as unknown as CountRow[])[0]?.total_count ?? 0
-    const totalPages = Math.max(1, Math.ceil(totalCount / limit))
-    return {
-      rows: rowsResult as unknown as OrderTableRow[],
-      total_count: totalCount,
-      total_pages: totalPages,
-      current_page: currentPage,
-    }
+    const rowsResult = await db.execute(buildOrdersQuery(status, search))
+    return { rows: rowsResult as unknown as OrderTableRow[] }
   } catch (cause) {
     console.error('getOrders: query failed', {
       operation: 'getOrders',
-      filters: { status, currentPage },
+      filters: { status, search },
       cause,
     })
     throw new DatabaseError('getOrders', 'Failed to load orders', { cause })
