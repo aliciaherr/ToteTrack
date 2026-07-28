@@ -2313,3 +2313,47 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 - [x] `docs/assumptions.md` A-05, `docs/prd.md`, `docs/architecture.md`, and `docs/founder-brief.md` (FB-14) updated to final state at close — A-05 marked validated 2026-07-27
 
 ---
+
+# QA Fix — 2026-07-27 BLOCKED report
+
+> Added 2026-07-27 by `@qa` → builder approval. Source: `docs/qa-report.md` (Status: BLOCKED — finding 1, with findings 4a/4b bundled as nearly-free test-only additions). Not a PRD feature — a coverage fix task, added manually per `@qa`'s BLOCKED closing procedure.
+
+---
+
+## Task 69: Test the read-path access-control gate (+ bundled minor coverage gaps)
+
+**Why this exists:** `app/(app)/layout.tsx` is the *only* access-control gate on the read path — `db/queries/*` perform no auth checks by design, and `middleware.ts` only refreshes tokens ("errors here are non-fatal", it gates nothing). Page reads go through Drizzle's direct Postgres connection, so RLS does not protect them either. The `getUser()` + `redirect('/login')` in this layout is the entire login wall for viewing data, and it has zero tests: a regression would silently expose every screen (customers, orders, invoices, pricing) to anyone with the public Vercel URL, while all 806 tests stayed green — and the only real user would never notice, because they're always logged in. The 2026-04-25 QA report claimed tests existed in `app/(app)/__tests__/`; they do not. This is the outage-postmortem lesson applied proactively: `redirect()` lines in this codebase demonstrably get touched.
+
+**Files:**
+- `app/(app)/__tests__/layout.test.tsx` — create
+- `lib/actions/auth.ts` — modify (`signOut` error handling only — `signIn` untouched; the 🔴 outage guard in `docs/api-spec.md` applies)
+- `lib/actions/__tests__/auth.test.ts` — modify (signOut error cases)
+- `components/calendar/__tests__/UnscheduledCallout.test.tsx` (or sibling) — modify (hook-level `setBackhaul` coverage beside the existing `setSameDay` tests)
+
+**Functions to implement:**
+- No new production functions. `signOut(): Promise<{ error: string } | void>` gains a catch so a thrown `supabase.auth.signOut()` rejection no longer escapes unhandled — logged with context, surfaced as `GENERIC_FAILURE_MESSAGE` (follow `signIn`'s existing error-shape precedent).
+
+**Acceptance criteria:**
+- [x] Layout guard test mocks the server Supabase client + `next/navigation`'s `redirect` (the pattern existing action tests already use — no new test infra)
+- [x] `getUser()` returns no user → `redirect('/login')` called, children NOT rendered
+- [x] `getUser()` returns an error → treated as unauthenticated → redirect, children NOT rendered
+- [x] `getUser()` returns a valid user → children render, `redirect` never called
+- [x] [TS-04] read-path access control is now covered by tests — clears QA finding 1
+- [x] `signOut`: thrown/rejected `supabase.auth.signOut()` is caught — [EH-01] failure logged with context, user-facing `GENERIC_FAILURE_MESSAGE`, never an unhandled rejection; [TS-01] auth functions carry 2 error cases
+- [x] `useProductionPlacement.setBackhaul` exercised at hook level: happy path + refused-mutation path (parity with the existing `setSameDay` tests)
+- [x] `signIn` and its `redirect()` are byte-for-byte untouched (production-outage guard)
+- [x] Suite green (`npx vitest run`), `npx tsc --noEmit` clean; no production behavior change except the `signOut` catch
+
+**Tests required:**
+- `app/(app)/layout` → `redirects to /login when no user` (error case)
+- `app/(app)/layout` → `redirects to /login when getUser errors` (error case)
+- `app/(app)/layout` → `renders children for an authenticated user` (happy path)
+- `signOut` → `returns generic failure when auth service throws` (error case)
+- `signOut` → `returns generic failure when signOut rejects` (error case)
+- `useProductionPlacement.setBackhaul` → happy + refused-mutation
+
+**Status:** [x] Done 2026-07-27 — layout guard + signOut error handling + setBackhaul hook coverage shipped; 7 new tests (813 suite-wide), `tsc` clean, `signIn` untouched. NavDrawer gained a one-line action wrapper for the new signOut return type (noted in session log).
+
+**Depends on:** None
+
+---

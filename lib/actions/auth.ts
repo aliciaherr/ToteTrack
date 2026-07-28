@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import type { AuthError } from '@supabase/supabase-js'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 
 const PASSWORD_MAX_LENGTH = 72 // bcrypt effective maximum
 
@@ -50,9 +51,23 @@ export async function signIn(password: string): Promise<{ error: string | null }
   return { error: 'Unable to connect. Check your internet connection.' }
 }
 
-/** Signs out the current session and redirects to /login. */
-export async function signOut(): Promise<void> {
-  const supabase = createClient()
-  await supabase.auth.signOut()
+/**
+ * Signs out the current session and redirects to /login.
+ *
+ * The auth call is wrapped so a thrown/rejected `supabase.auth.signOut()`
+ * (network failure, service down) never escapes as an unhandled rejection —
+ * it is logged with its cause and surfaced as `{ error }` instead. The
+ * `redirect()` stays outside the `try` so its `NEXT_REDIRECT` throw is not
+ * swallowed by the catch.
+ * @returns Nothing on success (followed by redirect to /login). `{ error: string }` on an auth-service failure — user-facing message.
+ */
+export async function signOut(): Promise<{ error: string } | void> {
+  try {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+  } catch (cause) {
+    console.error('signOut: auth service failure', { operation: 'supabase.auth.signOut', cause })
+    return { error: GENERIC_FAILURE_MESSAGE }
+  }
   redirect('/login')
 }

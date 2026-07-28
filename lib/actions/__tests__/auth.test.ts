@@ -61,4 +61,30 @@ describe('signOut', () => {
     expect(mockSignOut).toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith('/login')
   })
+
+  it('returns generic failure when auth service throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSignOut.mockImplementationOnce(() => {
+      throw new Error('auth service unreachable')
+    })
+
+    const result = await signOut()
+
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(consoleError).toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('returns generic failure when signOut rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSignOut.mockRejectedValueOnce(new Error('Network failure'))
+
+    const result = await signOut()
+
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(consoleError).toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
 })

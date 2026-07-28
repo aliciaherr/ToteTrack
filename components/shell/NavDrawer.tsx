@@ -77,8 +77,15 @@ function NavItemList({ pathname, onClose }: { pathname: string; onClose: () => v
 }
 
 function SignOutRow() {
+  // `signOut` returns `{ error }` on an auth-service failure (Task 69), which
+  // React 18's form-action type does not accept — the wrapper discards the
+  // return value. The failure is already logged server-side with context.
+  const handleSignOut = async () => {
+    await signOut()
+  }
+
   return (
-    <form action={signOut} className="border-t border-border shrink-0">
+    <form action={handleSignOut} className="border-t border-border shrink-0">
       <button
         type="submit"
         className="flex items-center gap-3 w-full py-3 px-4 min-h-[44px] text-sm text-secondary hover:bg-muted transition-colors"

@@ -9,11 +9,13 @@ const mockRefresh = vi.hoisted(() => vi.fn())
 const mockToast = vi.hoisted(() => vi.fn())
 
 const mockToggleSameDayDelivery = vi.hoisted(() => vi.fn())
+const mockToggleBackhaul = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/actions/calendar', () => ({
   setProductionPlacement: mockSetProductionPlacement,
   clearProductionPlacement: mockClearProductionPlacement,
   toggleSameDayDelivery: mockToggleSameDayDelivery,
+  toggleBackhaul: mockToggleBackhaul,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -103,6 +105,7 @@ beforeEach(() => {
   mockSetProductionPlacement.mockResolvedValue({ success: true })
   mockClearProductionPlacement.mockResolvedValue({ success: true })
   mockToggleSameDayDelivery.mockResolvedValue({ success: true })
+  mockToggleBackhaul.mockResolvedValue({ success: true })
 })
 
 describe('resolveUnscheduleTarget', () => {
@@ -313,6 +316,30 @@ describe('AddOrderMenu', () => {
 
     await act(async () => {
       await result.current.setSameDay('order-1', true)
+    })
+
+    expect(mockToast).toHaveBeenCalledWith('Cancelled orders cannot be marked.', 'error')
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('setBackhaul persists the flag and refreshes', async () => {
+    const { result } = renderHook(() => useProductionPlacement())
+
+    await act(async () => {
+      await result.current.setBackhaul('order-1', true)
+    })
+
+    expect(mockToggleBackhaul).toHaveBeenCalledWith('order-1', true)
+    expect(mockRefresh).toHaveBeenCalled()
+    expect(mockToast).not.toHaveBeenCalled()
+  })
+
+  it('a rejected setBackhaul toasts rather than refreshing', async () => {
+    mockToggleBackhaul.mockResolvedValue({ error: 'Cancelled orders cannot be marked.' })
+    const { result } = renderHook(() => useProductionPlacement())
+
+    await act(async () => {
+      await result.current.setBackhaul('order-1', true)
     })
 
     expect(mockToast).toHaveBeenCalledWith('Cancelled orders cannot be marked.', 'error')
