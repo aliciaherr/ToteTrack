@@ -9,6 +9,7 @@ docs/session-log.md
 docs/session-handoff.md
 docs/framework-issues.md
 docs/security-report.md
+docs/qa-report.md
 
 # Claude Code local settings
 .claude/settings.local.json
