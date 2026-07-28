@@ -60,6 +60,8 @@ A **type-only** import is erased at compile time and does not require the direct
 
 **What it means in practice:** The `signIn` server action always uses `process.env.ADMIN_EMAIL` as the email. Never hardcode `admin@totetrack.app` in source code. Never show, mention, or expose the email in the UI. `ADMIN_EMAIL` must be set in `.env.local` and Vercel environment variables.
 
+> **Revised 2026-07-27 (`@security` CRIT-01):** the email's secrecy is defense-in-depth, not a wall — it appears in committed docs (`architecture.md`, `assumptions.md`, this file) on a public repo and must be treated as **publicly known**. The password is the only real secret: it lives nowhere but the Supabase dashboard, the salesperson's memory, and the gitignored `docs/testing-setup.md` — never in any committed file, *including QA and review reports* (that is how the 2026-04-25 leak happened; see `docs/security-report.md` and FI-06). The no-hardcode / no-UI rules above still stand unchanged — tests use placeholder emails (`user@example.com`), not the real one.
+
 **Who decided and when:** @plan (A-02 resolution), 2026-04-20
 
 **What this closes off:** Adding multiple users without a significant auth architecture change. This is single-user by design.
