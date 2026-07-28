@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useDndMonitor, useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import SortableProductionCard from './SortableProductionCard'
+import { useArmMode } from './armMode'
 import {
   UNSCHEDULED_DROPPABLE_ID,
   UNSCHEDULED_ORIGIN,
@@ -130,6 +131,7 @@ function useEscapeToClose(isOpen: boolean, close: () => void) {
  */
 export default function UnscheduledCallout({ rows }: UnscheduledCalloutProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const { armed, tap } = useArmMode()
   const { setNodeRef, isOver } = useDroppable({
     id: UNSCHEDULED_DROPPABLE_ID,
     data: DROP_DATA,
@@ -137,7 +139,16 @@ export default function UnscheduledCallout({ rows }: UnscheduledCalloutProps) {
 
   const open = useCallback(() => setIsExpanded(true), [])
   const close = useCallback(() => setIsExpanded(false), [])
-  const toggle = useCallback(() => setIsExpanded((current) => !current), [])
+  // While a card is armed (Task 68), the pill is a placement target — tapping
+  // it unschedules the armed card, the tap counterpart of drag-onto-callout —
+  // and must not also toggle the dropdown under the salesperson's finger.
+  const toggle = useCallback(() => {
+    if (armed !== null) {
+      tap({ type: 'callout' })
+      return
+    }
+    setIsExpanded((current) => !current)
+  }, [armed, tap])
 
   useOpenOnDragOver(open)
   useEscapeToClose(isExpanded, close)

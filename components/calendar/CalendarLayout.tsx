@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import CalendarDndContext from './CalendarDndContext'
@@ -8,10 +8,11 @@ import NewOrderDrawer from './NewOrderDrawer'
 import ProductionCardDialog from './ProductionCardDialog'
 import UnscheduledCallout from './UnscheduledCallout'
 import WeekStrip from './WeekStrip'
+import { ArmModeProvider, useArmModeState } from './armMode'
 import { CardSelectionProvider } from './cardSelection'
 import { NewOrderDayProvider } from './newOrderDay'
 import { useWeekScroll } from './calendarScroll'
-import { useProductionPlacement } from './useProductionPlacement'
+import { useCalendarActions, useNewOrderDay } from './calendarLayoutHooks'
 import { buildWeekGroups, groupRowsByDay } from './calendarWeeks'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CustomerSelectOption } from '@/db/queries/customers'
@@ -52,70 +53,6 @@ function CalendarHeader({
 }
 
 /**
- * The mutations the screen can trigger, plus the popup's selection state.
- *
- * Grouped here so `CalendarLayout` stays a composition root: it wires children
- * together and owns nothing else.
- */
-function useCalendarActions(
-  rows: CalendarOrderRow[],
-  unscheduled: CalendarOrderRow[],
-  rowsByDay: Map<string, CalendarOrderRow[]>,
-) {
-  const { place, unschedule, setSameDay, setBackhaul } = useProductionPlacement()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  // Picking an order from a day's `+ Add order` list places it at the end of
-  // that column — there is no released position to honour, unlike a drag.
-  const handlePick = useCallback(
-    (orderId: string, dateKey: string) => {
-      const index = rowsByDay.get(dateKey)?.length ?? 0
-      void place({ orderId, dateKey, index })
-    },
-    [place, rowsByDay],
-  )
-
-  // Every draggable card on screen, so the drag overlay can resolve one lifted
-  // out of the unscheduled dropdown as well as one lifted from a column.
-  const draggableRows = useMemo(() => [...rows, ...unscheduled], [rows, unscheduled])
-
-  // The popup holds an id, not a row object, and re-reads the row from props
-  // every render. A popup mutation revalidates and refreshes, so pinning the
-  // object would leave a pill showing the value it had before the click
-  // (CONSTRAINT-02). A card that leaves the calendar takes its popup with it.
-  const selectedRow = useMemo(
-    () => draggableRows.find((row) => row.id === selectedId) ?? null,
-    [draggableRows, selectedId],
-  )
-  const selectRow = useCallback((row: CalendarOrderRow) => setSelectedId(row.id), [])
-  const closeDialog = useCallback(() => setSelectedId(null), [])
-
-  return {
-    place,
-    unschedule,
-    setSameDay,
-    setBackhaul,
-    selectedRow,
-    selectRow,
-    handlePick,
-    draggableRows,
-    closeDialog,
-  }
-}
-
-/**
- * Which day column's `+ Add order → Add Purchase Order` is currently open, as a
- * `yyyy-MM-dd` key — and null when the drawer is shut. Its own hook rather than
- * another return value on `useCalendarActions` because it owns no mutation: the
- * write is `createOrder`, inside the form.
- */
-function useNewOrderDay() {
-  const [newOrderDay, setNewOrderDay] = useState<string | null>(null)
-  const closeNewOrder = useCallback(() => setNewOrderDay(null), [])
-  return { newOrderDay, setNewOrderDay, closeNewOrder }
-}
-
-/**
  * The production calendar screen.
  *
  * Exactly one viewport tall and never scrolling as a page (CONSTRAINT-19):
@@ -124,6 +61,13 @@ function useNewOrderDay() {
  * of the viewport through a `flex` / `min-h-0` chain rather than any pixel
  * value, which is what lets the card-scaling system in `globals.css` decide how
  * many cards fit instead of a hardcoded height deciding it.
+ *
+ * The root `onClick` is Task 68's cancel-anywhere: a tap that no placement
+ * target claimed bubbles here and disarms. Placement taps disarm before their
+ * click finishes bubbling, so by the time such a click arrives `cancel` is a
+ * no-op — nothing needs `stopPropagation`, and scrolling never produces a
+ * click at all, which is what keeps the armed state alive across a scroll to
+ * a distant week.
  *
  * @param rows Placed orders for the fetched range, each carrying its `production_date`.
  * @param unscheduled Orders with no production date — the callout and every `+ Add order` list.
@@ -152,31 +96,37 @@ export default function CalendarLayout({
     closeDialog,
   } = useCalendarActions(rows, unscheduled, rowsByDay)
   const { newOrderDay, setNewOrderDay, closeNewOrder } = useNewOrderDay()
+  const armMode = useArmModeState(place, unschedule, shouldReduceMotion)
 
   return (
     // 0.75rem is the `pt-3` AppShell puts above every authenticated route;
     // subtracting it is what makes the screen exactly one viewport tall so the
     // page itself never scrolls (CONSTRAINT-19). Same idiom as OrderLayout.
-    <div className="h-[calc(100vh-0.75rem)] overflow-hidden flex flex-col bg-app-bg">
+    <div
+      className="h-[calc(100vh-0.75rem)] overflow-hidden flex flex-col bg-app-bg"
+      onClick={armMode.cancel}
+    >
       <CalendarDndContext rows={draggableRows} onPlace={place} onUnschedule={unschedule}>
-        <CardSelectionProvider value={selectRow}>
-          <NewOrderDayProvider value={setNewOrderDay}>
-            <CalendarHeader unscheduled={unscheduled} onCurrentWeek={goToCurrentWeek} />
-            <div
-              ref={stripRef}
-              data-testid="week-strip-scroll"
-              className="calendar-scroll calendar-scroll-strip flex-1 min-h-0 overflow-x-auto overflow-y-hidden pt-3"
-            >
-              <WeekStrip
-                weeks={weeks}
-                rowsByDay={rowsByDay}
-                todayKey={todayKey}
-                unscheduled={unscheduled}
-                onPick={handlePick}
-              />
-            </div>
-          </NewOrderDayProvider>
-        </CardSelectionProvider>
+        <ArmModeProvider value={armMode}>
+          <CardSelectionProvider value={selectRow}>
+            <NewOrderDayProvider value={setNewOrderDay}>
+              <CalendarHeader unscheduled={unscheduled} onCurrentWeek={goToCurrentWeek} />
+              <div
+                ref={stripRef}
+                data-testid="week-strip-scroll"
+                className="calendar-scroll calendar-scroll-strip flex-1 min-h-0 overflow-x-auto overflow-y-hidden pt-3"
+              >
+                <WeekStrip
+                  weeks={weeks}
+                  rowsByDay={rowsByDay}
+                  todayKey={todayKey}
+                  unscheduled={unscheduled}
+                  onPick={handlePick}
+                />
+              </div>
+            </NewOrderDayProvider>
+          </CardSelectionProvider>
+        </ArmModeProvider>
       </CalendarDndContext>
 
       <ProductionCardDialog

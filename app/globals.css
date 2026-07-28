@@ -154,6 +154,37 @@
   }
 }
 
+/* Production cards under a finger. A long-press on iPadOS fires the OS's own
+   gestures — the text-selection magnifier/callout at ~500ms and native
+   element drag — on top of the app's long-press-to-arm (Task 68 / A-05).
+   Suppressing all three is what makes the app the only listener for the
+   gesture. Tailwind has no utility for -webkit-touch-callout or
+   -webkit-user-drag, so this lives here. */
+.calendar-card-press {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* The armed card's shake — the iOS home-screen jiggle, signalling "I'm picked
+   up, tap a destination". Amplitude stays small so the card remains readable
+   while armed. The bold outline is applied separately via ring utilities, so
+   reduced-motion users still get a clear armed signal when this animation is
+   disabled below. */
+@keyframes calendar-card-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-0.8deg); }
+  75% { transform: rotate(0.8deg); }
+}
+.calendar-card-armed {
+  animation: calendar-card-shake 0.35s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .calendar-card-armed {
+    animation: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

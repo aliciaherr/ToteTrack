@@ -162,11 +162,15 @@ components/
     DayColumnParts.tsx      ← DayHeader / ColumnBody / ColumnFooter (line-cap split)
     ProductionCard.tsx      ← presentational card, context-free; also exports SameDayTag + isBuiltStatus
     productionCardFormat.ts ← formatProductionMix (the `12×275 REC` line)
-    SortableProductionCard.tsx ← drag wrapper; the tap target that opens the popup
-    CalendarDndContext.tsx  ← sensors, collision detection, auto-scroll, DragOverlay
+    SortableProductionCard.tsx ← drag wrapper; the tap target that opens the popup, arms on touch long-press (Task 68)
+    CalendarDndContext.tsx  ← sensors (mouse/pen + keyboard — touch deliberately has none), collision detection, auto-scroll, DragOverlay
     calendarDnd.ts          ← pure drop resolution + sensor constants (type-only @dnd-kit import)
+    armPlacement.ts         ← Task 68 — pure tap resolution + arming constants; the touch counterpart of calendarDnd.ts
+    useLongPressArm.ts      ← Task 68 — still-finger long-press detection, touch events only
+    armMode.tsx             ← Task 68 — armed-card context + tap routing into the placement mutations
     cardSelection.tsx       ← context carrying "open this card's popup" to the card wrapper
-    useProductionPlacement.ts ← the three calendar mutations + toast/refresh
+    calendarLayoutHooks.ts  ← useCalendarActions / useNewOrderDay (line-cap split from CalendarLayout)
+    useProductionPlacement.ts ← the four calendar mutations + toast/refresh
     UnscheduledCallout.tsx  ← amber count pill, dropdown, and drop-target for unscheduling
     AddOrderMenu.tsx        ← the per-day `+ Add order` pick list
     ProductionCardDialog.tsx ← the card popup. **No longer read-only** (Feature 12) — writes `same_day_delivery`, `backhaul` and status

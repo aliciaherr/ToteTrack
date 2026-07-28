@@ -8,17 +8,6 @@ import type { DragEndEvent } from '@dnd-kit/core'
 export const POINTER_ACTIVATION_DISTANCE_PX = 6
 
 /**
- * Long-press duration before a touch drag begins. A shorter press is a swipe
- * and scrolls the calendar. This is the disambiguation the whole touch
- * experience rests on (A-05) — the strip scrolls horizontally in the same
- * gesture space a drag starts in.
- */
-export const TOUCH_ACTIVATION_DELAY_MS = 250
-
-/** Finger movement tolerated during the long press before it counts as a scroll. */
-export const TOUCH_ACTIVATION_TOLERANCE_PX = 8
-
-/**
  * Auto-scroll edge zone as a fraction of the scroll container's width.
  * `@dnd-kit` expresses this as a ratio, not pixels; 0.08 of iPad landscape's
  * 1024px is ~82px, the ~80px edge the design calls for.

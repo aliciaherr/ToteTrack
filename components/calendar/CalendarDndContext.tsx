@@ -6,12 +6,12 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
-  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
+  type PointerSensorOptions,
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useReducedMotion } from 'framer-motion'
@@ -19,13 +19,35 @@ import ProductionCard from './ProductionCard'
 import {
   AUTO_SCROLL_EDGE_RATIO,
   POINTER_ACTIVATION_DISTANCE_PX,
-  TOUCH_ACTIVATION_DELAY_MS,
-  TOUCH_ACTIVATION_TOLERANCE_PX,
   resolveDropTarget,
   resolveUnscheduleTarget,
   type DropTarget,
 } from './calendarDnd'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+
+/**
+ * `PointerSensor` that ignores touch pointers. On touch devices dragging is
+ * replaced by long-press-to-arm + tap-to-place (Task 68, the A-05
+ * contingency), and a sensor that also reacted to touch would race the
+ * arming long-press — the exact class of gesture collision that made touch
+ * drag unusable. Mouse and pen keep the full drag experience.
+ */
+class MouseAndPenPointerSensor extends PointerSensor {
+  static activators = [
+    {
+      eventName: 'onPointerDown' as const,
+      handler: (
+        { nativeEvent }: React.PointerEvent,
+        { onActivation }: PointerSensorOptions,
+      ): boolean => {
+        if (nativeEvent.pointerType === 'touch') return false
+        if (!nativeEvent.isPrimary || nativeEvent.button !== 0) return false
+        onActivation?.({ event: nativeEvent })
+        return true
+      },
+    },
+  ]
+}
 
 interface CalendarDndContextProps {
   children: React.ReactNode
@@ -37,17 +59,11 @@ interface CalendarDndContextProps {
   onUnschedule: (orderId: string) => void
 }
 
-/** The three sensors, each solving a different drag/gesture collision. */
+/** The two drag sensors. Touch is deliberately absent — see the class above. */
 function useCalendarSensors() {
   return useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseAndPenPointerSensor, {
       activationConstraint: { distance: POINTER_ACTIVATION_DISTANCE_PX },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: TOUCH_ACTIVATION_DELAY_MS,
-        tolerance: TOUCH_ACTIVATION_TOLERANCE_PX,
-      },
     }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
@@ -56,15 +72,17 @@ function useCalendarSensors() {
 /**
  * Drag-and-drop shell for the production calendar.
  *
- * Three sensors, each solving a different collision between dragging and the
- * gestures the calendar already uses:
- * - **Pointer** activates after {@link POINTER_ACTIVATION_DISTANCE_PX}px so a
- *   click still opens the card popup instead of starting a drag.
- * - **Touch** activates on a ~{@link TOUCH_ACTIVATION_DELAY_MS}ms long press so
- *   a swipe scrolls the week strip. This is the unvalidated half of A-05 — if
- *   it misbehaves on a real iPad the agreed fallback is tap-to-select then
- *   tap-target, which replaces this sensor rather than tuning it.
+ * Two sensors, each solving a collision between dragging and the gestures the
+ * calendar already uses:
+ * - **Pointer** (mouse and pen only) activates after
+ *   {@link POINTER_ACTIVATION_DISTANCE_PX}px so a click still opens the card
+ *   popup instead of starting a drag.
  * - **Keyboard** gives the whole interaction a non-pointer path.
+ *
+ * Touch has no drag sensor at all. A-05's contingency fired on a real iPad
+ * (2026-07-27): touch drag was unusable in every browser, so on touch the
+ * interaction is long-press-to-arm + tap-to-place — see `armMode.tsx` and
+ * `useLongPressArm.ts` (Task 68).
  *
  * Collision detection is `closestCenter`: cards are uniform and stacked, so the
  * nearest centre is the position the salesperson visually aimed at.

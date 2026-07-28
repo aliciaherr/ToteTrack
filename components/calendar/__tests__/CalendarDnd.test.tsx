@@ -27,7 +27,6 @@ import {
   resolveDropTarget,
   toTranslate,
   POINTER_ACTIVATION_DISTANCE_PX,
-  TOUCH_ACTIVATION_DELAY_MS,
   type CardDragData,
   type ColumnDropData,
 } from '../calendarDnd'
@@ -160,9 +159,8 @@ describe('sensor configuration', () => {
     expect(POINTER_ACTIVATION_DISTANCE_PX).toBe(6)
   })
 
-  it('requires a long press on touch so a swipe still scrolls', () => {
-    expect(TOUCH_ACTIVATION_DELAY_MS).toBeGreaterThanOrEqual(200)
-  })
+  // Touch drag has no sensor constants any more: A-05's contingency fired and
+  // touch is long-press-to-arm + tap-to-place — see armPlacement.test.ts.
 })
 
 describe('toTranslate', () => {

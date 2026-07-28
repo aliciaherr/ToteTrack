@@ -26,6 +26,8 @@ vi.mock('@/lib/hooks/useToast', () => ({
 
 import UnscheduledCallout from '../UnscheduledCallout'
 import AddOrderMenu from '../AddOrderMenu'
+import { ArmModeProvider, type ArmModeValue } from '../armMode'
+import { type ArmedCard } from '../armPlacement'
 import { useProductionPlacement } from '../useProductionPlacement'
 import {
   resolveUnscheduleTarget,
@@ -333,5 +335,41 @@ describe('AddOrderMenu', () => {
     expect(consoleError).toHaveBeenCalled()
     expect(mockRefresh).not.toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+})
+
+describe('UnscheduledCallout while a card is armed (Task 68)', () => {
+  function armModeValue(armed: ArmedCard | null): ArmModeValue {
+    return { armed, flyingId: null, arm: vi.fn(), cancel: vi.fn(), tap: vi.fn() }
+  }
+
+  function renderArmedCallout(value: ArmModeValue, rows: CalendarOrderRow[]) {
+    return render(
+      <DndContext>
+        <ArmModeProvider value={value}>
+          <UnscheduledCallout rows={rows} />
+        </ArmModeProvider>
+      </DndContext>,
+    )
+  }
+
+  it('a tap on the pill routes to the callout target instead of toggling the dropdown', () => {
+    const value = armModeValue({ row: makeRow(), dateKey: MONDAY, index: 0 })
+    renderArmedCallout(value, [makeRow({ id: 'order-9', po_number: 'PO-1009' })])
+
+    fireEvent.click(screen.getByRole('button', { name: /need a production date/ }))
+
+    expect(value.tap).toHaveBeenCalledWith({ type: 'callout' })
+    expect(screen.queryByTestId('unscheduled-dropdown')).not.toBeInTheDocument()
+  })
+
+  it('a tap on the pill with nothing armed still toggles the dropdown', () => {
+    const value = armModeValue(null)
+    renderArmedCallout(value, [makeRow({ id: 'order-9', po_number: 'PO-1009' })])
+
+    fireEvent.click(screen.getByRole('button', { name: /need a production date/ }))
+
+    expect(value.tap).not.toHaveBeenCalled()
+    expect(screen.getByTestId('unscheduled-dropdown')).toBeInTheDocument()
   })
 })

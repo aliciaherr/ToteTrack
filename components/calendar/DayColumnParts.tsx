@@ -4,6 +4,7 @@ import { format } from 'date-fns'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import AddOrderMenu from './AddOrderMenu'
 import SortableProductionCard from './SortableProductionCard'
+import { useArmMode } from './armMode'
 import { DAY_OF_MONTH_FORMAT, WEEKDAY_FORMAT } from './calendarWeeks'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 
@@ -46,6 +47,12 @@ export function DayHeader({ date, isToday }: { date: Date; isToday: boolean }) {
  *
  * Both branches carry the droppable ref: an empty day must be able to receive a
  * card, and it has no list element to attach to.
+ *
+ * Both branches are also a tap target while a card is armed (Task 68): a tap
+ * on the list's empty space — below the cards, or anywhere in an empty day —
+ * appends the armed card to this day. Taps on a card never reach here: the
+ * card's own handler runs first and disarms, so the bubbled click finds
+ * nothing armed and `armMode.tap` ignores it.
  */
 export function ColumnBody({
   dateKey,
@@ -56,6 +63,9 @@ export function ColumnBody({
   rows: CalendarOrderRow[]
   setDropRef: (element: HTMLElement | null) => void
 }) {
+  const { tap } = useArmMode()
+  const handleTap = () => tap({ type: 'column', dateKey, cardCount: rows.length })
+
   return (
     <SortableContext
       id={dateKey}
@@ -65,6 +75,7 @@ export function ColumnBody({
       {rows.length === 0 ? (
         <div
           ref={setDropRef}
+          onClick={handleTap}
           className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground p-8 text-center"
         >
           Nothing scheduled.
@@ -72,6 +83,7 @@ export function ColumnBody({
       ) : (
         <ul
           ref={setDropRef}
+          onClick={handleTap}
           className="calendar-scroll flex-1 min-h-0 overflow-y-auto p-2 space-y-2"
           role="list"
         >

@@ -2293,21 +2293,23 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 - `components/calendar/CalendarLayout.tsx` — modify: outside-tap cancel
 - `components/calendar/__tests__/` — modify `CalendarDnd.test.tsx`, `ProductionCard.test.tsx`, `UnscheduledCallout.test.tsx`; create `useLongPressArm.test.ts`
 
+**Status: built 2026-07-27 — open pending the real-iPad validation criterion below. Suite 685 → 791.**
+
 **Acceptance:**
-- [ ] Long-press arms; shake + bold outline; outline-only under `useReducedMotion`
-- [ ] Finger movement past tolerance, or a scroll, during the press cancels arming and scrolls normally
-- [ ] Tap on another card inserts at that card's position and shifts it and everything below down one — same-day taps reorder by the identical rule
-- [ ] Tap on empty column space appends to that day
-- [ ] Tap on the unscheduled callout unschedules; an already-unscheduled armed card tapped there is a no-op (no write)
-- [ ] Tap on the armed card itself or anywhere else cancels with no write; a tap resolving to the card's current position writes nothing (reuses the existing no-op guard in `resolveDropTarget`)
-- [ ] Cards inside the unscheduled dropdown can be armed and placed onto a day
-- [ ] Strip and column scrolling while armed preserves the armed state
-- [ ] While armed, no tap opens the card popup; unarmed tap-to-popup is byte-for-byte unchanged
-- [ ] Placement animates the card to its destination; instant under reduced motion
-- [ ] Desktop mouse drag and keyboard drag behave exactly as before; `PointerSensor` no longer activates from touch pointers; `TouchSensor` is gone
-- [ ] iOS long-press system behaviours (selection callout, native drag) do not fire on cards
-- [ ] Tests: happy + error path per new function; insert-index math; unschedule parity; popup suppression while armed
+- [x] Long-press arms; shake + bold outline; outline-only under `useReducedMotion` (shake disabled via `prefers-reduced-motion` in `globals.css` — same OS signal `useReducedMotion` reads)
+- [x] Finger movement past tolerance, or a scroll, during the press cancels arming and scrolls normally
+- [x] Tap on another card inserts at that card's position and shifts it and everything below down one — same-day taps reorder by the identical rule (`resolveTapAction` converts the rendered index to the same post-removal insertion index a drag produces, so the server cannot tell the gestures apart)
+- [x] Tap on empty column space appends to that day
+- [x] Tap on the unscheduled callout unschedules; an already-unscheduled armed card tapped there is a no-op (no write)
+- [x] Tap on the armed card itself or anywhere else cancels with no write; a tap resolving to the card's current position writes nothing
+- [x] Cards inside the unscheduled dropdown can be armed and placed onto a day
+- [x] Strip and column scrolling while armed preserves the armed state (cancel rides on `click`, which a scroll gesture never produces)
+- [x] While armed, no tap opens the card popup; unarmed tap-to-popup is byte-for-byte unchanged
+- [x] Placement animates the card to its destination (framer-motion `layoutId` flight, mounted only for the just-placed card so desktop drags never fight it); instant under reduced motion
+- [x] Desktop mouse drag and keyboard drag behave exactly as before; `PointerSensor` no longer activates from touch pointers (`MouseAndPenPointerSensor`); `TouchSensor` is gone
+- [x] iOS long-press system behaviours (selection callout, native drag) do not fire on cards (`.calendar-card-press` in `globals.css`) — *CSS is in place; observable only on the device, covered by the validation criterion*
+- [x] Tests: happy + error path per new function; insert-index math; unschedule parity; popup suppression while armed (`armPlacement.test.ts`, `useLongPressArm.test.tsx`, `armMode.test.tsx`, additions to `UnscheduledCallout.test.tsx`; 791/791 pass)
 - [ ] **Validated on a real iPad (Safari at minimum): arm, place across weeks with a scroll in between, same-day reorder, unschedule, cancel, popup unaffected.** This criterion cannot be marked `[~]` — A-05 fired precisely because the touch path shipped configured-but-unobserved
-- [ ] `docs/assumptions.md` A-05, `docs/prd.md`, `docs/architecture.md`, and `docs/founder-brief.md` (FB-14) updated to final state when the task closes
+- [ ] `docs/assumptions.md` A-05, `docs/prd.md`, `docs/architecture.md`, and `docs/founder-brief.md` (FB-14) updated to final state when the task closes — all four updated for the build 2026-07-27; A-05 flips to validated only after the device check
 
 ---

@@ -42,6 +42,12 @@ interface ProductionCardProps {
   row: CalendarOrderRow
   /** True while `@dnd-kit` is carrying this card (Task 56). Lifts and fades it. */
   isDragging?: boolean
+  /**
+   * True while the card is armed by a touch long-press (Task 68). Bold primary
+   * ring plus the shake from `globals.css` — the ring alone survives reduced
+   * motion, so the armed state is never signalled by movement only.
+   */
+  isArmed?: boolean
 }
 
 /**
@@ -152,8 +158,13 @@ function CardDateRow({ isoDate }: { isoDate: string | null }) {
  *
  * @param row Calendar row from `getCalendarOrders` / `getUnscheduledOrders`.
  * @param isDragging True while the card is being carried by a drag.
+ * @param isArmed True while the card is armed by a touch long-press.
  */
-export default function ProductionCard({ row, isDragging = false }: ProductionCardProps) {
+export default function ProductionCard({
+  row,
+  isDragging = false,
+  isArmed = false,
+}: ProductionCardProps) {
   const mix = formatProductionMix(row)
   const isBuilt = isBuiltStatus(row.status)
   const isDraggable = !isBuilt
@@ -162,10 +173,13 @@ export default function ProductionCard({ row, isDragging = false }: ProductionCa
     <article
       data-testid="production-card"
       data-draggable={isDraggable ? 'true' : undefined}
+      data-armed={isArmed ? 'true' : undefined}
       aria-label={`PO ${row.po_number}`}
       className={`flex flex-col rounded-md border border-border overflow-hidden select-none ${
         isBuilt ? BUILT_SURFACE_CLASS : `${ACTIVE_SURFACE_CLASS} cursor-grab`
-      } ${isDragging ? 'opacity-80 shadow-lg' : ''}`}
+      } ${isDragging ? 'opacity-80 shadow-lg' : ''} ${
+        isArmed ? 'calendar-card-armed ring-2 ring-primary' : ''
+      }`}
       style={{
         height: 'var(--card-h)',
         paddingBlock: 'var(--card-pad)',
