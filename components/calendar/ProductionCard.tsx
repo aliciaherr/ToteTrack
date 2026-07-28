@@ -21,6 +21,23 @@ export function isBuiltStatus(status: PoStatus): boolean {
   return BUILT_STATUSES.includes(status)
 }
 
+/**
+ * The "already built" treatment, shared verbatim by the calendar card and the
+ * dashboard production widget row so the two surfaces cannot drift apart.
+ *
+ * Two signals rather than one. The previous `opacity-60` alone was too subtle to
+ * read as inactive at a glance, and fading further is not the fix: CONSTRAINT-19
+ * ranks text legibility *above* card density, and a salesperson has to be able
+ * to read a completed PO, not merely notice it. So the opacity drop stays modest
+ * at 75% and the surface carries the signal — `bg-muted` (#E2E8F0) against the
+ * active `bg-card` (#FFFFFF) is an obvious step down in a column of white cards,
+ * while leaving the card's own text near full contrast.
+ */
+export const BUILT_SURFACE_CLASS = 'bg-muted opacity-75'
+
+/** The active counterpart — the plain card surface, at full opacity. */
+export const ACTIVE_SURFACE_CLASS = 'bg-card'
+
 interface ProductionCardProps {
   row: CalendarOrderRow
   /** True while `@dnd-kit` is carrying this card (Task 56). Lifts and fades it. */
@@ -146,8 +163,8 @@ export default function ProductionCard({ row, isDragging = false }: ProductionCa
       data-testid="production-card"
       data-draggable={isDraggable ? 'true' : undefined}
       aria-label={`PO ${row.po_number}`}
-      className={`flex flex-col rounded-md bg-card border border-border overflow-hidden select-none ${
-        isBuilt ? 'opacity-60' : 'cursor-grab'
+      className={`flex flex-col rounded-md border border-border overflow-hidden select-none ${
+        isBuilt ? BUILT_SURFACE_CLASS : `${ACTIVE_SURFACE_CLASS} cursor-grab`
       } ${isDragging ? 'opacity-80 shadow-lg' : ''}`}
       style={{
         height: 'var(--card-h)',

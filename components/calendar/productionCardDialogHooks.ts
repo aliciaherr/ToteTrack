@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 
-// Behavioural hooks for `ProductionCardDialog`, split out to keep that file
-// within the 200-line component cap (CQ-02).
+// Behavioural hooks for `ProductionCardDialog`, split out to keep it — and this
+// file — within the 200-line component cap (CQ-02).
 
 /** Focusable descendants, in DOM order — the tab ring while the dialog is open. */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -14,8 +14,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabi
  *
  * @param open Whether the dialog is mounted.
  * @param onClose Dismisses it.
- * @param disabled True while a mutation is in flight — Escape is ignored so a
- * write in progress cannot be abandoned half-reported.
+ * @param disabled True while a mutation is in flight — a write in progress
+ * cannot be abandoned half-reported — or while a confirmation dialog inside the
+ * panel owns the key for as long as it is up (see `useNestedDialog`).
  */
 export function useEscapeClose(open: boolean, onClose: () => void, disabled: boolean) {
   useEffect(() => {
@@ -48,7 +49,12 @@ export function useFocusTrap(open: boolean, panelRef: React.RefObject<HTMLDivEle
 
     function handleTab(event: KeyboardEvent) {
       if (event.key !== 'Tab' || !panel) return
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+      // A confirmation dialog opened by the status block renders *inside* the
+      // panel, so the ring has to shrink to it while it is up — otherwise Tab
+      // walks out of the topmost dialog into the popup behind it. There is
+      // never more than one nested dialog: the status block opens one at a time.
+      const scope = panel.querySelector<HTMLElement>('[role="dialog"]') ?? panel
+      const focusable = Array.from(scope.querySelectorAll<HTMLElement>(FOCUSABLE))
       if (focusable.length === 0) return
 
       const first = focusable[0]
@@ -72,35 +78,61 @@ export function useFocusTrap(open: boolean, panelRef: React.RefObject<HTMLDivEle
   }, [open, panelRef])
 }
 
+/** A flag mutation. `next` is the target state, never a flip. */
+type FlagToggle = (orderId: string, next: boolean) => Promise<void>
+
+interface DialogActionsInput {
+  row: CalendarOrderRow | null
+  onToggleBackhaul: FlagToggle
+  onToggleSameDay: FlagToggle
+  onRemove: (orderId: string) => Promise<void>
+  onClose: () => void
+}
+
 /**
- * The two mutating handlers, with the busy flag that disables the panel while
- * either is in flight. `onRemove` closes on completion; `onToggleSameDay`
- * leaves the dialog open so the flag can be flipped back.
+ * The dialog's three mutating handlers plus the busy flag that disables the
+ * panel while any is in flight. `onRemove` closes on completion; the two flag
+ * toggles leave the dialog open so the pill can be flipped straight back.
+ *
+ * Every handler is `catch`-then-`finally`: while `isBusy` is true the controls
+ * are disabled, Escape is ignored and backdrop-click is gated, so a mutation
+ * that left the flag set would trap the dialog until a page reload. The `catch`
+ * is not a swallow — `useCalendarMutation` already catches transport failures,
+ * logs them and raises the toast, so a rejection reaching here is a broken
+ * collaborator, and the DOM handler discards this promise, so it would
+ * otherwise surface only as an unhandled rejection nobody reads.
  */
-export function useDialogActions(
-  row: CalendarOrderRow | null,
-  onToggleSameDay: (orderId: string, next: boolean) => Promise<void>,
-  onRemove: (orderId: string) => Promise<void>,
-  onClose: () => void,
-) {
+export function useDialogActions({
+  row,
+  onToggleBackhaul,
+  onToggleSameDay,
+  onRemove,
+  onClose,
+}: DialogActionsInput) {
   const [isBusy, setIsBusy] = useState(false)
 
-  // `finally` is load-bearing on both handlers. While `isBusy` is true the
-  // buttons are disabled, Escape is ignored and backdrop-click is gated — so a
-  // rejected mutation that left the flag set would make the dialog impossible
-  // to close without reloading the page. The mutation hook owns reporting the
-  // failure; this only guarantees the UI is never trapped.
-  const handleToggle = useCallback(
-    async (next: boolean) => {
+  const runToggle = useCallback(
+    async (label: string, next: boolean, mutate: FlagToggle) => {
       if (!row) return
       setIsBusy(true)
       try {
-        await onToggleSameDay(row.id, next)
+        await mutate(row.id, next)
+      } catch (cause) {
+        console.error(`ProductionCardDialog: ${label} toggle rejected`, { orderId: row.id, next, cause })
       } finally {
         setIsBusy(false)
       }
     },
-    [row, onToggleSameDay],
+    [row],
+  )
+
+  const handleToggleBackhaul = useCallback(
+    (next: boolean) => runToggle('backhaul', next, onToggleBackhaul),
+    [runToggle, onToggleBackhaul],
+  )
+  const handleToggleSameDay = useCallback(
+    (next: boolean) => runToggle('same-day delivery', next, onToggleSameDay),
+    [runToggle, onToggleSameDay],
   )
 
   const handleRemove = useCallback(async () => {
@@ -108,11 +140,60 @@ export function useDialogActions(
     setIsBusy(true)
     try {
       await onRemove(row.id)
+    } catch (cause) {
+      console.error('ProductionCardDialog: remove rejected', { orderId: row.id, cause })
     } finally {
       setIsBusy(false)
       onClose()
     }
   }, [row, onRemove, onClose])
 
-  return { isBusy, setIsBusy, handleToggle, handleRemove }
+  return { isBusy, setIsBusy, handleToggleBackhaul, handleToggleSameDay, handleRemove }
+}
+
+/**
+ * Tracks whether a confirmation dialog opened by the status block is mounted
+ * inside the panel, and hands focus back to the popup when it closes.
+ *
+ * `OrderStatusActions` renders `CancelOrderDialog` / `RevertOrderDialog` inside
+ * this dialog, and both those and the popup listen for Escape on `window`, so
+ * one keypress reaches both handlers. Rather than depend on listener order or
+ * stop propagation, the popup stands down while a confirm is up: the flag
+ * returned here feeds the same `disabled` argument of `useEscapeClose` that
+ * already gates Escape during a mutation. One press closes the confirm, the
+ * next closes the popup. The report arrives synchronously, from the click that
+ * opens the confirm, so `document.activeElement` here is still the button that
+ * opened it — where focus returns when the confirm unmounts, not `<body>`.
+ *
+ * @param open Whether the popup itself is open; closing it clears the flag.
+ * @param panelRef The popup panel, used to place focus back inside it.
+ */
+export function useNestedDialog(open: boolean, panelRef: React.RefObject<HTMLDivElement>) {
+  const [nestedOpen, setNestedOpen] = useState(false)
+  const openerRef = useRef<HTMLElement | null>(null)
+
+  const handleNestedOpenChange = useCallback((next: boolean) => {
+    if (next) openerRef.current = document.activeElement as HTMLElement | null
+    setNestedOpen(next)
+  }, [])
+
+  useEffect(() => {
+    if (!open) setNestedOpen(false)
+  }, [open])
+
+  useEffect(() => {
+    if (nestedOpen) return
+    const opener = openerRef.current
+    openerRef.current = null
+    // Not when the popup itself is on its way out: `useFocusTrap` is restoring
+    // focus to the card that opened it, and pulling focus into a panel that is
+    // mid-exit-animation would undo that.
+    if (!open || !opener || !panelRef.current) return
+    const target = panelRef.current.contains(opener)
+      ? opener
+      : panelRef.current.querySelector<HTMLElement>(FOCUSABLE)
+    target?.focus()
+  }, [nestedOpen, open, panelRef])
+
+  return { nestedOpen, handleNestedOpenChange }
 }

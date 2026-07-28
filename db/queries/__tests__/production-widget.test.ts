@@ -27,6 +27,7 @@ function row(overrides: Record<string, unknown> = {}) {
     id: 'order-1',
     po_number: 'PO-1000',
     customer_name: 'Acme Industrial',
+    status: 'scheduled',
     backhaul: false,
     same_day_delivery: false,
     production_day: '2026-07-27',
@@ -63,6 +64,24 @@ describe('getProductionWidgetData', () => {
     // to disagree about which day an order falls on.
     expect(sql).not.toContain('COALESCE')
     expect(sql).not.toContain('ISODOW')
+  })
+
+  it('selects o.status so the widget can dim built rows', async () => {
+    await getProductionWidgetData(MONDAY)
+
+    // Anchored to the select list — the `WHERE o.status <> 'cancelled'` filter
+    // mentions the column too and would satisfy a bare `toContain`.
+    expect(compiledCall(0).sql).toMatch(/select[\s\S]*\bo\.status\b[\s\S]*from\s+orders\s+o/i)
+  })
+
+  it('passes each row status through to the grouped rows', async () => {
+    mockExecute
+      .mockResolvedValueOnce([row({ id: 'built', status: 'invoiced' }), row({ id: 'live' })])
+      .mockResolvedValueOnce([{ count: 0 }])
+
+    const data = await getProductionWidgetData(MONDAY)
+
+    expect(data.groups[0].rows.map((r) => r.status)).toEqual(['invoiced', 'scheduled'])
   })
 
   it('excludes cancelled orders', async () => {

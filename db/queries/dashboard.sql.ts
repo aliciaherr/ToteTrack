@@ -180,6 +180,10 @@ export const INVOICE_TREND_QUERY = sql`
  * — explicit `production_sort_index` first, unplaced rows after, `po_number` as
  * the stable tiebreak — so the widget's top 3 are the calendar's top 3.
  *
+ * `o.status` is selected so the widget can dim already-built rows exactly as the
+ * calendar dims their cards; without it the two surfaces disagree about which
+ * orders are still live.
+ *
  * @param days Business days as `yyyy-MM-dd`. Never empty; callers pass exactly two.
  */
 export function buildProductionWidgetQuery(days: string[]) {
@@ -192,6 +196,7 @@ export function buildProductionWidgetQuery(days: string[]) {
       o.id,
       o.po_number,
       c.company_name AS customer_name,
+      o.status,
       o.backhaul,
       o.same_day_delivery,
       o.production_date::text AS production_day

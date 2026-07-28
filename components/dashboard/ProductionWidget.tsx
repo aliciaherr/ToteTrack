@@ -3,7 +3,12 @@
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import BackhaulTag from '@/components/shared/BackhaulTag'
-import { SameDayTag } from '@/components/calendar/ProductionCard'
+import {
+  ACTIVE_SURFACE_CLASS,
+  BUILT_SURFACE_CLASS,
+  isBuiltStatus,
+  SameDayTag,
+} from '@/components/calendar/ProductionCard'
 import type {
   ProductionDayGroup,
   ProductionWidgetRow,
@@ -30,12 +35,23 @@ export function formatDayLabel(isoDate: string): string {
   return format(parseISO(isoDate), 'EEE, MMM d')
 }
 
+/**
+ * One order in a day column.
+ *
+ * Built orders (completed / invoiced) carry the calendar card's dimmed
+ * treatment verbatim — same constant, imported rather than copied, so the
+ * dashboard and the calendar can never disagree about which orders are still
+ * live. The row stays a full-size link either way: a built order is still worth
+ * opening, it is just no longer work to be done.
+ */
 function ProductionRowLink({ row }: { row: ProductionWidgetRow }) {
+  const surface = isBuiltStatus(row.status) ? BUILT_SURFACE_CLASS : ACTIVE_SURFACE_CLASS
+
   return (
     <li>
       <Link
         href={`/orders?id=${row.id}`}
-        className="flex flex-col justify-center gap-0.5 px-3 py-2 min-h-[44px] hover:bg-muted transition-colors"
+        className={`flex flex-col justify-center gap-0.5 px-3 py-2 min-h-[44px] hover:bg-muted transition-colors ${surface}`}
       >
         <span className="h-5 flex items-center text-sm font-medium text-foreground truncate">
           {row.po_number}

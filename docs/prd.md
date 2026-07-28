@@ -597,7 +597,7 @@ As the production director, I want a weekday calendar of active orders positione
 
 **Dashboard widget** — the next 2 business days as **two side-by-side columns**, up to **4 rows each** (an 8-order snapshot), plus the unscheduled count and a link to `/calendar`. Column widths and the widget's outer height match the neighbouring dashboard widgets. Each column is headed with the **real weekday and date** — `Today` / `Tomorrow` are deliberately not used, because the label would hold for at most one column and on a Friday or weekend for neither. Friday shows Fri + Mon; Sat/Sun shows Mon + Tue. Rows put the `B` / `SD` tags immediately after the customer name, mirroring how Open Orders places them after the PO number; long customer names truncate. Revised 2026-07-27 after the first visual review — the original stacked single-column list read as one continuous list with no clear break between the two days.
 
-**Drag-and-drop** — `@dnd-kit/core` + `@dnd-kit/sortable`. Desktop mouse, keyboard, and tablet touch (long-press ≈250 ms starts a drag; tap opens the popup; swipe scrolls the calendar). All drag affordances respect `useReducedMotion()`. `@dnd-kit` is client-only and therefore falls under CONSTRAINT-03 alongside `framer-motion` and `recharts`.
+**Drag-and-drop** — `@dnd-kit/core` + `@dnd-kit/sortable`, **desktop mouse and keyboard only**. Touch drag was cut after failing on a real iPad (A-05 contingency fired 2026-07-27). On touch devices a ≈350ms still-finger long-press instead **arms** the card (shake + bold outline), and a tap then places it: tap another card to insert at its position (cards below shift down), tap empty column space to append to that day, tap the unscheduled callout to unschedule, tap anything else — including the armed card — to cancel. The strip stays freely scrollable while armed, so any week is reachable before placing. A plain tap still opens the popup; a swipe still scrolls. Spec: Feature 13, Task 68. All drag/arm affordances respect `useReducedMotion()`. `@dnd-kit` is client-only and therefore falls under CONSTRAINT-03 alongside `framer-motion` and `recharts`.
 
 ### Acceptance Criteria
 - [ ] Migration `0010` adds the 3 columns; existing rows get `production_date` NULL, `same_day_delivery` false, `production_sort_index` NULL
@@ -631,7 +631,7 @@ As the production director, I want a weekday calendar of active orders positione
 - [ ] `Current week` returns to today's week; on Sat/Sun it lands on the next Mon–Fri
 - [ ] Week-range labels and Fri│Mon dividers make the week boundary unambiguous while free-scrolling
 - [ ] Dashboard widget shows the next 2 business days, ≤3 rows each, plus the unscheduled count
-- [ ] Touch drag works on a tablet without hijacking horizontal scroll
+- [ ] ~~Touch drag works on a tablet without hijacking horizontal scroll~~ **Superseded 2026-07-27:** touch drag failed on a real iPad (A-05); touch now uses long-press-to-arm + tap-to-place — acceptance moved to Task 68
 - [ ] Nav drawer shows **Calendar** between Orders and Leads with correct active state
 
 ### Edge Cases

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ISO_DATE_RE, productionDateSchema } from './dates.validation'
 
 // Validation schemas + helpers for `lib/actions/orders.ts`. Extracted as a
 // non-`'use server'` sibling so non-async exports (Zod schemas, type aliases,
@@ -6,7 +7,10 @@ import { z } from 'zod'
 // Platform-Native Rule that `'use server'` files export async functions only.
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+// Re-exported, not defined here: the regex moved to `dates.validation` so the
+// shared `productionDateSchema` could use it without closing an import cycle.
+// Consumers keep importing it from this module.
+export { ISO_DATE_RE }
 
 export const PO_NUMBER_MAX = 40
 export const DELIVERY_ADDRESS_MAX = 500
@@ -230,6 +234,13 @@ export const createOrderInputSchema = orderBaseSchema
   .extend({
     // Single in-flight state after the v2 PO model dropped `pending`.
     initial_status: z.literal('scheduled').default('scheduled'),
+    // Optional build-day override (Feature 11). Present only when the PO is
+    // created from a calendar day column — the day whose `+` was clicked wins
+    // over the delivery-date default, whatever delivery date the form carries
+    // (CONSTRAINT-19: position is stored, never derived). Omitted everywhere
+    // else, which leaves `normalizeCreate`'s existing default untouched.
+    // Shares the calendar's no-weekend rule via `productionDateSchema`.
+    production_date: productionDateSchema.optional(),
   })
   .superRefine(requireDeliveryAddressWhenNotPickup)
   .superRefine(requireAtLeastOneQty)

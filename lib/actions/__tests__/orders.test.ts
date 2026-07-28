@@ -388,6 +388,74 @@ describe('createOrder', () => {
     })
   })
 
+  it('revalidates the orders list, the calendar and the dashboard', async () => {
+    // Without all three the new card is invisible on /calendar and in the
+    // dashboard production widget until a manual reload (Task 63).
+    stubInsertReturning(ORDER_ID)
+    await createOrder(VALID_CREATE)
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/orders')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/calendar')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('stores an explicit production_date verbatim, ignoring the delivery-date default', async () => {
+    stubInsertReturning(ORDER_ID)
+    const result = await createOrder({
+      ...VALID_CREATE,
+      // Delivery Friday 2026-05-01 would default production to Thursday
+      // 2026-04-30. The override names a day three weeks later and must win —
+      // position is stored, never derived (CONSTRAINT-19).
+      requested_delivery_date: '2026-05-01',
+      production_date: '2026-05-21',
+    })
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(lastInsertValues).toMatchObject({
+      production_date: '2026-05-21',
+      requested_delivery_date: '2026-05-01',
+    })
+  })
+
+  it('stores an explicit production_date even when no delivery date was given', async () => {
+    stubInsertReturning(ORDER_ID)
+    await createOrder({
+      ...VALID_CREATE,
+      requested_delivery_date: '',
+      production_date: '2026-05-21',
+    })
+    expect(lastInsertValues).toMatchObject({
+      production_date: '2026-05-21',
+      requested_delivery_date: null,
+    })
+  })
+
+  it('falls back to the delivery-date default when no production_date is sent', async () => {
+    // Regression guard: the no-override path must behave exactly as before
+    // Task 63 — Friday 2026-05-01 delivery → Thursday 2026-04-30 build day.
+    stubInsertReturning(ORDER_ID)
+    await createOrder(VALID_CREATE)
+    expect(lastInsertValues).toMatchObject({ production_date: '2026-04-30' })
+  })
+
+  it('rejects a Saturday production_date with the shared no-weekend message', async () => {
+    // 2026-05-23 is a Saturday. The calendar has no column to draw it in.
+    const result = await createOrder({ ...VALID_CREATE, production_date: '2026-05-23' })
+    expect(result).toEqual({ error: 'Production dates must fall on a weekday.' })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects a Sunday production_date', async () => {
+    // 2026-05-24 is a Sunday.
+    const result = await createOrder({ ...VALID_CREATE, production_date: '2026-05-24' })
+    expect(result).toEqual({ error: 'Production dates must fall on a weekday.' })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('rejects a production_date that is not a real calendar day', async () => {
+    const result = await createOrder({ ...VALID_CREATE, production_date: '2026-02-31' })
+    expect(result).toEqual({ error: 'Invalid date format.' })
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
   it('rejects when the user is not authenticated', async () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null })
     const result = await createOrder(VALID_CREATE)

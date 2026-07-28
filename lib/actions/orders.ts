@@ -42,6 +42,15 @@ const POSTGRES_UNIQUE_VIOLATION = '23505'
 // `scheduled`, where qty/price edits are unrestricted).
 const QTY_OR_PRICE_LOCKED_STATUSES: readonly PoStatus[] = ['invoiced', 'cancelled']
 
+// Routes a PO appears on, revalidated whenever one is created or its status
+// changes: the orders list, the production calendar (the card lands in the
+// column its `production_date` names, and leaves the calendar entirely when it
+// is cancelled) and the dashboard (its production widget reads the same
+// column). `/dashboard`, not `/` — `app/page.tsx` only redirects, so
+// revalidating `/` would refresh nothing. Same set as
+// `CALENDAR_REVALIDATE_PATHS` in `calendar.ts`, plus the orders list.
+const ORDER_REVALIDATE_PATHS = ['/orders', '/calendar', '/dashboard'] as const
+
 async function assertAuthenticated(): Promise<{ error: string } | null> {
   const supabase = createClient()
   const { data, error } = await supabase.auth.getUser()
@@ -64,7 +73,10 @@ function isUniqueViolation(cause: unknown): boolean {
  * delivery address required when not pickup-only); rejects duplicate
  * `po_number` via Postgres unique-violation (23505) with a user-facing
  * message. Returns the new order id on success.
- * @param input Order data including `initial_status` (defaults to 'scheduled').
+ * @param input Order data including `initial_status` (defaults to 'scheduled')
+ *   and an optional `production_date` build-day override — supplied when the PO
+ *   is created from a calendar day column, rejected when it names a Saturday or
+ *   Sunday, and otherwise defaulted from the delivery date by `normalizeCreate`.
  */
 export async function createOrder(
   input: CreateOrderInput,
@@ -80,7 +92,11 @@ export async function createOrder(
       .insert(orders)
       .values(normalizeCreate(parsed.data))
       .returning({ id: orders.id })
-    revalidatePath('/orders')
+    // A new PO lands on three screens at once: the orders list, the calendar
+    // column its `production_date` names, and the dashboard production widget
+    // when that day is inside the widget's window. Revalidate all three or the
+    // salesperson has to reload to see the card they just created.
+    for (const path of ORDER_REVALIDATE_PATHS) revalidatePath(path)
     return { id: row.id }
   } catch (cause) {
     if (isUniqueViolation(cause)) return { error: DUPLICATE_PO_MESSAGE }
@@ -202,7 +218,11 @@ export async function updateOrderStatus(
         : { status: parsed.data.newStatus, updated_at: new Date() }
 
     await db.update(orders).set(setPayload).where(eq(orders.id, id))
-    revalidatePath('/orders')
+    // Not just `/orders`: a cancelled PO drops out of the calendar query
+    // (`status <> 'cancelled'`) and a completed one changes how both the
+    // calendar card and the dashboard widget render it. Without these two the
+    // card the salesperson just cancelled stays on screen until a hard reload.
+    for (const path of ORDER_REVALIDATE_PATHS) revalidatePath(path)
     return { success: true }
   } catch (cause) {
     console.error('updateOrderStatus: update failed', { orderId: id, cause })

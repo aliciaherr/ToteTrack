@@ -23,6 +23,14 @@ interface OrderFormProps {
   initialDetail?: OrderDetail | null
   customers: CustomerSelectOption[]
   lockedCustomerId: string | null
+  /**
+   * Build-day override as `yyyy-MM-dd`, create mode only. Set when the form is
+   * opened from a production-calendar day column so the new PO lands in that
+   * column whatever delivery date is entered (CONSTRAINT-19). Omitted on the
+   * Orders tab, where the server keeps deriving the default from the delivery
+   * date.
+   */
+  productionDate?: string | null
   onClose: () => void
   onSaved: () => void
 }
@@ -111,6 +119,7 @@ export default function OrderForm({
   initialDetail,
   customers,
   lockedCustomerId,
+  productionDate,
   onClose,
   onSaved,
 }: OrderFormProps) {
@@ -164,7 +173,7 @@ export default function OrderForm({
     }
     const result = isEdit && orderId
       ? await updateOrder(orderId, formValuesToUpdateInput(values))
-      : await createOrder(formValuesToCreateInput(values))
+      : await createOrder(formValuesToCreateInput(values, productionDate))
     if ('error' in result) {
       setServerError(result.error)
       return

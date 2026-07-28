@@ -1,5 +1,8 @@
 import { format } from 'date-fns'
 import { DB_DATE_FORMAT, isBusinessDay, nextBusinessDay } from '@/lib/dates'
+// Type-only, and it must stay that way: `db/queries/orders` value-imports the
+// postgres-js driver, and this file is consumed by client components.
+import type { PoStatus } from '@/db/queries/orders'
 
 /**
  * Pure types, constants and date maths for the dashboard production widget —
@@ -13,6 +16,8 @@ export interface ProductionWidgetRow {
   id: string
   po_number: string
   customer_name: string | null
+  /** Drives the built/active dimming. Never `cancelled` — the query excludes it. */
+  status: PoStatus
   backhaul: boolean
   same_day_delivery: boolean
   production_day: string

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   clearProductionPlacement,
   setProductionPlacement,
+  toggleBackhaul,
   toggleSameDayDelivery,
 } from '@/lib/actions/calendar'
 import { useToast } from '@/lib/hooks/useToast'
@@ -65,8 +66,8 @@ function useCalendarMutation() {
 }
 
 /**
- * The three calendar mutations, wrapped for the client: place a card on a day,
- * clear its placement, and set its same-day-delivery flag.
+ * The four calendar mutations, wrapped for the client: place a card on a day,
+ * clear its placement, and set either of the popup's two flags.
  */
 export function useProductionPlacement() {
   const { run } = useCalendarMutation()
@@ -96,5 +97,14 @@ export function useProductionPlacement() {
     [run],
   )
 
-  return { place, unschedule, setSameDay }
+  /**
+   * Sets the backhaul flag. Target state, not a flip — same contract as
+   * `setSameDay`, and permitted on completed and invoiced orders.
+   */
+  const setBackhaul = useCallback(
+    (orderId: string, next: boolean) => run(() => toggleBackhaul(orderId, next)),
+    [run],
+  )
+
+  return { place, unschedule, setSameDay, setBackhaul }
 }

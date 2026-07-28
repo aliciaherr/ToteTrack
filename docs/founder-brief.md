@@ -210,3 +210,18 @@ The other trade: the amber "needs a production date" list is now load-bearing. P
 **What this closes off:** Very little, and it *opens* something up. The riskiest part of the original design is gone: the placement rule used to be written twice — once in TypeScript for the browser, once in SQL for filtering — and FB-11 called out that if the two ever drifted, a card would be filtered into one day and drawn in another, a bug that is nearly invisible by eye. Both copies have been deleted. There is now one stored fact and nothing to keep in sync. A performance caveat also disappeared: the calendar's date filter can finally use its database index, which it never could while the position was being calculated inside the query.
 
 Going back would mean reintroducing derived positions, and with them both the drift risk and the "remove doesn't remove" behaviour. Holiday awareness, weekend production, and phone layouts remain closed off for the same reasons as before.
+
+---
+
+## FB-14 — Touch Drag Failed on the Real iPad; Hold-Then-Tap Replaces It
+
+**Date:** 2026-07-27
+**Architecture section:** spec in `docs/plan.md` → Feature 13, Task 68; diagnosis in `docs/assumptions.md` → A-05
+
+**Decided:** The risk FB-12 warned about happened. On a real iPad, dragging cards is broken in every browser — and it is every browser at once because on the iPad, Chrome and Firefox are the same engine as Safari wearing different clothes; one engine's flaw shows up everywhere. Rather than tune the drag settings, dragging is being replaced on touch screens with a two-step gesture you already know from rearranging apps on a phone: **hold a card for about a third of a second and it "arms"** — it shakes and gets a bold outline — **then tap where it should go.** Tap another card and the armed card slots into that position, pushing the rest down. Tap the empty space at the bottom of a day and it lands last. Tap the amber unscheduled list and it comes off the calendar. Tap anything else — including the armed card itself — and nothing happens; it just calms down. While a card is armed you can still scroll freely, so moving something three weeks out is: hold, scroll, tap. The card flies to its new spot so you can see where it went. Mouse and keyboard on the desktop are completely untouched.
+
+**Means for your product:** The calendar becomes genuinely usable on the device it was designed for. This design is also *more* reliable than a fixed version of drag would be, not a consolation prize: a dragged card has to follow a finger perfectly across a screen that is trying to scroll at the same time, while hold-then-tap never asks the browser to do two things at once. The scroll-then-tap trick replaces the fiddliest part of touch drag (hovering at the screen edge to make it auto-scroll) with plain scrolling.
+
+**Check before approving:** (a) An armed card stays armed while you scroll and has no time-out — the only way out is a tap. Comfortable? (b) While a card is armed, tapping another card *places*, it does not open that card's popup — placement wins. That is the trade for keeping plain tap = popup. (c) The last touch design shipped marked "done" without ever touching an iPad, and that is exactly how this problem stayed hidden. Task 68 therefore has a hard rule: it cannot close until someone runs the whole gesture set on a real iPad. Hold this line.
+
+**What this closes off:** Very little. The drag library stays (desktop still drags), so nothing is added or removed from the stack. If hold-then-tap *also* disappoints on the real device — unlikely, since it avoids the browser behaviours that broke drag — the remaining fallback is a "Move to date" picker inside the card popup: slower, but immune to gesture problems entirely.

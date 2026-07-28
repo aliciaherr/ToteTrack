@@ -33,12 +33,52 @@ vi.mock('@/lib/actions/calendar', () => ({
   clearProductionPlacement: vi.fn(),
 }))
 
+// The card popup's status block (Task 66) reaches both order-status actions,
+// and they import the postgres driver for the same reason as above.
+vi.mock('@/lib/actions/orders', () => ({
+  updateOrderStatus: vi.fn(),
+}))
+
+vi.mock('@/lib/actions/orders.revert', () => ({
+  revertOrderToScheduled: vi.fn(),
+}))
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh }),
 }))
 
 vi.mock('@/lib/hooks/useToast', () => ({
   useToast: () => ({ toast: mockToast }),
+}))
+
+// `OrderForm` reaches `@/lib/actions/orders`, a `'use server'` module that
+// imports the postgres driver. Stubbed the same way `OrderLayout.test.tsx` does
+// it, exposing the props Task 64 has to get right — the mode, the build-day
+// override, and the unlocked customer field — plus a save trigger. The drawer,
+// the context and the menu around it are all real.
+vi.mock('@/components/orders/OrderForm', () => ({
+  default: ({
+    mode,
+    productionDate,
+    lockedCustomerId,
+    onSaved,
+  }: {
+    mode: 'create' | 'edit'
+    productionDate?: string | null
+    lockedCustomerId: string | null
+    onSaved: () => void
+  }) => (
+    <div
+      data-testid="order-form"
+      data-mode={mode}
+      data-production-date={productionDate ?? ''}
+      data-locked-customer-id={lockedCustomerId ?? ''}
+    >
+      <button type="button" onClick={onSaved}>
+        save-order
+      </button>
+    </div>
+  ),
 }))
 
 import CalendarLayout from '../CalendarLayout'
@@ -91,8 +131,21 @@ function makeRow(overrides: Partial<CalendarOrderRow> = {}): CalendarOrderRow {
 
 function renderLayout(props: Partial<Parameters<typeof CalendarLayout>[0]> = {}) {
   return render(
-    <CalendarLayout rows={[]} unscheduled={[]} weekStart={ANCHOR_MONDAY} {...props} />,
+    <CalendarLayout
+      rows={[]}
+      unscheduled={[]}
+      weekStart={ANCHOR_MONDAY}
+      customers={[]}
+      {...props}
+    />,
   )
+}
+
+/** Opens one day column's `+ Add order` menu and returns it. */
+function openDayMenu(dateKey: string): HTMLElement {
+  const column = document.querySelector(`[data-date="${dateKey}"]`) as HTMLElement
+  fireEvent.click(within(column).getByText('+ Add order'))
+  return within(column).getByTestId('add-order-menu')
 }
 
 /** Selectors passed to the scroll container's `querySelector`, in call order. */
@@ -308,5 +361,133 @@ describe('CalendarLayout', () => {
     renderLayout({ unscheduled: [] })
 
     expect(screen.getByTestId('unscheduled-empty')).toBeInTheDocument()
+  })
+
+  it('re-reads the open popup from fresh server rows rather than a pinned copy', () => {
+    // A pill toggle revalidates and refreshes; the popup has to show what came
+    // back, not the row object it was opened with (CONSTRAINT-02).
+    const { rerender } = renderLayout({ rows: [makeRow({ backhaul: false })] })
+    fireEvent.click(screen.getByText('PO-1000'))
+
+    expect(screen.getByRole('switch', { name: /backhaul/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+
+    rerender(
+      <CalendarLayout
+        rows={[makeRow({ backhaul: true })]}
+        unscheduled={[]}
+        weekStart={ANCHOR_MONDAY}
+        customers={[]}
+      />,
+    )
+
+    expect(screen.getByRole('switch', { name: /backhaul/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+  })
+
+  it('closes the popup when its card leaves the calendar', () => {
+    const { rerender } = renderLayout({ rows: [makeRow()] })
+    fireEvent.click(screen.getByText('PO-1000'))
+    expect(screen.getByTestId('production-card-dialog')).toBeInTheDocument()
+
+    // What a cancel looks like from the client: the row is gone from the next
+    // server payload, so there is nothing left for the popup to show.
+    rerender(
+      <CalendarLayout rows={[]} unscheduled={[]} weekStart={ANCHOR_MONDAY} customers={[]} />,
+    )
+
+    expect(screen.queryByTestId('production-card-dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('CalendarLayout — Add Purchase Order from a day column', () => {
+  it('lists Add Purchase Order above the unscheduled orders, behind a divider', () => {
+    renderLayout({ unscheduled: [makeRow({ id: 'u1', production_date: null })] })
+
+    const menu = openDayMenu(ANCHOR_MONDAY)
+    const items = within(menu).getAllByRole('menuitem')
+
+    expect(items[0]).toHaveTextContent('Add Purchase Order')
+    expect(items[1]).toHaveTextContent('PO-1000')
+    expect(within(menu).getByRole('separator')).toBeInTheDocument()
+  })
+
+  it('keeps the empty state for the list below it when nothing is unscheduled', () => {
+    renderLayout({ unscheduled: [] })
+
+    const menu = openDayMenu(ANCHOR_MONDAY)
+
+    expect(within(menu).getByText('Nothing to add — every order has a date.')).toBeInTheDocument()
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(1)
+  })
+
+  it('keeps the drawer shut until a day asks for it', () => {
+    renderLayout()
+
+    expect(screen.queryByTestId('order-form')).not.toBeInTheDocument()
+  })
+
+  it('opens the create form pinned to the clicked column and dismisses the menu', () => {
+    renderLayout()
+
+    openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Purchase Order' }))
+
+    const form = screen.getByTestId('order-form')
+    expect(form.getAttribute('data-mode')).toBe('create')
+    // The clicked day, not the delivery date, is what the new PO stores
+    // (CONSTRAINT-19 — position is stored, never derived).
+    expect(form.getAttribute('data-production-date')).toBe(ANCHOR_FRIDAY)
+    expect(form.getAttribute('data-locked-customer-id')).toBe('')
+    expect(screen.queryByTestId('add-order-menu')).not.toBeInTheDocument()
+  })
+
+  it('carries the day of whichever column was clicked, not the first one', () => {
+    renderLayout()
+
+    openDayMenu(ANCHOR_MONDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Purchase Order' }))
+
+    expect(screen.getByTestId('order-form').getAttribute('data-production-date')).toBe(
+      ANCHOR_MONDAY,
+    )
+  })
+
+  it('closes the drawer and refetches the calendar once the PO is saved', () => {
+    renderLayout()
+    openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Purchase Order' }))
+
+    fireEvent.click(screen.getByText('save-order'))
+
+    expect(screen.queryByTestId('order-form')).not.toBeInTheDocument()
+    expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('closes the drawer on Escape without saving', () => {
+    renderLayout()
+    openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Purchase Order' }))
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByTestId('order-form')).not.toBeInTheDocument()
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('keeps the drawer a fixed overlay at every width so the page cannot scroll', () => {
+    // The calendar root is `overflow-hidden`; DetailDrawer's default lg+ inline
+    // docking would clip the form or force a page scroll (CONSTRAINT-19).
+    renderLayout()
+    openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Purchase Order' }))
+
+    const drawer = screen.getByRole('region', { name: 'New purchase order' })
+    expect(drawer.className).toContain('fixed')
+    expect(drawer.className).not.toContain('lg:relative')
   })
 })

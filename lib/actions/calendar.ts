@@ -8,8 +8,8 @@ import type { PoStatus } from '@/db/queries/orders'
 import { GENERIC_FAILURE_MESSAGE, assertAuthenticated } from './auth.guard'
 import { UUID_RE, firstZodMessage } from './orders.validation'
 import {
+  orderFlagInputSchema,
   setProductionPlacementInputSchema,
-  toggleSameDayDeliveryInputSchema,
   type SetProductionPlacementInput,
 } from './calendar.validation'
 
@@ -29,6 +29,14 @@ const PLACEMENT_BLOCKED_MESSAGES: Partial<Record<PoStatus, string>> = {
 // not on the calendar at all — reject the toggle.
 const SAME_DAY_BLOCKED_MESSAGES: Partial<Record<PoStatus, string>> = {
   cancelled: 'Cancelled orders cannot be marked for same-day delivery.',
+}
+
+// Backhaul is a haulage flag, not a quantity or a price, so it stays editable
+// on completed and invoiced orders — CONSTRAINT-18's edit lock covers qty and
+// price only. Only cancelled orders reject the toggle, and their cards are not
+// on the calendar in the first place.
+const BACKHAUL_BLOCKED_MESSAGES: Partial<Record<PoStatus, string>> = {
+  cancelled: 'Cancelled orders cannot be marked as backhaul.',
 }
 
 // Every calendar mutation is visible on both surfaces: the calendar itself and
@@ -180,7 +188,7 @@ export async function toggleSameDayDelivery(
 ): Promise<{ success: true } | { error: string }> {
   if (!UUID_RE.test(id)) return { error: 'Invalid order id.' }
 
-  const parsed = toggleSameDayDeliveryInputSchema.safeParse({ next })
+  const parsed = orderFlagInputSchema.safeParse({ next })
   if (!parsed.success) return { error: firstZodMessage(parsed.error) }
 
   try {
@@ -199,6 +207,53 @@ export async function toggleSameDayDelivery(
     return { success: true }
   } catch (cause) {
     console.error('toggleSameDayDelivery: update failed', {
+      orderId: id,
+      next,
+      cause,
+    })
+    return { error: GENERIC_FAILURE_MESSAGE }
+  }
+}
+
+/**
+ * Sets a PO's backhaul flag, which drives the `B` tag on the production card
+ * and every other PO list surface. Takes the target state rather than flipping
+ * the stored value, so a double-fired click cannot toggle twice.
+ *
+ * Touches neither production column nor `requested_delivery_date`, and stays
+ * available on completed and invoiced orders — CONSTRAINT-18 locks quantities
+ * and price on those, not logistics flags.
+ *
+ * @param id UUID of the order to flag.
+ * @param next Target state of the flag.
+ * @returns `{ success: true }`, or `{ error }` — not signed in, invalid id,
+ * cancelled order, or `GENERIC_FAILURE_MESSAGE` on a write failure.
+ */
+export async function toggleBackhaul(
+  id: string,
+  next: boolean,
+): Promise<{ success: true } | { error: string }> {
+  if (!UUID_RE.test(id)) return { error: 'Invalid order id.' }
+
+  const parsed = orderFlagInputSchema.safeParse({ next })
+  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
+  try {
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    const statusError = await assertMutable(id, BACKHAUL_BLOCKED_MESSAGES)
+    if (statusError) return statusError
+
+    await db
+      .update(orders)
+      .set({ backhaul: parsed.data.next, updated_at: new Date() })
+      .where(eq(orders.id, id))
+
+    revalidateCalendarSurfaces()
+    return { success: true }
+  } catch (cause) {
+    console.error('toggleBackhaul: update failed', {
       orderId: id,
       next,
       cause,

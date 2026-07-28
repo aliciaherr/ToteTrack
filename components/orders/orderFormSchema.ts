@@ -200,8 +200,18 @@ export function totalQuantity(values: OrderFormValues): number {
  * Converts form values into the create-order action's input shape.
  * Numeric fields are parsed; empty string notes / address become null so the
  * Zod schema sees absent values consistently.
+ *
+ * @param values The form's current field values.
+ * @param productionDate Build-day override as `yyyy-MM-dd`, supplied only when
+ *   the PO is created from a calendar day column. The key is omitted entirely
+ *   when absent, so the server keeps deriving the default from the delivery
+ *   date exactly as it did before Feature 11 (CONSTRAINT-19). The form has no
+ *   production-date field of its own — the day is chosen by clicking a column.
  */
-export function formValuesToCreateInput(values: OrderFormValues): CreateOrderInput {
+export function formValuesToCreateInput(
+  values: OrderFormValues,
+  productionDate?: string | null,
+): CreateOrderInput {
   return {
     po_number: values.po_number.trim(),
     customer_id: values.customer_id,
@@ -212,6 +222,7 @@ export function formValuesToCreateInput(values: OrderFormValues): CreateOrderInp
     backhaul: values.backhaul,
     initial_status: 'scheduled',
     notes: stringOrNull(values.notes),
+    ...(productionDate ? { production_date: productionDate } : {}),
   }
 }
 

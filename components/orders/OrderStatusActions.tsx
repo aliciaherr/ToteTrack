@@ -15,6 +15,31 @@ interface OrderStatusActionsProps {
   poNumber: string
   currentStatus: PoStatus
   onStatusChange?: () => void
+  /**
+   * Reports whether this block's confirmation dialog is open. Unused on the
+   * Orders tab; the calendar popup passes it because the confirm mounts inside
+   * a dialog that also listens for Escape (see `useNestedDialog`).
+   */
+  onDialogOpenChange?: (open: boolean) => void
+}
+
+/**
+ * Open state for one confirmation dialog, mirrored to the host.
+ *
+ * The report happens in the click that opens or closes the confirm, not in an
+ * effect: a host that uses it to hand focus back needs the notification before
+ * the confirm mounts and takes focus for itself.
+ */
+function useConfirmDialog(onDialogOpenChange?: (open: boolean) => void) {
+  const [open, setOpen] = useState(false)
+  const setConfirmOpen = useCallback(
+    (next: boolean) => {
+      setOpen(next)
+      onDialogOpenChange?.(next)
+    },
+    [onDialogOpenChange],
+  )
+  return [open, setConfirmOpen] as const
 }
 
 type Advance = 'completed'
@@ -30,11 +55,14 @@ function ErrorAlert({ message }: { message: string }) {
   )
 }
 
-function AdvanceButton({
+/** One status button. 44px tall, whatever the branch — the touch-target floor. */
+function StatusButton({
+  variant,
   onClick,
   disabled,
   children,
 }: {
+  variant?: 'destructive' | 'outline'
   onClick: () => void
   disabled: boolean
   children: React.ReactNode
@@ -42,31 +70,12 @@ function AdvanceButton({
   return (
     <Button
       type="button"
+      variant={variant}
       onClick={onClick}
       disabled={disabled}
       className="min-h-[44px]"
     >
       {children}
-    </Button>
-  )
-}
-
-function CancelButton({
-  onClick,
-  disabled,
-}: {
-  onClick: () => void
-  disabled: boolean
-}) {
-  return (
-    <Button
-      type="button"
-      variant="destructive"
-      onClick={onClick}
-      disabled={disabled}
-      className="min-h-[44px]"
-    >
-      Cancel Order
     </Button>
   )
 }
@@ -86,13 +95,14 @@ export default function OrderStatusActions({
   poNumber,
   currentStatus,
   onStatusChange,
+  onDialogOpenChange,
 }: OrderStatusActionsProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
   const [isAdvancing, setIsAdvancing] = useState(false)
-  const [cancelOpen, setCancelOpen] = useState(false)
-  const [revertOpen, setRevertOpen] = useState(false)
+  const [cancelOpen, openCancel] = useConfirmDialog(onDialogOpenChange)
+  const [revertOpen, openRevert] = useConfirmDialog(onDialogOpenChange)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const notifyChange = useCallback(() => {
@@ -124,22 +134,22 @@ export default function OrderStatusActions({
   const handleCancelConfirm = useCallback(async () => {
     const result = await updateOrderStatus(orderId, 'cancelled')
     if ('success' in result) {
-      setCancelOpen(false)
+      openCancel(false)
       toast('Order cancelled.', 'success')
       notifyChange()
     }
     return result
-  }, [orderId, notifyChange, toast])
+  }, [orderId, notifyChange, openCancel, toast])
 
   const handleRevertConfirm = useCallback(async () => {
     const result = await revertOrderToScheduled(orderId)
     if ('success' in result) {
-      setRevertOpen(false)
+      openRevert(false)
       toast('Order reverted to scheduled.', 'success')
       notifyChange()
     }
     return result
-  }, [orderId, notifyChange, toast])
+  }, [orderId, notifyChange, openRevert, toast])
 
   const disabled = isAdvancing || isPending
 
@@ -148,15 +158,21 @@ export default function OrderStatusActions({
       <div className="space-y-2">
         {errorMessage && <ErrorAlert message={errorMessage} />}
         <div className="flex flex-wrap items-center gap-2">
-          <AdvanceButton onClick={() => advance('completed')} disabled={disabled}>
+          <StatusButton onClick={() => advance('completed')} disabled={disabled}>
             Mark as Complete
-          </AdvanceButton>
-          <CancelButton onClick={() => setCancelOpen(true)} disabled={disabled} />
+          </StatusButton>
+          <StatusButton
+            variant="destructive"
+            onClick={() => openCancel(true)}
+            disabled={disabled}
+          >
+            Cancel Order
+          </StatusButton>
         </div>
         <CancelOrderDialog
           open={cancelOpen}
           poNumber={poNumber}
-          onCancel={() => setCancelOpen(false)}
+          onCancel={() => openCancel(false)}
           onConfirm={handleCancelConfirm}
         />
       </div>
@@ -166,20 +182,14 @@ export default function OrderStatusActions({
   return (
     <div className="space-y-2">
       {errorMessage && <ErrorAlert message={errorMessage} />}
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => setRevertOpen(true)}
-        disabled={disabled}
-        className="min-h-[44px]"
-      >
+      <StatusButton variant="outline" onClick={() => openRevert(true)} disabled={disabled}>
         Revert to Scheduled
-      </Button>
+      </StatusButton>
       <RevertOrderDialog
         open={revertOpen}
         poNumber={poNumber}
         currentStatus={currentStatus}
-        onCancel={() => setRevertOpen(false)}
+        onCancel={() => openRevert(false)}
         onConfirm={handleRevertConfirm}
       />
     </div>

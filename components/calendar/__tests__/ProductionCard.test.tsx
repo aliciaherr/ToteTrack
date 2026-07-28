@@ -136,23 +136,44 @@ describe('ProductionCard', () => {
   })
 
   it.each(['completed', 'invoiced'] as const)(
-    '%s cards are dimmed and not draggable',
+    '%s cards are dimmed on both surface and opacity, and not draggable',
     (status) => {
       render(<ProductionCard row={makeRow({ status })} />)
 
       const card = screen.getByTestId('production-card')
       expect(card).not.toHaveAttribute('data-draggable')
-      expect(card.className).toContain('opacity-60')
+      // Opacity alone was too subtle at a legible strength; the muted surface
+      // is what makes a built card obvious in a column of white ones.
+      expect(card.className).toContain('bg-muted')
+      expect(card.className).not.toContain('bg-card')
+      expect(card.className).toContain('opacity-75')
       expect(card.className).not.toContain('cursor-grab')
     },
   )
 
-  it('scheduled cards expose the drag affordance', () => {
+  it.each(['completed', 'invoiced'] as const)(
+    'keeps %s cards above the legibility floor — no deep fade, no muted text',
+    (status) => {
+      render(<ProductionCard row={makeRow({ status })} />)
+
+      // CONSTRAINT-19 ranks legibility above density: the dimming must never
+      // reach the point where a salesperson cannot read the built PO.
+      const card = screen.getByTestId('production-card')
+      expect(card.className).not.toMatch(/opacity-(0|5|10|20|25|30|40|50|60)\b/)
+      expect(screen.getByText('PO-1042')).toBeInTheDocument()
+      expect(screen.getByText('Acme Industrial')).toBeInTheDocument()
+    },
+  )
+
+  it('scheduled cards keep the plain card surface and expose the drag affordance', () => {
     render(<ProductionCard row={makeRow({ status: 'scheduled' })} />)
 
     const card = screen.getByTestId('production-card')
     expect(card).toHaveAttribute('data-draggable', 'true')
     expect(card.className).toContain('cursor-grab')
+    expect(card.className).toContain('bg-card')
+    expect(card.className).not.toContain('bg-muted')
+    expect(card.className).not.toMatch(/opacity-/)
   })
 
   it('never shows a price', () => {

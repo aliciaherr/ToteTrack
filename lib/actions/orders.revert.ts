@@ -9,6 +9,20 @@ import { createClient } from '@/lib/supabase/server'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
 
+// Every surface a revert changes: the orders list, the invoices list (a total
+// was recomputed or an invoice deleted), customer detail's order history, the
+// production calendar (a reverted order rejoins it, and its card becomes
+// draggable again) and the dashboard's production widget. `/dashboard`, not
+// `/` — `app/page.tsx` only redirects, so revalidating `/` would refresh
+// nothing. Same idiom as `ORDER_REVALIDATE_PATHS` in `orders.ts`.
+const REVERT_REVALIDATE_PATHS = [
+  '/orders',
+  '/invoices',
+  '/customers',
+  '/calendar',
+  '/dashboard',
+] as const
+
 async function assertAuthenticated(): Promise<{ error: string } | null> {
   const supabase = createClient()
   const { data, error } = await supabase.auth.getUser()
@@ -93,9 +107,7 @@ export async function revertOrderToScheduled(
     })
 
     if ('success' in result) {
-      revalidatePath('/orders')
-      revalidatePath('/invoices')
-      revalidatePath('/customers')
+      for (const path of REVERT_REVALIDATE_PATHS) revalidatePath(path)
     }
     return result
   } catch (cause) {

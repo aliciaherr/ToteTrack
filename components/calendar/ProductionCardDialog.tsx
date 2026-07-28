@@ -3,21 +3,27 @@
 import { useEffect, useRef } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { modalVariants } from '@/lib/animations'
-import { useDialogActions, useEscapeClose, useFocusTrap } from './productionCardDialogHooks'
+import {
+  useDialogActions,
+  useEscapeClose,
+  useFocusTrap,
+  useNestedDialog,
+} from './productionCardDialogHooks'
 import {
   DetailFields,
   DialogFooter,
   DialogHeader,
   NotesSection,
   QuantitiesSection,
-  SameDayToggleRow,
 } from './ProductionCardDialogParts'
+import { StatusSection, TogglePillRow } from './ProductionCardDialogControls'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 
 interface ProductionCardDialogProps {
   open: boolean
   row: CalendarOrderRow | null
   onClose: () => void
+  onToggleBackhaul: (orderId: string, next: boolean) => Promise<void>
   onToggleSameDay: (orderId: string, next: boolean) => Promise<void>
   onRemove: (orderId: string) => Promise<void>
 }
@@ -54,64 +60,28 @@ function DialogBackdrop({
   )
 }
 
-/** The panel itself — everything inside the backdrop. */
-function DialogPanel({
-  row,
-  isBusy,
-  panelRef,
-  shouldReduceMotion,
-  onToggle,
-  onRemove,
-}: {
-  row: CalendarOrderRow
-  isBusy: boolean
-  panelRef: React.RefObject<HTMLDivElement>
-  shouldReduceMotion: boolean
-  onToggle: (next: boolean) => void
-  onRemove: () => void
-}) {
-  return (
-    <motion.div
-      ref={panelRef}
-      data-testid="production-card-dialog"
-      className="bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto calendar-scroll"
-      variants={shouldReduceMotion ? undefined : modalVariants.panel}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-    >
-      <DialogHeader row={row} />
-      <SameDayToggleRow
-        checked={row.same_day_delivery}
-        disabled={isBusy}
-        onChange={onToggle}
-      />
-      <QuantitiesSection row={row} />
-      <DetailFields row={row} />
-      <NotesSection notes={row.notes} />
-
-      <DialogFooter orderId={row.id} isBusy={isBusy} onRemove={onRemove} />
-    </motion.div>
-  )
-}
-
 /**
  * Read-only detail popup for a production card.
  *
- * Everything on it is read-only apart from the same-day-delivery toggle:
- * editing an order stays exclusive to the Orders tab, which is why the footer
- * offers `Open in Orders` rather than a save action (CONSTRAINT-19). The
- * quantity grid is `QtyGrid` in display mode **with `unitPrices` supplied**, so
- * filled cells read `qty / $unit` exactly as PO detail has since Feature 10 —
- * and cells whose price was never set fall back to the bare quantity rather
- * than rendering `$null`.
+ * The writable surface is deliberately narrow: two flag pills and the status
+ * block. Quantities, prices and both dates stay read-only — editing an order is
+ * exclusive to the Orders tab, which is why the footer offers `Open in Orders`
+ * rather than a save action (CONSTRAINT-19). The quantity grid is `QtyGrid` in
+ * display mode **with `unitPrices` supplied**, so filled cells read `qty /
+ * $unit` exactly as PO detail has since Feature 10 — and cells whose price was
+ * never set fall back to the bare quantity rather than rendering `$null`.
  *
  * This is also where prices live at all. Cards never show money; the popup is
  * the commercial view of the same order.
  *
+ * A status change closes the popup. The row it renders is a snapshot held by
+ * `CalendarLayout`, and a cancelled order leaves the calendar query entirely —
+ * so there is nothing left to show and no honest way to keep showing it.
+ *
  * @param open Whether the dialog is mounted and visible.
  * @param row The order to show, or null when nothing is selected.
  * @param onClose Dismisses the dialog.
+ * @param onToggleBackhaul Persists the backhaul flag.
  * @param onToggleSameDay Persists the same-day flag.
  * @param onRemove Clears the production placement, then closes.
  */
@@ -119,20 +89,20 @@ export default function ProductionCardDialog({
   open,
   row,
   onClose,
+  onToggleBackhaul,
   onToggleSameDay,
   onRemove,
 }: ProductionCardDialogProps) {
   const shouldReduceMotion = useReducedMotion()
   const panelRef = useRef<HTMLDivElement>(null)
   const isOpen = open && row !== null
-  const { isBusy, setIsBusy, handleToggle, handleRemove } = useDialogActions(
-    row,
-    onToggleSameDay,
-    onRemove,
-    onClose,
-  )
+  const { isBusy, setIsBusy, handleToggleBackhaul, handleToggleSameDay, handleRemove } =
+    useDialogActions({ row, onToggleBackhaul, onToggleSameDay, onRemove, onClose })
+  const { nestedOpen, handleNestedOpenChange } = useNestedDialog(isOpen, panelRef)
 
-  useEscapeClose(isOpen, onClose, isBusy)
+  // A confirm dialog inside the panel owns Escape for as long as it is up, the
+  // same way an in-flight mutation does.
+  useEscapeClose(isOpen, onClose, isBusy || nestedOpen)
   useFocusTrap(isOpen, panelRef)
 
   useEffect(() => {
@@ -147,14 +117,33 @@ export default function ProductionCardDialog({
           isBusy={isBusy}
           onClose={onClose}
         >
-          <DialogPanel
-            row={row}
-            isBusy={isBusy}
-            panelRef={panelRef}
-            shouldReduceMotion={Boolean(shouldReduceMotion)}
-            onToggle={handleToggle}
-            onRemove={handleRemove}
-          />
+          <motion.div
+            ref={panelRef}
+            data-testid="production-card-dialog"
+            className="bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto calendar-scroll"
+            variants={shouldReduceMotion ? undefined : modalVariants.panel}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+          >
+            <DialogHeader row={row} />
+            <TogglePillRow
+              row={row}
+              disabled={isBusy}
+              onToggleBackhaul={handleToggleBackhaul}
+              onToggleSameDay={handleToggleSameDay}
+            />
+            <StatusSection
+              row={row}
+              onStatusChange={onClose}
+              onDialogOpenChange={handleNestedOpenChange}
+            />
+            <QuantitiesSection row={row} />
+            <DetailFields row={row} />
+            <NotesSection notes={row.notes} />
+
+            <DialogFooter orderId={row.id} isBusy={isBusy} onRemove={handleRemove} />
+          </motion.div>
         </DialogBackdrop>
       )}
     </AnimatePresence>

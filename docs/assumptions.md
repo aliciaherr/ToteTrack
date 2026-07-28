@@ -143,9 +143,11 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 
 **Contingency:** If `TouchSensor` misbehaves on a real iPad, the agreed fallback is **tap-to-select then tap-target** — the card is selected by a tap, the destination column is chosen by a second tap, and no dragging occurs. This replaces the touch sensor rather than tuning it, and leaves the pointer and keyboard paths untouched.
 
-**Outcome:** Accepted risk. **Still unvalidated as of Task 56** — the sensor configuration is written and unit-tested for its constants, but jsdom cannot simulate touch, and the calendar has not yet been opened on an iPad or in any browser.
+**Outcome:** **Assumption failed on a real iPad (2026-07-27).** Drag was unusable ("botchy") in every iPad browser — all iPad browsers are WebKit underneath, so one engine's failure appears in all of them. Diagnosis: the sensor configuration was never the core problem. Three compounding causes: (1) nothing suppresses iPadOS's *own* long-press behaviours — at ~500ms the OS fires text-selection (magnifier/callout) and native drag on top of the 250ms `TouchSensor` drag, since no card sets `-webkit-touch-callout`, `user-select`, or `-webkit-user-drag`; (2) the 8px tolerance is tighter than natural fingertip drift over 250ms, so legitimate long-presses silently cancel and become scrolls; (3) there is no visual signal that activation happened, so users start moving before the delay elapses, which also cancels.
 
-**Status:** [x] Accepted risk — **contingency not yet needed or ruled out; requires a real-device check**
+**Contingency revision (2026-07-27):** The original tap-to-select fallback is no longer viable — Task 58 shipped the card popup, so a plain tap is already taken. The builder chose a revised fallback instead: **long-press-to-arm, then tap-to-place** (Feature 13, Task 68). A ~350ms still-finger press arms the card (shake + bold outline); while armed, a tap on another card inserts at that card's position (cards below shift down), a tap on empty column space appends to that day, a tap on the unscheduled callout unschedules, and any other tap — including the armed card itself — cancels. The card is never glued to the finger, so the strip stays freely scrollable while armed and a distant week is reachable by ordinary scrolling. Desktop pointer drag and the keyboard path are unchanged; `TouchSensor` is removed rather than tuned.
+
+**Status:** [x] Contingency fired — replacement interaction specified as Task 68, not yet built. Task 68 carries a real-device acceptance criterion so this cannot be marked done unvalidated a second time.
 
 > **Bookkeeping note (2026-07-26, Task 56):** A-05 was referenced by `docs/plan.md` and `docs/session-handoff.md` for two sessions before this entry existed. It was written here during Task 56 because `@dev`'s pre-code assumption gate reads *this* file, and would have blocked on an assumption the builder had in fact already accepted. Same failure shape as the missing `manifest.md`: the decision was made and recorded, just not in the file the process checks.
 
@@ -159,9 +161,9 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 | A-02 | Single-password auth not natively supported | Service capability | Research | Resolved — fixed dummy email pattern |
 | A-03 | Cold start: low value before data entered | User behavior | Accepted risk | Accepted — build data-entry screens first |
 | A-04 | Framer Motion requires client components | Technical feasibility | Accepted risk | Accepted — document boundary rule in architecture |
-| A-05 | iPad touch drag-and-drop inside a scrolling strip | Technical feasibility | Accepted risk | Accepted — **unvalidated**; fallback is tap-to-select-then-tap-target |
+| A-05 | iPad touch drag-and-drop inside a scrolling strip | Technical feasibility | Accepted risk | **Failed on device 2026-07-27** — contingency fired; revised fallback is long-press-to-arm + tap-to-place (Task 68) |
 
-**Open count:** 0 — `@plan` is unblocked. A-05 is accepted but **not yet exercised on a real device**; it is the one assumption on this project whose contingency may still fire.
+**Open count:** 0 — `@plan` is unblocked. A-05's contingency fired on 2026-07-27: the one assumption flagged as likely to fire did. Its replacement interaction is specified as Feature 13 Task 68 and awaits implementation after Feature 12 lands.
 
 ---
 

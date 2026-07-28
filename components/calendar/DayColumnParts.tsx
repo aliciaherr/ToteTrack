@@ -87,9 +87,15 @@ export function ColumnBody({
 }
 
 /**
- * The column's `+ Add order` action and the pick list it opens.
+ * The column's `+ Add order` action and the menu it opens.
  *
- * The list is anchored above the button (`bottom-full`) because the footer sits
+ * The menu leads with `Add Purchase Order`, which creates a new PO on this day,
+ * and follows it with the pick list of already-existing undated orders. Neither
+ * is prop-drilled through here: the new-PO action reaches `CalendarLayout`
+ * through the `newOrderDay` context, so this file forwards only the placement
+ * callbacks it already had.
+ *
+ * The menu is anchored above the button (`bottom-full`) because the footer sits
  * at the bottom of a full-height column — a menu opening downward would fall
  * off the viewport, and the page itself never scrolls (CONSTRAINT-19).
  */

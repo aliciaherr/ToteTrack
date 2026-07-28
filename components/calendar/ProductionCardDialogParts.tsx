@@ -6,7 +6,6 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { QtyGrid } from '@/components/shared/QtyGrid'
 import type { UnitPriceValues } from '@/components/shared/qtyGridValues'
-import BackhaulTag from '@/components/shared/BackhaulTag'
 import OrderStatusBadge from '@/components/orders/OrderStatusBadge'
 import { formatCurrency } from '@/lib/format-currency'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
@@ -57,34 +56,6 @@ export function DialogHeader({ row }: { row: CalendarOrderRow }) {
 }
 
 /**
- * The one writable control on the dialog. Everything else is read-only —
- * editing an order stays exclusive to the Orders tab (CONSTRAINT-19), and the
- * footer offers `Open in Orders` instead of a save action.
- */
-export function SameDayToggleRow({
-  checked,
-  disabled,
-  onChange,
-}: {
-  checked: boolean
-  disabled: boolean
-  onChange: (next: boolean) => void
-}) {
-  return (
-    <label className="flex items-center justify-between gap-3 min-h-[44px] cursor-pointer">
-      <span className="text-sm text-foreground">Same-day delivery</span>
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-5 w-5 accent-[var(--primary)] cursor-pointer disabled:cursor-not-allowed"
-      />
-    </label>
-  )
-}
-
-/**
  * The six-combo grid plus the derived total. This is the only calendar surface
  * that shows money — cards never do (CONSTRAINT-19).
  */
@@ -118,6 +89,10 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
  * the product that shows them together, and the distinction is the whole point
  * of Feature 11 — the production date is when it gets built, the delivery date
  * is what the customer was promised (CONSTRAINT-19).
+ *
+ * Backhaul deliberately is **not** here: it is a writable pill at the top of
+ * the dialog (Task 65), and rendering it twice would leave a read-only `No`
+ * sitting under a pill that says otherwise until the next refresh.
  */
 export function DetailFields({ row }: { row: CalendarOrderRow }) {
   return (
@@ -126,7 +101,6 @@ export function DetailFields({ row }: { row: CalendarOrderRow }) {
       <FieldRow label="Requested Delivery">
         {formatLongDate(row.requested_delivery_date)}
       </FieldRow>
-      <FieldRow label="Backhaul">{row.backhaul ? <BackhaulTag /> : 'No'}</FieldRow>
     </section>
   )
 }

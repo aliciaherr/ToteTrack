@@ -240,7 +240,10 @@ describe('AddOrderMenu', () => {
       />,
     )
 
-    const items = screen.getAllByRole('menuitem')
+    // The menu leads with the Task 64 "create a new PO here" action; the
+    // unscheduled set is everything after it.
+    const [action, ...items] = screen.getAllByRole('menuitem')
+    expect(action).toHaveTextContent('Add Purchase Order')
     expect(items).toHaveLength(3)
     expect(items.map((item) => item.textContent)).toEqual(
       expect.arrayContaining(rows.map((row) => expect.stringContaining(row.po_number))),
@@ -268,7 +271,11 @@ describe('AddOrderMenu', () => {
     )
 
     expect(screen.getByText(/every order has a date/i)).toBeInTheDocument()
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+    // Only the new-PO action survives an empty unscheduled set — creating an
+    // order on this day stays possible when there is nothing left to date.
+    const items = screen.getAllByRole('menuitem')
+    expect(items).toHaveLength(1)
+    expect(items[0]).toHaveTextContent('Add Purchase Order')
   })
 
   it('closes on Escape', () => {

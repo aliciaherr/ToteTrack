@@ -23,6 +23,7 @@ vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 import {
   setProductionPlacement,
   clearProductionPlacement,
+  toggleBackhaul,
   toggleSameDayDelivery,
 } from '../calendar'
 import { SORT_INDEX_MAX } from '../calendar.validation'
@@ -262,6 +263,78 @@ describe('toggleSameDayDelivery', () => {
   })
 })
 
+describe('toggleBackhaul', () => {
+  it('persists the boolean without touching any other column', async () => {
+    stubStatus('scheduled')
+    const captured = captureUpdatePayload()
+
+    const result = await toggleBackhaul(ORDER_ID, true)
+
+    expect(result).toEqual({ success: true })
+    expect(captured.current).toMatchObject({ backhaul: true })
+    expect(captured.current).not.toHaveProperty('production_date')
+    expect(captured.current).not.toHaveProperty('requested_delivery_date')
+    expect(captured.current).not.toHaveProperty('same_day_delivery')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/calendar')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('persists a false target state', async () => {
+    stubStatus('scheduled')
+    const captured = captureUpdatePayload()
+
+    await toggleBackhaul(ORDER_ID, false)
+
+    expect(captured.current).toMatchObject({ backhaul: false })
+  })
+
+  it.each(['completed', 'invoiced'])(
+    'stays available on a %s order — CONSTRAINT-18 locks qty and price, not flags',
+    async (status) => {
+      stubStatus(status)
+      const captured = captureUpdatePayload()
+
+      const result = await toggleBackhaul(ORDER_ID, true)
+
+      expect(result).toEqual({ success: true })
+      expect(captured.current).toMatchObject({ backhaul: true })
+    },
+  )
+
+  it('rejects a cancelled order', async () => {
+    stubStatus('cancelled')
+
+    const result = await toggleBackhaul(ORDER_ID, true)
+
+    expect(result).toEqual({ error: 'Cancelled orders cannot be marked as backhaul.' })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed order id before any DB access', async () => {
+    const result = await toggleBackhaul('not-a-uuid', true)
+
+    expect(result).toEqual({ error: 'Invalid order id.' })
+    expect(mockSelect).not.toHaveBeenCalled()
+  })
+
+  it('returns a generic message and logs context when the update throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    stubStatus('scheduled')
+    mockUpdate.mockImplementationOnce(() => {
+      throw new Error('connection reset')
+    })
+
+    const result = await toggleBackhaul(ORDER_ID, true)
+
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(consoleError).toHaveBeenCalledWith(
+      'toggleBackhaul: update failed',
+      expect.objectContaining({ orderId: ORDER_ID, next: true }),
+    )
+    consoleError.mockRestore()
+  })
+})
+
 describe('authentication', () => {
   beforeEach(() => {
     mockGetUser.mockResolvedValue(AUTH_MISSING)
@@ -274,10 +347,12 @@ describe('authentication', () => {
     })
     const cleared = await clearProductionPlacement(ORDER_ID)
     const toggled = await toggleSameDayDelivery(ORDER_ID, true)
+    const backhauled = await toggleBackhaul(ORDER_ID, true)
 
     expect(placement).toEqual({ error: 'You are not signed in.' })
     expect(cleared).toEqual({ error: 'You are not signed in.' })
     expect(toggled).toEqual({ error: 'You are not signed in.' })
+    expect(backhauled).toEqual({ error: 'You are not signed in.' })
     expect(mockSelect).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
   })

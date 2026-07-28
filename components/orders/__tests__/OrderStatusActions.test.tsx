@@ -129,6 +129,56 @@ describe('OrderStatusActions', () => {
     await vi.waitFor(() => expect(onStatusChange).toHaveBeenCalledOnce())
   })
 
+  it('reports its confirm dialog opening and closing to a host that asks', () => {
+    const onDialogOpenChange = vi.fn()
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="scheduled"
+        onDialogOpenChange={onDialogOpenChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel order/i }))
+    expect(onDialogOpenChange).toHaveBeenLastCalledWith(true)
+
+    fireEvent.click(screen.getByRole('button', { name: /keep order/i }))
+    expect(onDialogOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('reports the confirm closing after a successful confirmation too', async () => {
+    mockRevertOrderToScheduled.mockResolvedValueOnce({ success: true })
+    const onDialogOpenChange = vi.fn()
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="completed"
+        onDialogOpenChange={onDialogOpenChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /revert to scheduled/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /yes, revert/i }))
+
+    await vi.waitFor(() => expect(onDialogOpenChange).toHaveBeenLastCalledWith(false))
+  })
+
+  it('works unchanged when no host is listening — the Orders tab passes nothing', async () => {
+    mockUpdateOrderStatus.mockResolvedValueOnce({ success: true })
+    render(
+      <OrderStatusActions orderId={ORDER_ID} poNumber={PO_NUMBER} currentStatus="scheduled" />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel order/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /yes, cancel/i }))
+
+    await vi.waitFor(() =>
+      expect(mockUpdateOrderStatus).toHaveBeenCalledWith(ORDER_ID, 'cancelled'),
+    )
+  })
+
   it('surfaces a server error inline and does not notify the parent on failure', async () => {
     mockUpdateOrderStatus.mockResolvedValueOnce({ error: 'Something went wrong.' })
     const onStatusChange = vi.fn()

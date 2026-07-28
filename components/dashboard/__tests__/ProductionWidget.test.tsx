@@ -29,6 +29,7 @@ function makeRow(overrides: Partial<ProductionWidgetRow> = {}): ProductionWidget
     id: 'order-1',
     po_number: 'PO-1000',
     customer_name: 'Acme Industrial',
+    status: 'scheduled',
     backhaul: false,
     same_day_delivery: false,
     production_day: '2026-07-27',
@@ -210,6 +211,42 @@ describe('ProductionWidget', () => {
     ])
 
     expect(screen.getByText('Unknown customer')).toBeInTheDocument()
+  })
+
+  it.each(['completed', 'invoiced'] as const)('dims %s rows the way the calendar card does', (status) => {
+    renderWidget([{ date: '2026-07-27', rows: [makeRow({ status })], total: 1 }])
+
+    const link = within(screen.getByRole('listitem')).getByRole('link')
+    expect(link.className).toContain('bg-muted')
+    expect(link.className).toContain('opacity-75')
+    // Legibility floor (CONSTRAINT-19): dimmed, never illegible.
+    expect(link.className).not.toMatch(/opacity-(0|5|10|20|25|30|40|50|60)\b/)
+    expect(screen.getByText('PO-1000')).toBeInTheDocument()
+  })
+
+  it('leaves scheduled rows undimmed', () => {
+    renderWidget([{ date: '2026-07-27', rows: [makeRow({ status: 'scheduled' })], total: 1 }])
+
+    const link = within(screen.getByRole('listitem')).getByRole('link')
+    expect(link.className).toContain('bg-card')
+    expect(link.className).not.toMatch(/opacity-/)
+  })
+
+  it('dims only the built rows in a mixed column', () => {
+    renderWidget([
+      {
+        date: '2026-07-27',
+        rows: [
+          makeRow({ id: 'live', po_number: 'PO-LIVE', status: 'scheduled' }),
+          makeRow({ id: 'built', po_number: 'PO-BUILT', status: 'completed' }),
+        ],
+        total: 2,
+      },
+    ])
+
+    const [live, built] = screen.getAllByRole('listitem')
+    expect(within(live).getByRole('link').className).not.toContain('opacity-75')
+    expect(within(built).getByRole('link').className).toContain('opacity-75')
   })
 
   it('keeps row height identical whether or not a row carries tags', () => {

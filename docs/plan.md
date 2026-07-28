@@ -2100,3 +2100,208 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 **Not yet done, and it is the whole risk surface:** none of this has been opened in a browser. jsdom evaluates no `calc()`, `clamp()`, `min-h-0` or media queries and cannot produce a real pointer event, so **14 criteria across Tasks 55–59 are marked `[~]`**. Two named risks: the click-after-drag interaction (Task 58) may open a popup on every drop, and `buildProductionWidgetQuery`'s `sql.join` list (Task 59) has never executed against Postgres.
 
 **Next per the Completion Order:** `@code-review`, then `@qa` if this is a shippable checkpoint.
+
+---
+
+# Feature 12 — Orders list ergonomics + Calendar write surface
+
+> Added 2026-07-27. Planned directly with the builder (not via `@create-plan` — its pre-check requires `manifest.md`, which does not exist).
+> Tasks 61–62 are Orders-tab only and shipped independently. Tasks 63–67 extend the calendar from a placement-only surface to one that also creates orders and changes status.
+
+---
+
+## Task 61: Orders list — drop pagination ✅ Done 2026-07-27
+
+**Files:**
+- `db/queries/orders.ts` — modify
+- `db/queries/orders.constants.ts` — **delete**
+- `components/orders/OrderPagination.tsx` — **delete**
+- `components/orders/OrderTable.tsx`, `OrderLayout.tsx`, `app/(app)/orders/page.tsx` — modify
+- `db/queries/__tests__/orders.test.ts`, `components/orders/__tests__/OrderTable.test.tsx`, `OrderLayout.test.tsx` — modify
+
+**Acceptance:**
+- [x] Every order for the active filter renders in one scroll; no pagination footer
+- [x] `getOrders` runs a single query — the `COUNT(*)` round-trip is gone
+- [x] A stale `?page=2` URL still loads the list (param ignored, not an error)
+- [x] Row click preserves the active status filter
+- [x] `architecture.md`'s Platform-Native Rule precedent repointed to `db/queries/calendar.constants.ts`
+
+---
+
+## Task 62: Orders list — search by PO number or customer name ✅ Done 2026-07-27
+
+**Files:**
+- `db/queries/orders.ts` — modify (`search?: string` on `GetOrdersFilters`, `buildSearchClause`)
+- `app/(app)/orders/page.tsx`, `components/orders/OrderTable.tsx`, `OrderLayout.tsx` — modify
+- `db/queries/__tests__/orders.test.ts`, `components/orders/__tests__/OrderTable.test.tsx` — modify
+
+**Acceptance:**
+- [x] Case-insensitive partial match on `po_number` OR customer `company_name`
+- [x] Search ANDs with the active status tab
+- [x] Whitespace-only term emits no ILIKE clause
+- [x] Term is parameterized — never string-concatenated (SEC-02)
+- [x] Tab switch and row click both preserve the search term
+- [x] 250ms debounce (deliberate divergence from the customers tab — the response is now the unbounded full list)
+- [x] Empty state reads "No orders match that search."
+
+> **Deviation from the original spec, applied:** `buildStatusClause` emitted `WHERE o.status = …` and returned empty SQL for `status=all`, so an `AND` search clause had nothing to attach to. The base query now carries a `WHERE TRUE` anchor and both clauses emit `AND`, matching `db/queries/leads.ts`. Behaviour-neutral; planner-neutral.
+
+---
+
+## Task 63: `createOrder` accepts a production-date override ✅ Done 2026-07-27
+
+**Files:**
+- `lib/actions/orders.validation.ts` — modify
+- `lib/actions/orders.internal.ts` — modify
+- `lib/actions/orders.ts` — modify
+- `lib/actions/__tests__/orders.test.ts` — modify
+
+**Functions to implement:**
+- `normalizeCreate(data)` — when `data.production_date` is supplied, use it verbatim; otherwise fall back to `defaultProductionDate(base.requested_delivery_date)` exactly as today.
+
+**Acceptance:**
+- [ ] An explicit `production_date` wins over the delivery-date default, whatever the delivery date is (CONSTRAINT-19 — position is stored, never derived)
+- [ ] Omitting it preserves today's behaviour byte for byte
+- [ ] A Saturday or Sunday `production_date` is **rejected on write** with a user-facing error — the no-weekend invariant is enforced on write, never on read (CONSTRAINT-19). Reuse the Zod rule already in `lib/actions/calendar.validation.ts` rather than writing a second one
+- [ ] `createOrder` revalidates `/calendar` and `/dashboard` in addition to `/orders` — the new card and the dashboard widget must both appear without a manual reload
+  > Spec corrected during Task 63: this originally said `/`, which would be a no-op — `app/page.tsx` is a bare `redirect('/dashboard')` and the widget lives at `/dashboard`. Matches the existing `CALENDAR_REVALIDATE_PATHS`.
+- [ ] Tests: happy path (override honoured), error case (weekend rejected), regression (no override → unchanged default)
+
+---
+
+## Task 64: "Add Purchase Order" from a day column ✅ Done 2026-07-27
+
+**Files:**
+- `components/calendar/AddOrderMenu.tsx` — modify
+- `components/calendar/newOrderDay.tsx` — create (context, mirroring `cardSelection.tsx`)
+- `components/calendar/DayColumnParts.tsx` — modify
+- `components/calendar/CalendarLayout.tsx` — modify
+- `components/shell/DetailDrawer.tsx` — modify (additive `alwaysOverlay` prop)
+- `app/(app)/calendar/page.tsx` — modify (3rd parallel fetch: `getActiveCustomersForSelect()`)
+- `components/calendar/__tests__/CalendarLayout.test.tsx` — modify
+
+**Acceptance:**
+- [ ] The day menu shows "Add Purchase Order" above the unscheduled list, visually separated
+- [ ] Selecting it opens the right drawer with `OrderForm mode="create"`; the user never leaves `/calendar`
+- [ ] The saved order's `production_date` is the day whose `+` was clicked — **regardless of the delivery date entered in the form**
+- [ ] Drawer closes on save and the new card appears in that column
+- [ ] The `/calendar` page still never scrolls; the drawer scrolls internally (CONSTRAINT-19)
+- [ ] `DetailDrawer`'s existing five consumers (Orders, Customers, Leads, Invoices, Support) are visually unchanged — the new prop is opt-in and defaults to current behaviour
+- [ ] The day signal reaches the menu via context, not prop drilling through `DayColumn`/`WeekStrip`
+
+---
+
+## Task 65: Backhaul + Same-day pill toggles in the card popup ✅ Done 2026-07-27
+
+**Files:**
+- `lib/actions/calendar.ts` — modify (`toggleBackhaul`)
+- `lib/actions/calendar.validation.ts` — modify
+- `components/calendar/ProductionCardDialog.tsx` / `ProductionCardDialogParts.tsx` — modify
+- `components/calendar/useProductionPlacement.ts` — modify
+- `lib/actions/__tests__/calendar.test.ts`, `components/calendar/__tests__/ProductionCardDialog.test.tsx` — modify
+
+**Functions to implement:**
+- `toggleBackhaul(orderId: string, next: boolean): Promise<{ success: true } | { error: string }>` — mirrors `toggleSameDayDelivery`. Takes the target state rather than flipping, so a double-fired click cannot toggle twice.
+
+**Acceptance:**
+- [ ] Two pill toggles render on one row at the top of the popup: Backhaul, then Same-day delivery
+- [ ] Both persist to Postgres and survive a reload
+- [ ] Backhaul is removed from `DetailFields` — it must not render twice
+- [ ] Toggling is permitted on `invoiced` / `cancelled` orders (CONSTRAINT-18 permits non-qty/price edits)
+- [ ] Failure surfaces a toast and leaves the pill in its true state — no optimistic-only UI (CONSTRAINT-02)
+- [ ] Tests: happy + error path per action
+
+---
+
+## Task 66: Status block in the card popup ✅ Done 2026-07-27
+
+**Files:**
+- `components/calendar/ProductionCardDialog.tsx` + a new sibling parts file — modify/create
+- `components/calendar/productionCardDialogHooks.ts` — modify
+- `components/orders/OrderStatusActions.tsx` — modify (additive `onDialogOpenChange`)
+- `lib/actions/orders.ts` — modify (`updateOrderStatus` revalidation)
+- `lib/actions/orders.revert.ts` — modify (revalidation)
+- `components/calendar/__tests__/ProductionCardDialog.test.tsx` — modify
+
+**Acceptance:**
+- [ ] `OrderStatusActions` renders below the pill row and behaves exactly as on the Orders tab: Mark as Complete + Cancel Order on `scheduled`; Revert to Scheduled on the other three
+- [ ] Cancelling removes the card from the calendar and closes the popup — the calendar filters `status <> 'cancelled'`; reverting a cancelled order is only possible from the Orders tab, by design
+- [ ] Marking complete dims the card in place and makes it non-draggable, keeping its sequence slot
+- [ ] **Escape with a confirm dialog open closes only the confirm dialog, not the popup underneath.** Feed nested-dialog state into the existing `useEscapeClose(open, onClose, disabled)` flag — the same mechanism that already gates Escape while `isBusy`
+- [ ] Focus is trapped in the topmost dialog and returns to the popup when the confirm closes
+- [ ] `updateOrderStatus` and `revertOrderToScheduled` both revalidate `/calendar` and `/` — without this the card does not disappear after a cancel
+- [ ] The Orders tab's own status block is behaviourally unchanged
+- [ ] Both dialog files stay within the 200-line component cap (CQ-02)
+
+---
+
+## Task 67: Dim built orders harder ✅ Done 2026-07-27
+
+**Files:**
+- `components/calendar/ProductionCard.tsx` — modify
+- `components/dashboard/ProductionWidget.tsx` — modify
+- `db/queries/dashboard.sql.ts` — modify (select `o.status`)
+- `db/queries/production-widget.constants.ts` — modify (`status` on `ProductionWidgetRow`)
+- `components/calendar/__tests__/ProductionCard.test.tsx`, `components/dashboard/__tests__/ProductionWidget.test.tsx` — modify
+
+**Acceptance:**
+- [ ] Completed/invoiced calendar cards are clearly distinguishable from active ones at a glance
+- [ ] Dimming does **not** breach the legibility floor — CONSTRAINT-19 ranks text legibility above card density. Combine a modest opacity drop with a background shift rather than opacity alone
+- [ ] The dashboard production widget dims built rows too — it currently has no status-based treatment at all, and `ProductionWidgetRow` does not carry `status` until this task adds it
+- [ ] `useReducedMotion` behaviour unchanged
+
+---
+
+# Feature 13 — Touch interaction replacement: long-press-to-arm + tap-to-place
+
+> Added 2026-07-27, after A-05's contingency fired on a real iPad (see `docs/assumptions.md` → A-05 for the diagnosis). Planned directly with the builder; brainstorm settled cancel semantics, insert-position semantics, unschedule parity, and desktop scope in-session.
+>
+> **Sequencing: docs-only until Feature 12 (Tasks 63–67) lands.** Both features modify `CalendarLayout.tsx`, `DayColumnParts.tsx`, `ProductionCard.tsx` and the calendar tests; starting Task 68's code while Feature 12 is in flight would collide in the working tree. This section is the approved spec, written while that work proceeds.
+
+---
+
+## Task 68: Long-press-to-arm + tap-to-place on touch devices
+
+**Why this exists:** Touch drag was unusable on a real iPad in every browser (all WebKit). Root causes: iPadOS's own long-press behaviours (text-selection callout, native drag) were never suppressed and fire on top of the `TouchSensor` drag; the 8px activation tolerance is tighter than natural fingertip drift; and nothing signals when activation happens. Per the A-05 contingency, the touch sensor is **replaced, not tuned** — but with a revised design, because the originally agreed tap-to-select fallback conflicts with tap-opens-popup (shipped in Task 58). Desktop pointer drag and the keyboard path are untouched.
+
+**Interaction model (settled with the builder 2026-07-27):**
+- A ≈350ms still-finger long-press on a card **arms** it — shake + bold outline (outline only under reduced motion). Finger movement or scroll during the press cancels arming and becomes an ordinary scroll.
+- Arming works both on calendar cards and on cards inside the unscheduled callout dropdown.
+- While armed, one tap resolves the placement:
+  - **Another card** (any day, including the armed card's own day) → armed card takes that card's position; that card and everything below shift down one.
+  - **Empty column space below a day's cards** → armed card appends as that day's last card.
+  - **Unscheduled callout** → armed card is unscheduled (parity with drag-to-callout and `Remove from calendar` — CONSTRAINT-19's one-operation rule now has three entry points).
+  - **The armed card itself, or anything else** → cancel. No write.
+- Scrolling the strip or a column while armed does **not** cancel — browsing to a distant week and then tapping is the intended path (this is the key advantage over drag, which required edge auto-scroll).
+- While armed, taps never open the card popup. Unarmed taps open the popup exactly as today.
+- Placement animates the card flying to its new slot (framer-motion layout animation); instant under reduced motion.
+
+**Files:**
+- `components/calendar/calendarDnd.ts` — modify: arm-delay/move-tolerance constants; retire the `TouchSensor` constants
+- `components/calendar/CalendarDndContext.tsx` — modify: remove `TouchSensor`; gate `PointerSensor` activation to mouse/pen so it cannot race the long-press on touch
+- `components/calendar/useLongPressArm.ts` — create: touch-only long-press detection (timer + move/scroll cancellation)
+- `components/calendar/armMode.tsx` — create: armed-card context + tap routing that resolves to the existing `onPlace` / `onUnschedule`
+- `components/calendar/ProductionCard.tsx`, `SortableProductionCard.tsx` — modify: armed visual state; iOS gesture-suppression CSS (`-webkit-touch-callout: none`, `user-select: none`, `-webkit-user-drag: none`) so the OS long-press behaviours stop firing; popup suppression while armed
+- `components/calendar/DayColumn.tsx` / `DayColumnParts.tsx` — modify: empty-space tap target (append)
+- `components/calendar/UnscheduledCallout.tsx` — modify: tap-to-unschedule target; arming inside the dropdown
+- `components/calendar/CalendarLayout.tsx` — modify: outside-tap cancel
+- `components/calendar/__tests__/` — modify `CalendarDnd.test.tsx`, `ProductionCard.test.tsx`, `UnscheduledCallout.test.tsx`; create `useLongPressArm.test.ts`
+
+**Acceptance:**
+- [ ] Long-press arms; shake + bold outline; outline-only under `useReducedMotion`
+- [ ] Finger movement past tolerance, or a scroll, during the press cancels arming and scrolls normally
+- [ ] Tap on another card inserts at that card's position and shifts it and everything below down one — same-day taps reorder by the identical rule
+- [ ] Tap on empty column space appends to that day
+- [ ] Tap on the unscheduled callout unschedules; an already-unscheduled armed card tapped there is a no-op (no write)
+- [ ] Tap on the armed card itself or anywhere else cancels with no write; a tap resolving to the card's current position writes nothing (reuses the existing no-op guard in `resolveDropTarget`)
+- [ ] Cards inside the unscheduled dropdown can be armed and placed onto a day
+- [ ] Strip and column scrolling while armed preserves the armed state
+- [ ] While armed, no tap opens the card popup; unarmed tap-to-popup is byte-for-byte unchanged
+- [ ] Placement animates the card to its destination; instant under reduced motion
+- [ ] Desktop mouse drag and keyboard drag behave exactly as before; `PointerSensor` no longer activates from touch pointers; `TouchSensor` is gone
+- [ ] iOS long-press system behaviours (selection callout, native drag) do not fire on cards
+- [ ] Tests: happy + error path per new function; insert-index math; unschedule parity; popup suppression while armed
+- [ ] **Validated on a real iPad (Safari at minimum): arm, place across weeks with a scroll in between, same-day reorder, unschedule, cancel, popup unaffected.** This criterion cannot be marked `[~]` — A-05 fired precisely because the touch path shipped configured-but-unobserved
+- [ ] `docs/assumptions.md` A-05, `docs/prd.md`, `docs/architecture.md`, and `docs/founder-brief.md` (FB-14) updated to final state when the task closes
+
+---

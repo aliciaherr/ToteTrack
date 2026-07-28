@@ -117,13 +117,20 @@ export function defaultProductionDate(deliveryDate: string | null): string | nul
  * Insert payload for a new PO: the shared write-base, the initial status, and
  * the starting production date so the PO appears on the calendar without
  * anyone having to drag it there.
+ *
+ * An explicit `production_date` — supplied only when the PO is created from a
+ * calendar day column — is stored verbatim and beats the delivery-date default
+ * outright, whatever delivery date the form carried. The salesperson picked
+ * that column; deriving a different day from the promise would silently move
+ * the card away from where they asked for it (CONSTRAINT-19). Its weekday and
+ * calendar validity are already guaranteed by `createOrderInputSchema`.
  */
 export function normalizeCreate(data: ValidatedCreate) {
   const base = buildOrderWriteBase(data)
   return {
     ...base,
     status: data.initial_status,
-    production_date: defaultProductionDate(base.requested_delivery_date),
+    production_date: data.production_date ?? defaultProductionDate(base.requested_delivery_date),
   }
 }
 
