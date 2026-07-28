@@ -3,12 +3,12 @@
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import BackhaulTag from '@/components/shared/BackhaulTag'
+import SameDayTag from '@/components/shared/SameDayTag'
 import {
   ACTIVE_SURFACE_CLASS,
   BUILT_SURFACE_CLASS,
   isBuiltStatus,
-  SameDayTag,
-} from '@/components/calendar/ProductionCard'
+} from '@/components/calendar/productionCardStatus'
 import type {
   ProductionDayGroup,
   ProductionWidgetRow,

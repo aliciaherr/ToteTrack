@@ -75,7 +75,7 @@
 
 **Pattern:** Next.js Server Actions for all mutations. Server Components for all data fetching. No separate REST API layer.
 
-> **Revalidation is multi-surface as of Feature 12.** An order write is no longer the Orders tab's business alone — the same row is drawn by `/calendar` and by the dashboard production widget. `createOrder`, `updateOrderStatus` and `revertOrderToScheduled` therefore revalidate `/orders`, `/calendar` **and** `/dashboard` via named path constants. None of them did before Feature 12, which meant a cancelled order stayed visible on the calendar until a hard reload. Use `/dashboard`, never `/` — `app/page.tsx` is a bare `redirect('/dashboard')`, so revalidating `/` is a no-op.
+> **Revalidation is multi-surface as of Feature 12.** An order write is no longer the Orders tab's business alone — the same row is drawn by `/calendar` and by the dashboard production widget. `createOrder`, `updateOrder`, `updateOrderStatus` and `revertOrderToScheduled` therefore revalidate `/orders`, `/calendar` **and** `/dashboard` via named path constants. None of them did before Feature 12, which meant a cancelled order stayed visible on the calendar until a hard reload; `updateOrder` joined the set in the 2026-07-27 code-review fix pass — an edit can change backhaul, the delivery date, or the quantity mix, all drawn on calendar cards. Use `/dashboard`, never `/` — `app/page.tsx` is a bare `redirect('/dashboard')`, so revalidating `/` is a no-op.
 
 - **Server Components** (in `app/(app)/[screen]/page.tsx`): fetch data server-side, pass as props to client components. Faster first paint; no client-side loading states for initial render.
 - **Server Actions** (in `lib/actions/[domain].ts`): handle all create/update/delete operations. Called from client components via event handlers. Type-safe. No HTTP boilerplate.
@@ -149,7 +149,9 @@ components/
     OrderTable.tsx          ← 'use client'
     OrderDetail.tsx         ← 'use client'
     OrderForm.tsx           ← 'use client' — auto-fills delivery address from customer default
+    useOrderForm.ts         ← 'use client' — form state + submit flow behind OrderForm (extracted 2026-07-27 at the 200-line cap)
     OrderStatusActions.tsx  ← 'use client' — fwd (Mark Complete / Cancel) + revert flows
+    useStatusActions.ts     ← 'use client' — mutation state/handlers behind OrderStatusActions (extracted 2026-07-27; rejection-safe confirm handlers)
     CancelOrderDialog.tsx   ← 'use client'
     RevertOrderDialog.tsx   ← 'use client' — status-aware copy for invoiced revert
     PODocumentUpload.tsx    ← 'use client' (placeholder — Tasks 19/33 cut)
@@ -160,7 +162,8 @@ components/
     WeekStrip.tsx           ← week groups with a 2px Fri│Mon divider
     DayColumn.tsx           ← one weekday; droppable + SortableContext
     DayColumnParts.tsx      ← DayHeader / ColumnBody / ColumnFooter (line-cap split)
-    ProductionCard.tsx      ← presentational card, context-free; also exports SameDayTag + isBuiltStatus
+    ProductionCard.tsx      ← presentational card, context-free
+    productionCardStatus.ts ← isBuiltStatus + built/active surface classes, shared with the dashboard widget (extracted 2026-07-27 at the 200-line cap)
     productionCardFormat.ts ← formatProductionMix (the `12×275 REC` line)
     SortableProductionCard.tsx ← drag wrapper; the tap target that opens the popup, arms on touch long-press (Task 68)
     CalendarDndContext.tsx  ← sensors (mouse/pen + keyboard — touch deliberately has none), collision detection, auto-scroll, DragOverlay
@@ -196,6 +199,7 @@ components/
   shared/
     QtyGrid.tsx             ← 'use client' — reusable 2×3 size×type grid (display + input modes); used by OrderForm and OrderDetail (FB-10 / Feature 9 / CONSTRAINT-18)
     BackhaulTag.tsx         ← 'use client' — compact `B` tag for any PO list surface (created in Task 42)
+    SameDayTag.tsx          ← 'use client' — compact amber `SD` tag mirroring BackhaulTag; used by the calendar card and the dashboard production widget (moved here 2026-07-27)
   ui/                       ← shadcn/ui generated components
 ```
 
@@ -251,6 +255,7 @@ lib/
     server.ts         ← server SupabaseClient (createServerClient + cookies)
   actions/
     auth.ts           ← signIn, signOut
+    auth.guard.ts     ← assertAuthenticated, used by every order + calendar action; re-exports GENERIC_FAILURE_MESSAGE from lib/errors.ts (no 'use server' — helpers here must never become public actions, SEC-08)
     customers.ts     ← createCustomer, updateCustomer, deleteCustomer
     orders.ts        ← createOrder, updateOrder, updateOrderStatus
     orders.revert.ts ← revertOrderToScheduled (FB-08; sibling extracted at the 300-line cap)
@@ -273,7 +278,7 @@ lib/
                         exactly one caller — defaultProductionDate at order
                         creation. Nothing derives a card's position at read
                         time (CONSTRAINT-19)
-  errors.ts           ← named error classes (DatabaseError, *NotFoundError, InvalidDateError)
+  errors.ts           ← named error classes (DatabaseError, *NotFoundError, InvalidDateError) + GENERIC_FAILURE_MESSAGE (client-safe home of the fallback copy; auth.guard.ts re-exports it for server actions)
 ```
 
 ---

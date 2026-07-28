@@ -2,6 +2,7 @@ import type { OrderDetail } from '@/db/queries/orders'
 import {
   UNIT_PRICE_COMBOS,
   computeOrderPrice,
+  nullIfBlank,
   type CreateOrderInput,
   type OrderQtyUnitPrices,
   type UpdateOrderInput,
@@ -119,11 +120,6 @@ export function detailToFormValues(
   }
 }
 
-function stringOrNull(raw: string): string | null {
-  const trimmed = raw.trim()
-  return trimmed === '' ? null : trimmed
-}
-
 /**
  * Parses one per-combo unit price into the action-input shape. A price is only
  * meaningful when its combo has qty > 0 — a qty-0 cell is forced to null so a
@@ -217,11 +213,11 @@ export function formValuesToCreateInput(
     customer_id: values.customer_id,
     ...formValuesToQtyUnitPrices(values),
     pickup_only: values.pickup_only,
-    delivery_address: stringOrNull(values.delivery_address),
+    delivery_address: nullIfBlank(values.delivery_address),
     requested_delivery_date: values.requested_delivery_date,
     backhaul: values.backhaul,
     initial_status: 'scheduled',
-    notes: stringOrNull(values.notes),
+    notes: nullIfBlank(values.notes),
     ...(productionDate ? { production_date: productionDate } : {}),
   }
 }
@@ -237,9 +233,9 @@ export function formValuesToUpdateInput(values: OrderFormValues): UpdateOrderInp
     customer_id: values.customer_id,
     ...formValuesToQtyUnitPrices(values),
     pickup_only: values.pickup_only,
-    delivery_address: stringOrNull(values.delivery_address),
+    delivery_address: nullIfBlank(values.delivery_address),
     requested_delivery_date: values.requested_delivery_date,
     backhaul: values.backhaul,
-    notes: stringOrNull(values.notes),
+    notes: nullIfBlank(values.notes),
   }
 }

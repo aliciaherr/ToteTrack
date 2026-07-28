@@ -2,7 +2,8 @@
 
 import { useSortable } from '@dnd-kit/sortable'
 import { motion } from 'framer-motion'
-import ProductionCard, { isBuiltStatus } from './ProductionCard'
+import ProductionCard from './ProductionCard'
+import { isBuiltStatus } from './productionCardStatus'
 import { toTranslate, type CardDragData } from './calendarDnd'
 import { useArmMode } from './armMode'
 import { useLongPressArm } from './useLongPressArm'

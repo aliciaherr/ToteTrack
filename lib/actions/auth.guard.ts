@@ -1,11 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 
-/**
- * User-facing fallback for any server-side failure that is not a validation,
- * auth, or business-rule rejection. The detailed cause is logged server-side
- * via `console.error` and never surfaced to the client (SEC-05, EH-04).
- */
-export const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
+// Re-exported so server actions keep one import site for the guard and its
+// fallback copy. The constant itself lives in `lib/errors.ts`, which client
+// components can also import — this module cannot cross that boundary because
+// it pulls in the server-only Supabase client.
+export { GENERIC_FAILURE_MESSAGE }
 
 /**
  * Rejects the request unless a Supabase session is present. Returns null when

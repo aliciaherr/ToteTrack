@@ -196,4 +196,53 @@ describe('OrderStatusActions', () => {
     )
     expect(onStatusChange).not.toHaveBeenCalled()
   })
+
+  it('recovers the cancel dialog with a generic error when the action rejects in transit', async () => {
+    // A rejection (offline, stale action id after a deploy) previously escaped
+    // the confirm handler: isSubmitting stayed true forever, Escape and
+    // backdrop-close are gated on it, and no message appeared — a wedged modal.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockUpdateOrderStatus.mockRejectedValueOnce(new Error('network down'))
+    render(
+      <OrderStatusActions orderId={ORDER_ID} poNumber={PO_NUMBER} currentStatus="scheduled" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /cancel order/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /yes, cancel/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(screen.getByRole('button', { name: /yes, cancel/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /keep order/i })).toBeEnabled()
+    consoleError.mockRestore()
+  })
+
+  it('recovers the revert dialog with a generic error when the action rejects in transit', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockRevertOrderToScheduled.mockRejectedValueOnce(new Error('stale action id'))
+    render(
+      <OrderStatusActions orderId={ORDER_ID} poNumber={PO_NUMBER} currentStatus="invoiced" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /revert to scheduled/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /yes, revert/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(screen.getByRole('button', { name: /yes, revert/i })).toBeEnabled()
+    consoleError.mockRestore()
+  })
+
+  it('shows a generic error and re-enables the buttons when mark-complete rejects in transit', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockUpdateOrderStatus.mockRejectedValueOnce(new Error('offline'))
+    const onStatusChange = vi.fn()
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="scheduled"
+        onStatusChange={onStatusChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /mark as complete/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(onStatusChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /mark as complete/i })).toBeEnabled()
+    consoleError.mockRestore()
+  })
 })

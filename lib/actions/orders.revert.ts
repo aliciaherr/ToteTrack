@@ -4,10 +4,8 @@ import { eq, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/db'
 import { orders, invoices } from '@/db/schema'
-import { createClient } from '@/lib/supabase/server'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
+import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
+import { UUID_RE } from './orders.validation'
 
 // Every surface a revert changes: the orders list, the invoices list (a total
 // was recomputed or an invoice deleted), customer detail's order history, the
@@ -22,13 +20,6 @@ const REVERT_REVALIDATE_PATHS = [
   '/calendar',
   '/dashboard',
 ] as const
-
-async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user) return { error: 'You are not signed in.' }
-  return null
-}
 
 interface RemainingInvoiceTotals {
   count: number
@@ -57,11 +48,13 @@ interface RemainingInvoiceTotals {
 export async function revertOrderToScheduled(
   id: string,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
   if (!UUID_RE.test(id)) return { error: 'Invalid order id.' }
 
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
     const result = await db.transaction(async (tx) => {
       const [row] = await tx
         .select({ status: orders.status, invoice_id: orders.invoice_id })

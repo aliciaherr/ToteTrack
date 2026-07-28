@@ -4,7 +4,6 @@ import { eq, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/db'
 import { orders } from '@/db/schema'
-import { createClient } from '@/lib/supabase/server'
 import type { PoStatus } from '@/db/queries/orders'
 import {
   UUID_RE,
@@ -22,11 +21,8 @@ import {
   normalizeUpdate,
   detectQtyOrPriceChange,
 } from './orders.internal'
+import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
-// User-facing fallback for any server-side failure that isn't a validation,
-// auth, or unique-constraint rejection. Detailed cause is logged server-side
-// via console.error — never surfaced to the client (SEC-05, EH-04).
-const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
 const DUPLICATE_PO_MESSAGE = 'PO number already exists.'
 const PO_LOCKED_MESSAGE =
   'PO is locked. Revert to scheduled before editing quantities or price.'
@@ -42,21 +38,14 @@ const POSTGRES_UNIQUE_VIOLATION = '23505'
 // `scheduled`, where qty/price edits are unrestricted).
 const QTY_OR_PRICE_LOCKED_STATUSES: readonly PoStatus[] = ['invoiced', 'cancelled']
 
-// Routes a PO appears on, revalidated whenever one is created or its status
-// changes: the orders list, the production calendar (the card lands in the
-// column its `production_date` names, and leaves the calendar entirely when it
-// is cancelled) and the dashboard (its production widget reads the same
+// Routes a PO appears on, revalidated whenever one is created, edited, or its
+// status changes: the orders list, the production calendar (the card lands in
+// the column its `production_date` names, and leaves the calendar entirely when
+// it is cancelled) and the dashboard (its production widget reads the same
 // column). `/dashboard`, not `/` — `app/page.tsx` only redirects, so
 // revalidating `/` would refresh nothing. Same set as
 // `CALENDAR_REVALIDATE_PATHS` in `calendar.ts`, plus the orders list.
 const ORDER_REVALIDATE_PATHS = ['/orders', '/calendar', '/dashboard'] as const
-
-async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user) return { error: 'You are not signed in.' }
-  return null
-}
 
 function isUniqueViolation(cause: unknown): boolean {
   return (
@@ -81,13 +70,14 @@ function isUniqueViolation(cause: unknown): boolean {
 export async function createOrder(
   input: CreateOrderInput,
 ): Promise<{ id: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
   const parsed = createOrderInputSchema.safeParse(input)
   if (!parsed.success) return { error: firstZodMessage(parsed.error) }
 
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
     const [row] = await db
       .insert(orders)
       .values(normalizeCreate(parsed.data))
@@ -100,7 +90,11 @@ export async function createOrder(
     return { id: row.id }
   } catch (cause) {
     if (isUniqueViolation(cause)) return { error: DUPLICATE_PO_MESSAGE }
-    console.error('createOrder: insert failed', { cause })
+    console.error('createOrder: insert failed', {
+      poNumber: parsed.data.po_number,
+      customerId: parsed.data.customer_id,
+      cause,
+    })
     return { error: GENERIC_FAILURE_MESSAGE }
   }
 }
@@ -120,15 +114,16 @@ export async function updateOrder(
   id: string,
   input: UpdateOrderInput,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
   if (!UUID_RE.test(id)) return { error: 'Invalid order id.' }
 
   const parsed = updateOrderInputSchema.safeParse(input)
   if (!parsed.success) return { error: firstZodMessage(parsed.error) }
 
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
     const [current] = await db
       .select(QTY_AND_PRICE_SNAPSHOT_COLUMNS)
       .from(orders)
@@ -148,7 +143,10 @@ export async function updateOrder(
       .update(orders)
       .set(normalizeUpdate(parsed.data))
       .where(eq(orders.id, id))
-    revalidatePath('/orders')
+    // Edits change fields the calendar card and dashboard widget draw —
+    // backhaul, delivery date, the quantity mix — so all three surfaces
+    // revalidate, same as a create or status change.
+    for (const path of ORDER_REVALIDATE_PATHS) revalidatePath(path)
     return { success: true }
   } catch (cause) {
     if (isUniqueViolation(cause)) return { error: DUPLICATE_PO_MESSAGE }
@@ -180,15 +178,16 @@ export async function updateOrderStatus(
   id: string,
   newStatus: UpdateOrderStatusTarget,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
   if (!UUID_RE.test(id)) return { error: 'Invalid order id.' }
 
   const parsed = updateOrderStatusInputSchema.safeParse({ newStatus })
   if (!parsed.success) return { error: firstZodMessage(parsed.error) }
 
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
     const [row] = await db
       .select({ status: orders.status })
       .from(orders)

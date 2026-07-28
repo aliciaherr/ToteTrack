@@ -374,4 +374,39 @@ describe('OrderForm', () => {
     expect(errorEl).toHaveTextContent(/Unit price for 275 gal Rebottled is required/i)
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
+
+  it('shows a generic error when the submit action rejects in transit', async () => {
+    // A rejected server action (offline, stale action id after a deploy) used
+    // to escape react-hook-form's handleSubmit unseen — no message, the form
+    // simply did nothing (EH-01).
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateOrder.mockRejectedValueOnce(new Error('network down'))
+    const onSaved = vi.fn()
+    render(
+      <OrderForm
+        mode="create"
+        customers={customers}
+        lockedCustomerId={customers[0].id}
+        onClose={vi.fn()}
+        onSaved={onSaved}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText(/PO Number/i), { target: { value: 'PO-9999' } })
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled quantity/i), {
+      target: { value: '8' },
+    })
+    fireEvent.change(screen.getByLabelText(/275 gal Rebottled unit price/i), {
+      target: { value: '25' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Delivery Address$/i), {
+      target: { value: '456 Oak Ave' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create order/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(onSaved).not.toHaveBeenCalled()
+    // isSubmitting reset by react-hook-form — the salesperson can retry.
+    expect(screen.getByRole('button', { name: /create order/i })).toBeEnabled()
+    consoleError.mockRestore()
+  })
 })

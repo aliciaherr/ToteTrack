@@ -1,13 +1,9 @@
 'use client'
 
-import { useCallback, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import CancelOrderDialog from './CancelOrderDialog'
 import RevertOrderDialog from './RevertOrderDialog'
-import { updateOrderStatus } from '@/lib/actions/orders'
-import { revertOrderToScheduled } from '@/lib/actions/orders.revert'
-import { useToast } from '@/lib/hooks/useToast'
+import { useStatusActions } from './useStatusActions'
 import type { PoStatus } from '@/db/queries/orders'
 
 interface OrderStatusActionsProps {
@@ -22,27 +18,6 @@ interface OrderStatusActionsProps {
    */
   onDialogOpenChange?: (open: boolean) => void
 }
-
-/**
- * Open state for one confirmation dialog, mirrored to the host.
- *
- * The report happens in the click that opens or closes the confirm, not in an
- * effect: a host that uses it to hand focus back needs the notification before
- * the confirm mounts and takes focus for itself.
- */
-function useConfirmDialog(onDialogOpenChange?: (open: boolean) => void) {
-  const [open, setOpen] = useState(false)
-  const setConfirmOpen = useCallback(
-    (next: boolean) => {
-      setOpen(next)
-      onDialogOpenChange?.(next)
-    },
-    [onDialogOpenChange],
-  )
-  return [open, setConfirmOpen] as const
-}
-
-type Advance = 'completed'
 
 function ErrorAlert({ message }: { message: string }) {
   return (
@@ -88,7 +63,7 @@ function StatusButton({
  *     path — invoiced reverts also recompute or delete the parent invoice)
  *
  * Both forward and undo paths surface a confirmation dialog before the
- * server action fires.
+ * server action fires. All mutation state lives in `useStatusActions`.
  */
 export default function OrderStatusActions({
   orderId,
@@ -97,68 +72,24 @@ export default function OrderStatusActions({
   onStatusChange,
   onDialogOpenChange,
 }: OrderStatusActionsProps) {
-  const router = useRouter()
-  const { toast } = useToast()
-  const [isPending, startTransition] = useTransition()
-  const [isAdvancing, setIsAdvancing] = useState(false)
-  const [cancelOpen, openCancel] = useConfirmDialog(onDialogOpenChange)
-  const [revertOpen, openRevert] = useConfirmDialog(onDialogOpenChange)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  const notifyChange = useCallback(() => {
-    startTransition(() => {
-      router.refresh()
-    })
-    onStatusChange?.()
-  }, [router, onStatusChange])
-
-  const advance = useCallback(
-    async (target: Advance) => {
-      setErrorMessage(null)
-      setIsAdvancing(true)
-      try {
-        const result = await updateOrderStatus(orderId, target)
-        if ('error' in result) {
-          setErrorMessage(result.error)
-          return
-        }
-        toast('Order marked as complete.', 'success')
-        notifyChange()
-      } finally {
-        setIsAdvancing(false)
-      }
-    },
-    [orderId, notifyChange, toast],
-  )
-
-  const handleCancelConfirm = useCallback(async () => {
-    const result = await updateOrderStatus(orderId, 'cancelled')
-    if ('success' in result) {
-      openCancel(false)
-      toast('Order cancelled.', 'success')
-      notifyChange()
-    }
-    return result
-  }, [orderId, notifyChange, openCancel, toast])
-
-  const handleRevertConfirm = useCallback(async () => {
-    const result = await revertOrderToScheduled(orderId)
-    if ('success' in result) {
-      openRevert(false)
-      toast('Order reverted to scheduled.', 'success')
-      notifyChange()
-    }
-    return result
-  }, [orderId, notifyChange, openRevert, toast])
-
-  const disabled = isAdvancing || isPending
+  const {
+    errorMessage,
+    disabled,
+    cancelOpen,
+    openCancel,
+    revertOpen,
+    openRevert,
+    markComplete,
+    handleCancelConfirm,
+    handleRevertConfirm,
+  } = useStatusActions({ orderId, onStatusChange, onDialogOpenChange })
 
   if (currentStatus === 'scheduled') {
     return (
       <div className="space-y-2">
         {errorMessage && <ErrorAlert message={errorMessage} />}
         <div className="flex flex-wrap items-center gap-2">
-          <StatusButton onClick={() => advance('completed')} disabled={disabled}>
+          <StatusButton onClick={markComplete} disabled={disabled}>
             Mark as Complete
           </StatusButton>
           <StatusButton

@@ -1,20 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useForm, type UseFormReturn } from 'react-hook-form'
+import { type UseFormReturn } from 'react-hook-form'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import OrderFormFields from './OrderFormFields'
-import {
-  detailToFormValues,
-  firstUnitPriceCouplingError,
-  formValuesToCreateInput,
-  formValuesToUpdateInput,
-  totalQuantity,
-  type OrderFormValues,
-} from './orderFormSchema'
-import { createOrder, updateOrder } from '@/lib/actions/orders'
-import { useToast } from '@/lib/hooks/useToast'
+import { type OrderFormValues } from './orderFormSchema'
+import { useOrderForm } from './useOrderForm'
 import type { OrderDetail } from '@/db/queries/orders'
 import type { CustomerSelectOption } from '@/db/queries/customers'
 
@@ -124,63 +115,15 @@ export default function OrderForm({
   onSaved,
 }: OrderFormProps) {
   const shouldReduceMotion = useReducedMotion()
-  const { toast } = useToast()
-  const [serverError, setServerError] = useState<string | null>(null)
-  const [qtyError, setQtyError] = useState<string | null>(null)
-  const isEdit = mode === 'edit' && Boolean(initialDetail)
-  const orderId = initialDetail?.id ?? null
-  const title = isEdit ? `Edit ${initialDetail?.po_number}` : 'New Order'
-
-  const form = useForm<OrderFormValues>({
-    defaultValues: detailToFormValues(initialDetail, lockedCustomerId),
-    mode: 'onSubmit',
+  const { form, onSubmit, serverError, qtyError, isEdit } = useOrderForm({
+    mode,
+    initialDetail,
+    customers,
+    lockedCustomerId,
+    productionDate,
+    onSaved,
   })
-
-  // Auto-fill the delivery address from the selected customer's
-  // `default_delivery_address`. Create mode only — edit mode keeps the
-  // per-order address that was captured at order creation. Fires on initial
-  // mount (covers locked-customer deep links) and whenever the user changes
-  // the customer dropdown.
-  const watchedCustomerId = form.watch('customer_id')
-  useEffect(() => {
-    if (mode !== 'create') return
-    if (!watchedCustomerId) return
-    const picked = customers.find((c) => c.id === watchedCustomerId)
-    if (!picked) return
-    form.setValue('delivery_address', picked.default_delivery_address ?? '')
-  }, [watchedCustomerId, mode, customers, form])
-
-  async function onSubmit(values: OrderFormValues) {
-    setServerError(null)
-    setQtyError(null)
-    // Client-side mirror of the server's `requireAtLeastOneQty` superRefine
-    // (lib/actions/orders.validation.ts). Tracked as separate state because
-    // the qty fields are bridged through setValue/watch (controlled by
-    // QtyGrid) — react-hook-form's setError doesn't reliably trigger a
-    // re-render of subscribers for these programmatically-managed fields.
-    if (totalQuantity(values) <= 0) {
-      setQtyError('At least one quantity is required.')
-      return
-    }
-    // Client-side mirror of the server's `requireUnitPriceCoupling` (PRD
-    // Feature 10 AC: must also fail client-side). Surfaced through the same
-    // `qtyError` channel because the unit-price inputs live inside the grid and
-    // are bridged via setValue/watch, so RHF's setError is unreliable here.
-    const couplingError = firstUnitPriceCouplingError(values)
-    if (couplingError) {
-      setQtyError(couplingError)
-      return
-    }
-    const result = isEdit && orderId
-      ? await updateOrder(orderId, formValuesToUpdateInput(values))
-      : await createOrder(formValuesToCreateInput(values, productionDate))
-    if ('error' in result) {
-      setServerError(result.error)
-      return
-    }
-    toast(isEdit ? 'Order updated.' : 'Order created.', 'success')
-    onSaved()
-  }
+  const title = isEdit ? `Edit ${initialDetail?.po_number}` : 'New Order'
 
   return (
     <motion.form

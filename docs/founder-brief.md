@@ -246,3 +246,19 @@ Going back would mean reintroducing derived positions, and with them both the dr
 **What this closes off:** The calendar is now a second writer to the order lifecycle, so any future status rule has two screens to satisfy, not one. Every write that can move, hide or restyle a card must revalidate three routes — a fourth surface would make that a real coupling problem worth solving properly. And the "calendar is a read-only view" simplification is gone for good: it is now a full participant in the order lifecycle, minus the fields it deliberately refuses.
 
 **Related:** supersedes the read-only clause of CONSTRAINT-19 (revised the same day). Independent of FB-14, which replaces the touch *interaction*; this changes what the popup can *do*.
+
+---
+
+## FB-16 — The First Code Review Hardened How the Orders Screen Fails
+
+**Date:** 2026-07-27
+**Architecture reference:** `docs/architecture.md` → API Structure (revalidation note), Database Layer (`auth.guard.ts`, `errors.ts`)
+**Tasks:** none — `@code-review` targeted-fix pass over the Features 11–13 range
+
+**Decided:** The project's first formal code review found the new calendar code solid, but the older Orders screens it calls into were missing the same safety net. Four things changed: (1) if the connection drops mid-action, the Cancel/Revert confirmation boxes now say "Something went wrong. Please try again." and stay dismissible, instead of freezing until a page reload; (2) the order-revert action — the one that can delete an invoice — now has its own test suite (it previously had none); (3) editing an order now refreshes the calendar and dashboard too, so an Orders-tab edit can no longer leave a stale card on another screen; (4) the sign-in check is now one shared piece of code instead of three drifting copies, so a Supabase outage reads as "something went wrong" rather than the misleading "you are not signed in."
+
+**Means for your product:** Nothing looks different. What changed is how it fails: on a warehouse iPad with flaky wifi, a failed tap now tells you it failed and lets you retry, instead of silently wedging a dialog.
+
+**Check before approving:** (a) A connection failure mid-cancel keeps the dialog open with an error so you can retry — right call, versus closing it? (b) Orders-tab edits now refresh three screens; this is cheap (a cache tag flush, not a re-render storm) and free-tier safe.
+
+**What this closes off:** Nothing. Pure hardening — no behavior removed, no dependency added. Known leftovers, deliberately deferred and logged: the same shared sign-in check should eventually replace the private copies still living in the invoices, customers, leads and support actions.

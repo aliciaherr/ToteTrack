@@ -468,7 +468,11 @@ describe('createOrder', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const result = await createOrder(VALID_CREATE)
     expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
-    expect(consoleSpy).toHaveBeenCalled()
+    // The log names the failing inputs (EH-02) — po_number is not sensitive.
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'createOrder: insert failed',
+      expect.objectContaining({ poNumber: 'PO-9001', customerId: CUSTOMER_ID }),
+    )
     consoleSpy.mockRestore()
   })
 })
@@ -651,6 +655,20 @@ describe('updateOrder', () => {
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ qty_275_rebot: 12, price: '300.00' })
   })
+
+  it('revalidates the orders list, the calendar and the dashboard on edit', async () => {
+    // An edit can change backhaul, the delivery date, or the quantity mix —
+    // all drawn on the calendar card and the dashboard production widget.
+    // Before this pinning test the action revalidated only /orders, leaving
+    // stale cards on the other two surfaces until a hard reload.
+    stubSelectCurrent(buildCurrentSnapshot())
+    stubUpdateResolves()
+    const result = await updateOrder(ORDER_ID, VALID_UPDATE)
+    expect(result).toEqual({ success: true })
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/orders')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/calendar')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/dashboard')
+  })
 })
 
 describe('updateOrderStatus', () => {
@@ -661,7 +679,11 @@ describe('updateOrderStatus', () => {
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ status: 'completed' })
     expect(lastUpdateSet).toHaveProperty('updated_at')
+    // All three surfaces draw the row — a completed card dims on the calendar
+    // and in the dashboard widget, not just in the orders list.
     expect(mockRevalidatePath).toHaveBeenCalledWith('/orders')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/calendar')
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/dashboard')
   })
 
   it('advances scheduled → cancelled on a valid transition', async () => {

@@ -2,41 +2,14 @@
 
 import { format, parseISO } from 'date-fns'
 import BackhaulTag from '@/components/shared/BackhaulTag'
+import SameDayTag from '@/components/shared/SameDayTag'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
-import type { PoStatus } from '@/db/queries/orders'
+import {
+  ACTIVE_SURFACE_CLASS,
+  BUILT_SURFACE_CLASS,
+  isBuiltStatus,
+} from './productionCardStatus'
 import { formatProductionMix } from './productionCardFormat'
-
-// Statuses whose cards are read-only on the calendar: the build already
-// happened, so the card is dimmed and exposes no drag affordance. Mirrors the
-// block list `setProductionPlacement` enforces server-side — a card that looks
-// draggable but is rejected on drop is worse than one that never lifts.
-const BUILT_STATUSES: readonly PoStatus[] = ['completed', 'invoiced']
-
-/**
- * True for orders whose build already happened. Exported so the drag wrapper
- * decides draggability from the same list the card dims on — two lists would
- * eventually disagree and produce a dimmed card that still lifts.
- */
-export function isBuiltStatus(status: PoStatus): boolean {
-  return BUILT_STATUSES.includes(status)
-}
-
-/**
- * The "already built" treatment, shared verbatim by the calendar card and the
- * dashboard production widget row so the two surfaces cannot drift apart.
- *
- * Two signals rather than one. The previous `opacity-60` alone was too subtle to
- * read as inactive at a glance, and fading further is not the fix: CONSTRAINT-19
- * ranks text legibility *above* card density, and a salesperson has to be able
- * to read a completed PO, not merely notice it. So the opacity drop stays modest
- * at 75% and the surface carries the signal — `bg-muted` (#E2E8F0) against the
- * active `bg-card` (#FFFFFF) is an obvious step down in a column of white cards,
- * while leaving the card's own text near full contrast.
- */
-export const BUILT_SURFACE_CLASS = 'bg-muted opacity-75'
-
-/** The active counterpart — the plain card surface, at full opacity. */
-export const ACTIVE_SURFACE_CLASS = 'bg-card'
 
 interface ProductionCardProps {
   row: CalendarOrderRow
@@ -48,24 +21,6 @@ interface ProductionCardProps {
    * motion, so the armed state is never signalled by movement only.
    */
   isArmed?: boolean
-}
-
-/**
- * Compact amber `SD` tag flagging a same-day delivery. Mirrors `BackhaulTag`'s
- * weight and height so the two sit level when a PO carries both; `rounded-md`
- * rather than `rounded-full` because two characters in a circle reads as a
- * squashed pill. Render conditionally at the call site.
- */
-export function SameDayTag() {
-  return (
-    <span
-      aria-label="Same-day delivery"
-      title="Same-day delivery"
-      className="inline-flex items-center justify-center rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold px-1 h-5 leading-none select-none"
-    >
-      SD
-    </span>
-  )
 }
 
 function formatDeliveryDate(isoDate: string | null): string {

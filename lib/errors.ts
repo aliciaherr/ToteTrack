@@ -1,4 +1,15 @@
 /**
+ * User-facing fallback for any failure that is not a validation, auth, or
+ * business-rule rejection — including a server action that rejects in transit
+ * before any server code runs (offline, stale action id after a deploy). The
+ * detailed cause is logged via `console.error` and never surfaced to the user
+ * (SEC-05, EH-04). Lives here rather than in `lib/actions/auth.guard.ts`
+ * (which re-exports it) because that module imports the server-only Supabase
+ * client and client components cannot reach it.
+ */
+export const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
+
+/**
  * Thrown when a database query fails. Wraps the underlying driver error so
  * callers can match `instanceof DatabaseError` without parsing message strings.
  */
