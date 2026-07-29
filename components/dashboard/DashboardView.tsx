@@ -149,13 +149,13 @@ export default function DashboardView({
       <InvoiceChart data={invoiceTrend} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <NeedToContactWidget rows={needToContact} />
-        <OpenOrdersWidget rows={openOrders} />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ProductionWidget
           groups={production.groups}
           unscheduledCount={production.unscheduledCount}
         />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <OpenOrdersWidget rows={openOrders} />
         <LeadsFollowUpWidget rows={leadsFollowUp} />
       </div>
       <QuickAddFab />
