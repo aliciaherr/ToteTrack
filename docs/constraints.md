@@ -313,6 +313,20 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ---
 
+### CONSTRAINT-20 — Dev and prod share one Supabase project (no sandbox exists)
+
+**Decision:** Confirmed by the builder 2026-07-28: local dev, the deployed production app, the seed/wipe scripts, and the admin auth user all point at the **same** Supabase project and database. There is no dev environment. Until a separate dev project (or local Supabase CLI stack) exists:
+
+- **Never run `npm run db:wipe` or `npm run db:seed`** — they destroy/pollute the user's production data.
+- **QA and automation must never execute write flows** (create/edit/cancel/convert/upload). Read-only and unauthenticated verification only. The 2026-07-28 QA run held this line: zero records written.
+- Any script or agent instruction that assumes a sandbox is wrong by default.
+
+**Who decided and when:** Builder confirmation, 2026-07-28, mid-QA (halted the logged-in browser phase). Dev-sandbox setup (local Supabase CLI stack recommended) deferred by the builder.
+
+**What this closes off:** Automated QA of write flows, safe seeding, and destructive testing of any kind — until a dev environment exists. Lifting this constraint = creating the separate environment and repointing `.env.local`, the scripts, and `docs/testing-setup.md` at it.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -336,3 +350,4 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 | 17 | Invoice v3: one per month, no status, no customer, overwrite via modal | Drops `customer_id` + `status` columns; chronological ledger | Builder | 2026-04-22 |
 | 18 | PO multi-combo wide-row schema + atomic completion + edit lock | Drops `container_size`/`container_type`/`quantity`; adds 6 qty cols; total `price` user-entered (no per-unit pricing); invoiced/cancelled blocks qty/price edits | Builder | 2026-04-24 |
 | 19 | Production date separate from delivery promise | Adds `production_date`/`same_day_delivery`/`production_sort_index`; calendar never writes `requested_delivery_date`; weekends-only business-day math, no holidays; calendar popup read-only; page never scrolls, card scales to keep 4 visible; `@dnd-kit` added under CONSTRAINT-03 | Builder | 2026-07-26 |
+| 20 | Dev and prod share one Supabase project | Never run `db:wipe`/`db:seed`; no automated write-flow testing until a dev environment exists | Builder | 2026-07-28 |
