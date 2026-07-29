@@ -1,6 +1,6 @@
 'use server'
 
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '@/db'
@@ -34,27 +34,6 @@ function revalidateAddressPaths(): void {
   for (const path of ADDRESS_REVALIDATE_PATHS) revalidatePath(path)
 }
 
-// Dedupe lookup: exact match on the trimmed address text, scoped to the
-// customer. Plain SQL `=` equality (case- and whitespace-sensitive) — "123
-// Main St" and "123 main st" are intentionally distinct rows; only a
-// character-for-character duplicate is collapsed.
-async function findExistingAddressId(
-  customerId: string,
-  addressText: string,
-): Promise<string | null> {
-  const [row] = await db
-    .select({ id: customerAddresses.id })
-    .from(customerAddresses)
-    .where(
-      and(
-        eq(customerAddresses.customer_id, customerId),
-        eq(customerAddresses.address, addressText),
-      ),
-    )
-    .limit(1)
-  return row ? row.id : null
-}
-
 /**
  * Saves a delivery address to a customer's address book. Dedupe: when the
  * customer already has a row whose text exactly equals the trimmed input,
@@ -62,6 +41,13 @@ async function findExistingAddressId(
  * no duplicate row is inserted. Otherwise inserts the trimmed address with
  * `last_used_at` left NULL; it is only set when the address is used on an
  * order (Task 72).
+ *
+ * Dedupe is a single atomic upsert against the unique
+ * `(customer_id, address)` index (migration 0013, audit L-03) — no
+ * check-then-insert race. Plain SQL `=` equality (case- and
+ * whitespace-sensitive): "123 Main St" and "123 main st" are intentionally
+ * distinct rows. `onConflictDoUpdate`'s `set` applies only on conflict, so a
+ * brand-new row still gets `last_used_at` NULL.
  * @param customer_id UUID of the owning customer.
  * @param address Free-text delivery address; stored trimmed.
  */
@@ -78,19 +64,14 @@ export async function addCustomerAddress(
     const parsed = addressSchema.safeParse(address)
     if (!parsed.success) return { error: firstZodMessage(parsed.error) }
 
-    const existingId = await findExistingAddressId(customer_id, parsed.data)
-    if (existingId) {
-      await db
-        .update(customerAddresses)
-        .set({ last_used_at: new Date() })
-        .where(eq(customerAddresses.id, existingId))
-      revalidateAddressPaths()
-      return { id: existingId }
-    }
-
+    const now = new Date()
     const [row] = await db
       .insert(customerAddresses)
       .values({ customer_id, address: parsed.data })
+      .onConflictDoUpdate({
+        target: [customerAddresses.customer_id, customerAddresses.address],
+        set: { last_used_at: now, updated_at: now },
+      })
       .returning({ id: customerAddresses.id })
     revalidateAddressPaths()
     return { id: row.id }

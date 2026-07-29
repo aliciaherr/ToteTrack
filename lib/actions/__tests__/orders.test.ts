@@ -29,9 +29,11 @@ const ADDRESS_ID = '55555555-5555-5555-5555-555555555555'
 // be written to the orders table without running a real query.
 let lastInsertValues: Record<string, unknown> | null = null
 let lastUpdateSet: Record<string, unknown> | null = null
-// Separate capture for the customer_addresses insert (Feature 14) so the
-// order-row assertion above is never clobbered by the second insert.
+// Separate capture for the customer_addresses upsert (Feature 14) so the
+// order-row assertion above is never clobbered by the second insert. The
+// conflict `set` is captured too — it is what bumps a duplicate (L-03).
 let lastAddressInsertValues: Record<string, unknown> | null = null
+let lastAddressConflictSet: Record<string, unknown> | null = null
 
 function stubInsertReturning(id: string) {
   lastInsertValues = null
@@ -190,8 +192,9 @@ function stubSelectRejects(cause: unknown) {
   })
 }
 
-// Feature 14 stubs: the `customer_addresses` lookup (ownership check before
-// the order insert, or the dedupe probe after it) and the address insert.
+// Feature 14 stubs: the `customer_addresses` ownership lookup (before the
+// order insert) and the dedupe upsert after it —
+// insert(...).values(...).onConflictDoUpdate(...) awaited with no returning().
 function stubSelectAddressRow(row: { id: string } | null) {
   mockSelect.mockReturnValueOnce({
     from: () => ({
@@ -202,12 +205,26 @@ function stubSelectAddressRow(row: { id: string } | null) {
   })
 }
 
-function stubAddressInsert() {
+function stubAddressUpsert() {
   mockInsert.mockReturnValueOnce({
     values: (payload: Record<string, unknown>) => {
       lastAddressInsertValues = payload
       return {
-        returning: () => Promise.resolve([{ id: ADDRESS_ID }]),
+        onConflictDoUpdate: (config: { set: Record<string, unknown> }) => {
+          lastAddressConflictSet = config.set
+          return Promise.resolve(undefined)
+        },
+      }
+    },
+  })
+}
+
+function stubAddressUpsertRejects(cause: unknown) {
+  mockInsert.mockReturnValueOnce({
+    values: (payload: Record<string, unknown>) => {
+      lastAddressInsertValues = payload
+      return {
+        onConflictDoUpdate: () => Promise.reject(cause),
       }
     },
   })
@@ -219,17 +236,23 @@ beforeEach(() => {
   lastInsertValues = null
   lastUpdateSet = null
   lastAddressInsertValues = null
+  lastAddressConflictSet = null
   // Default DB behavior for the Feature 14 address bookkeeping that runs
   // after every non-pickup order insert: lookups find nothing, writes
-  // resolve. Tests asserting address behavior stack ...Once stubs on top;
-  // pre-Feature-14 tests just fall through to these without noise.
+  // resolve (both the plain .returning() chain and the upsert's
+  // .onConflictDoUpdate() chain). Tests asserting address behavior stack
+  // ...Once stubs on top; pre-Feature-14 tests just fall through to these
+  // without noise.
   mockSelect.mockImplementation(() => ({
     from: () => ({
       where: () => ({ limit: () => Promise.resolve([]) }),
     }),
   }))
   mockInsert.mockImplementation(() => ({
-    values: () => ({ returning: () => Promise.resolve([{ id: ADDRESS_ID }]) }),
+    values: () => ({
+      returning: () => Promise.resolve([{ id: ADDRESS_ID }]),
+      onConflictDoUpdate: () => Promise.resolve(undefined),
+    }),
   }))
   mockUpdate.mockImplementation(() => ({
     set: () => ({ where: () => Promise.resolve(undefined) }),
@@ -557,8 +580,7 @@ describe('createOrder', () => {
 
   it('inserts a new customer address when no id and the text is non-blank', async () => {
     stubInsertReturning(ORDER_ID) // order row
-    stubSelectAddressRow(null) // dedupe probe finds no exact-text match
-    stubAddressInsert() // customer_addresses row
+    stubAddressUpsert() // customer_addresses upsert (no probe — L-03)
     const result = await createOrder(VALID_CREATE)
     expect(result).toEqual({ id: ORDER_ID })
     expect(lastAddressInsertValues).toMatchObject({
@@ -571,15 +593,16 @@ describe('createOrder', () => {
   })
 
   it('dedupes an exact-text match instead of inserting', async () => {
+    // One atomic upsert (L-03): a duplicate conflicts with the unique
+    // (customer_id, address) index and is bumped in place — never re-added,
+    // and never a separate probe/update round trip.
     stubInsertReturning(ORDER_ID) // order row
-    stubSelectAddressRow({ id: ADDRESS_ID }) // dedupe probe hits
-    stubUpdateResolves()
+    stubAddressUpsert() // customer_addresses upsert
     const result = await createOrder(VALID_CREATE)
     expect(result).toEqual({ id: ORDER_ID })
-    // The match is bumped, never re-inserted: one insert total (the order row).
-    expect(mockInsert).toHaveBeenCalledTimes(1)
-    expect(lastAddressInsertValues).toBeNull()
-    expect(lastUpdateSet).toMatchObject({ last_used_at: expect.any(Date) })
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(lastAddressConflictSet).toMatchObject({ last_used_at: expect.any(Date) })
   })
 
   it('writes nothing to the address book when the order is pickup-only', async () => {
@@ -602,7 +625,7 @@ describe('createOrder', () => {
     // The PO row is already committed; reporting an error would push the
     // salesperson into a duplicate-PO retry. The failure logs loudly instead.
     stubInsertReturning(ORDER_ID)
-    stubSelectRejects(new Error('connection terminated')) // dedupe probe blows up
+    stubAddressUpsertRejects(new Error('connection terminated')) // upsert blows up
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const result = await createOrder(VALID_CREATE)
     expect(result).toEqual({ id: ORDER_ID })

@@ -56,10 +56,32 @@ describe('signIn', () => {
 
 describe('signOut', () => {
   it('signs out and redirects to /login', async () => {
-    mockSignOut.mockResolvedValueOnce({})
+    mockSignOut.mockResolvedValueOnce({ error: null })
     await signOut()
     expect(mockSignOut).toHaveBeenCalled()
     expect(redirect).toHaveBeenCalledWith('/login')
+  })
+
+  it('returns generic failure when signOut resolves with { error } (L-02)', async () => {
+    // supabase-js v2 resolves with { error } on an auth-service failure —
+    // it does not throw. The action must surface it, not redirect.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSignOut.mockResolvedValueOnce({
+      error: { message: 'signout failed', status: 500 },
+    })
+
+    const result = await signOut()
+
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(redirect).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      'signOut: auth service failure',
+      expect.objectContaining({
+        operation: 'supabase.auth.signOut',
+        cause: expect.objectContaining({ message: 'signout failed' }),
+      }),
+    )
+    consoleError.mockRestore()
   })
 
   it('returns generic failure when auth service throws', async () => {

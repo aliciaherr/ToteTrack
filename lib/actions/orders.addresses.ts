@@ -48,9 +48,12 @@ export async function addressBelongsToCustomer(
  * MRU bookkeeping after a successful order insert (Feature 14):
  * - saved address picked (`delivery_address_id` present) → bump its
  *   `last_used_at` to now
- * - fresh text, no id → exact-trimmed-text dedupe scoped to the customer
- *   (same plain SQL `=` rule as `addCustomerAddress`, Task 71): a match is
- *   bumped, otherwise a new row is inserted with `last_used_at = now()`
+ * - fresh text, no id → single atomic upsert against the unique
+ *   `(customer_id, address)` index (migration 0013, audit L-03; same plain
+ *   SQL `=` dedupe rule as `addCustomerAddress`, Task 71): a new row is
+ *   inserted with `last_used_at = now()`, an exact-text match gets its
+ *   `last_used_at` bumped instead — usage always bumps, so `last_used_at`
+ *   is set on both sides of the conflict
  * - pickup-only or blank address → no writes at all
  *
  * Returns true when the address book was written, so the caller can
@@ -77,26 +80,14 @@ export async function recordDeliveryAddressUsage(
     const text = nullIfBlank(usage.delivery_address)
     if (text === null) return false
 
-    const [existing] = await db
-      .select({ id: customerAddresses.id })
-      .from(customerAddresses)
-      .where(
-        and(
-          eq(customerAddresses.customer_id, usage.customer_id),
-          eq(customerAddresses.address, text),
-        ),
-      )
-      .limit(1)
-    if (existing) {
-      await db
-        .update(customerAddresses)
-        .set({ last_used_at: new Date() })
-        .where(eq(customerAddresses.id, existing.id))
-    } else {
-      await db
-        .insert(customerAddresses)
-        .values({ customer_id: usage.customer_id, address: text, last_used_at: new Date() })
-    }
+    const now = new Date()
+    await db
+      .insert(customerAddresses)
+      .values({ customer_id: usage.customer_id, address: text, last_used_at: now })
+      .onConflictDoUpdate({
+        target: [customerAddresses.customer_id, customerAddresses.address],
+        set: { last_used_at: now, updated_at: now },
+      })
     return true
   } catch (cause) {
     console.error('createOrder: address bookkeeping failed', {

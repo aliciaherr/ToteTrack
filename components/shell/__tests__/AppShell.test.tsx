@@ -36,6 +36,12 @@ vi.mock('@/lib/actions/auth', () => ({
   signOut: vi.fn(),
 }))
 
+// NavDrawer's SignOutRow calls useToast, which throws outside a
+// <ToastProvider>; the shell tests don't exercise toasts, so stub the hook.
+vi.mock('@/lib/hooks/useToast', () => ({
+  useToast: () => ({ toast: vi.fn() }),
+}))
+
 describe('AppShell', () => {
   it('mounts PillHamburger (not TopBar)', () => {
     render(<AppShell><div>child</div></AppShell>)

@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, integer, boolean, timestamp, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, integer, boolean, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import { customerStatusEnum } from './enums'
 
 export const customers = pgTable('customers', {
@@ -35,4 +35,7 @@ export const customerAddresses = pgTable('customer_addresses', {
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('customer_addresses_customer_id_idx').on(t.customer_id),
+  // Mirrors migration 0013 (audit L-03): dedupe is DB-enforced, and the
+  // upsert in addCustomerAddress / recordDeliveryAddressUsage targets it.
+  uniqueIndex('customer_addresses_customer_id_address_uq').on(t.customer_id, t.address),
 ])

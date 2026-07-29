@@ -29,39 +29,27 @@ const ADDRESS_ID = '44444444-4444-4444-4444-444444444444'
 // Keep in sync with ADDRESS_REVALIDATE_PATHS in customer-addresses.ts.
 const EXPECTED_PATHS = ['/customers', '/orders', '/calendar'] as const
 
-// Dedupe lookup: db.select({id}).from(...).where(...).limit(1)
-function stubDedupeLookup(row: { id: string } | undefined) {
-  mockSelect.mockReturnValueOnce({
-    from: () => ({
-      where: () => ({
-        limit: () => Promise.resolve(row ? [row] : []),
-      }),
-    }),
-  })
-}
-
 // Captures the last `.values(...)` / `.set(...)` payloads so tests can assert
-// what would be written without running a real query.
+// what would be written without running a real query. The upsert's conflict
+// `set` is captured separately — it only applies on a duplicate (L-03).
 let lastInsertValues: Record<string, unknown> | null = null
 let lastUpdateSet: Record<string, unknown> | null = null
+let lastConflictSet: Record<string, unknown> | null = null
 
-function stubInsertReturning(id: string) {
+// addCustomerAddress: insert(...).values(...).onConflictDoUpdate(...).returning()
+// — a single atomic upsert against the (customer_id, address) unique index.
+function stubUpsertReturning(id: string) {
   lastInsertValues = null
+  lastConflictSet = null
   mockInsert.mockReturnValueOnce({
     values: (payload: Record<string, unknown>) => {
       lastInsertValues = payload
-      return { returning: () => Promise.resolve([{ id }]) }
-    },
-  })
-}
-
-// The dedupe branch awaits update(...).set(...).where(...) with no returning().
-function stubLastUsedBump() {
-  lastUpdateSet = null
-  mockUpdate.mockReturnValueOnce({
-    set: (payload: Record<string, unknown>) => {
-      lastUpdateSet = payload
-      return { where: () => Promise.resolve(undefined) }
+      return {
+        onConflictDoUpdate: (config: { set: Record<string, unknown> }) => {
+          lastConflictSet = config.set
+          return { returning: () => Promise.resolve([{ id }]) }
+        },
+      }
     },
   })
 }
@@ -97,10 +85,11 @@ beforeEach(() => {
 
 describe('addCustomerAddress', () => {
   it('inserts a new address (trimmed) and returns the new id', async () => {
-    stubDedupeLookup(undefined)
-    stubInsertReturning(ADDRESS_ID)
+    stubUpsertReturning(ADDRESS_ID)
     const result = await addCustomerAddress(CUSTOMER_ID, '  123 Main St, Dover, OH  ')
     expect(result).toEqual({ id: ADDRESS_ID })
+    // Fresh insert leaves last_used_at NULL — it is not in the values payload;
+    // the conflict `set` only applies when a duplicate already exists.
     expect(lastInsertValues).toEqual({
       customer_id: CUSTOMER_ID,
       address: '123 Main St, Dover, OH',
@@ -109,12 +98,19 @@ describe('addCustomerAddress', () => {
   })
 
   it('bumps last_used_at and returns the existing id on an exact-text duplicate', async () => {
-    stubDedupeLookup({ id: ADDRESS_ID })
-    stubLastUsedBump()
+    // The upsert is one statement: on conflict with the (customer_id, address)
+    // unique index (migration 0013) the existing row is bumped and its id
+    // returned — no duplicate row, no separate probe/update round trips.
+    stubUpsertReturning(ADDRESS_ID)
     const result = await addCustomerAddress(CUSTOMER_ID, '123 Main St, Dover, OH')
     expect(result).toEqual({ id: ADDRESS_ID })
-    expect(mockInsert).not.toHaveBeenCalled()
-    expect(lastUpdateSet).toEqual({ last_used_at: expect.any(Date) })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockInsert).toHaveBeenCalledTimes(1)
+    expect(lastConflictSet).toEqual({
+      last_used_at: expect.any(Date),
+      updated_at: expect.any(Date),
+    })
     expectRevalidatedAll()
   })
 
@@ -122,14 +118,13 @@ describe('addCustomerAddress', () => {
     mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null })
     const result = await addCustomerAddress(CUSTOMER_ID, '123 Main St')
     expect(result).toEqual({ error: 'You are not signed in.' })
-    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 
   it('rejects a whitespace-only address before touching the database', async () => {
     const result = await addCustomerAddress(CUSTOMER_ID, '   ')
     expect(result).toEqual({ error: 'Address is required.' })
-    expect(mockSelect).not.toHaveBeenCalled()
     expect(mockInsert).not.toHaveBeenCalled()
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
@@ -137,7 +132,7 @@ describe('addCustomerAddress', () => {
   it('rejects a malformed customer id before touching the database', async () => {
     const result = await addCustomerAddress('not-a-uuid', '123 Main St')
     expect(result).toEqual({ error: 'Invalid customer id.' })
-    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 })

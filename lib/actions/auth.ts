@@ -54,19 +54,33 @@ export async function signIn(password: string): Promise<{ error: string | null }
 /**
  * Signs out the current session and redirects to /login.
  *
- * The auth call is wrapped so a thrown/rejected `supabase.auth.signOut()`
- * (network failure, service down) never escapes as an unhandled rejection —
- * it is logged with its cause and surfaced as `{ error }` instead. The
- * `redirect()` stays outside the `try` so its `NEXT_REDIRECT` throw is not
- * swallowed by the catch.
+ * Two failure surfaces, both logged with context and returned as `{ error }`
+ * (audit L-02 — a failed sign-out must reach the user, never silently
+ * redirect):
+ * - supabase-js v2 `auth.signOut()` RESOLVES with `{ error }` on an
+ *   auth-service failure rather than throwing — the resolved error is
+ *   captured and checked before redirecting.
+ * - A thrown/rejected call (network failure, service down) is caught so it
+ *   never escapes as an unhandled rejection.
+ * The `redirect()` stays outside the `try` so its `NEXT_REDIRECT` throw is
+ * not swallowed by the catch, and only runs when there was no error.
  * @returns Nothing on success (followed by redirect to /login). `{ error: string }` on an auth-service failure — user-facing message.
  */
 export async function signOut(): Promise<{ error: string } | void> {
+  let signOutError: AuthError | null = null
   try {
     const supabase = createClient()
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+    signOutError = error
   } catch (cause) {
     console.error('signOut: auth service failure', { operation: 'supabase.auth.signOut', cause })
+    return { error: GENERIC_FAILURE_MESSAGE }
+  }
+  if (signOutError) {
+    console.error('signOut: auth service failure', {
+      operation: 'supabase.auth.signOut',
+      cause: signOutError,
+    })
     return { error: GENERIC_FAILURE_MESSAGE }
   }
   redirect('/login')

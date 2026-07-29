@@ -1,11 +1,16 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import NavDrawer from '../NavDrawer'
 
 const mockUsePathname = vi.hoisted(() => vi.fn().mockReturnValue('/dashboard'))
+const mockToast = vi.hoisted(() => vi.fn())
 
 vi.mock('next/navigation', () => ({
   usePathname: mockUsePathname,
+}))
+
+vi.mock('@/lib/hooks/useToast', () => ({
+  useToast: () => ({ toast: mockToast }),
 }))
 
 vi.mock('next/link', () => ({
@@ -34,8 +39,10 @@ vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
 }))
 
+const mockSignOut = vi.hoisted(() => vi.fn())
+
 vi.mock('@/lib/actions/auth', () => ({
-  signOut: vi.fn(),
+  signOut: mockSignOut,
 }))
 
 const EXPECTED_NAV_ORDER = [
@@ -49,7 +56,11 @@ const EXPECTED_NAV_ORDER = [
 ]
 
 beforeEach(() => {
+  vi.clearAllMocks()
   mockUsePathname.mockReturnValue('/dashboard')
+  // Happy path: signOut resolves void (the server action redirects; the
+  // client never sees a return value on success).
+  mockSignOut.mockResolvedValue(undefined)
 })
 
 describe('NavDrawer', () => {
@@ -115,13 +126,50 @@ describe('NavDrawer', () => {
     expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
   })
 
-  it('Sign Out is a submit button wired to the signOut server action via form', () => {
+  it('clicking Sign Out calls the signOut server action and shows no toast on success', async () => {
     render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
 
-    const signOutButton = screen.getByRole('button', { name: /sign out/i })
-    expect(signOutButton).toHaveAttribute('type', 'submit')
-    // Server-action forms attach the action at runtime; verifying the button is a form submit
-    // target (has a parent <form>) is the meaningful check here.
-    expect(signOutButton.closest('form')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
+
+    await waitFor(() => expect(mockSignOut).toHaveBeenCalledOnce())
+    expect(mockToast).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a { error } sign-out result as an error toast (L-02)', async () => {
+    mockSignOut.mockResolvedValueOnce({
+      error: 'Something went wrong. Please try again.',
+    })
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        'Something went wrong. Please try again.',
+        'error',
+      ),
+    )
+    // No client-side navigation happened — the drawer is still rendered.
+    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
+  })
+
+  it('surfaces a transport-level sign-out rejection as an error toast and logs context', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSignOut.mockRejectedValueOnce(new Error('offline'))
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        'Something went wrong. Please try again.',
+        'error',
+      ),
+    )
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'NavDrawer: sign-out failed',
+      expect.objectContaining({ cause: expect.any(Error) }),
+    )
+    consoleSpy.mockRestore()
   })
 })

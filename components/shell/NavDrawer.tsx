@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -15,6 +15,8 @@ import {
   LogOut,
 } from 'lucide-react'
 import { signOut } from '@/lib/actions/auth'
+import { useToast } from '@/lib/hooks/useToast'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 
 const DRAWER_WIDTH = 280 // px — must match the w-[280px] class on the panel
 
@@ -77,23 +79,42 @@ function NavItemList({ pathname, onClose }: { pathname: string; onClose: () => v
 }
 
 function SignOutRow() {
-  // `signOut` returns `{ error }` on an auth-service failure (Task 69), which
-  // React 18's form-action type does not accept — the wrapper discards the
-  // return value. The failure is already logged server-side with context.
+  const { toast } = useToast()
+  const [isSigningOut, setIsSigningOut] = useState(false)
+
+  // `signOut` returns `{ error }` on an auth-service failure instead of
+  // redirecting (audit L-02) — a plain form action would discard it, so the
+  // click handler awaits the action and toasts the error (same shape as
+  // `useCustomerAddresses`/`useStatusActions`). A transport-level rejection
+  // (offline, stale action id after a deploy) is logged with context and
+  // surfaced as the generic failure message — never swallowed (EH-01). On
+  // success the server action redirects to /login, so no client navigation
+  // happens here.
   const handleSignOut = async () => {
-    await signOut()
+    setIsSigningOut(true)
+    try {
+      const result = await signOut()
+      if (result?.error) toast(result.error, 'error')
+    } catch (cause) {
+      console.error('NavDrawer: sign-out failed', { cause })
+      toast(GENERIC_FAILURE_MESSAGE, 'error')
+    } finally {
+      setIsSigningOut(false)
+    }
   }
 
   return (
-    <form action={handleSignOut} className="border-t border-border shrink-0">
+    <div className="border-t border-border shrink-0">
       <button
-        type="submit"
-        className="flex items-center gap-3 w-full py-3 px-4 min-h-[44px] text-sm text-secondary hover:bg-muted transition-colors"
+        type="button"
+        onClick={handleSignOut}
+        disabled={isSigningOut}
+        className="flex items-center gap-3 w-full py-3 px-4 min-h-[44px] text-sm text-secondary hover:bg-muted transition-colors disabled:opacity-50"
       >
         <LogOut className="h-5 w-5 shrink-0" />
         Sign Out
       </button>
-    </form>
+    </div>
   )
 }
 
