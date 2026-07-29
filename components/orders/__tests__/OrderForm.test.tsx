@@ -171,6 +171,29 @@ describe('OrderForm', () => {
     expect(screen.queryByLabelText(/^Customer$/i)).toBeNull()
   })
 
+  it('renders the delivery address picker directly below the customer field', () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customers}
+        lockedCustomerId={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    // Builder-requested layout: customer → address, as one motion. The picker
+    // sits after the customer dropdown and before the quantity grid.
+    const customerField = screen.getByLabelText(/^Customer$/i)
+    const addressField = screen.getByLabelText(/^Delivery Address$/i)
+    const firstQtyCell = screen.getByLabelText(/275 gal Rebottled quantity/i)
+    expect(
+      customerField.compareDocumentPosition(addressField) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      addressField.compareDocumentPosition(firstQtyCell) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   it('hides the delivery address field when pickup_only is toggled on', () => {
     render(
       <OrderForm

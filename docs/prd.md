@@ -828,11 +828,12 @@ As the salesperson, I want each customer's addresses saved and selectable so I p
 - Dedupe: submitting an address text that exactly matches an existing saved row for that customer bumps that row instead of inserting a duplicate.
 
 ### Acceptance Criteria
-- [ ] Picking a customer with saved addresses pre-selects the MRU address — no typing needed
-- [ ] "+ Add new address" on the order form persists the address to the customer and uses it for the order
-- [ ] Customer detail panel lists addresses with working add/edit/delete
-- [ ] Editing/deleting a saved address leaves past orders' `delivery_address` untouched
-- [ ] `default_delivery_address` no longer rendered or written anywhere in app code
+- [x] Picking a customer with saved addresses pre-selects the MRU address — no typing needed
+- [x] "+ Add new address" on the order form persists the address to the customer and uses it for the order
+- [x] Customer detail panel lists addresses with working add/edit/delete
+- [x] Editing/deleting a saved address leaves past orders' `delivery_address` untouched
+- [x] `default_delivery_address` no longer rendered or written anywhere in app code
+- [x] **Browser-verified on the iPad** — confirmed by the builder 2026-07-28
 
 ### Edge Cases
 - **Customer with zero saved addresses** → dropdown shows only "+ Add new address".

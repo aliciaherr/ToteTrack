@@ -11,6 +11,7 @@ import {
   type OrderFormValues,
 } from './orderFormSchema'
 import type { CustomerSelectOption } from '@/db/queries/customers'
+import AddressSelect from './AddressSelect'
 import OrderContainerFields from './OrderContainerFields'
 import OrderLogisticsFields from './OrderLogisticsFields'
 
@@ -93,12 +94,13 @@ function CustomerDropdown({
 }
 
 /**
- * Top-half fields for the order form: PO#, customer, container size + type,
- * quantity, price, requested delivery date, initial status (create only).
- * Container + quantity + price grids live in `OrderContainerFields`;
- * logistics fields (pickup-only, address, backhaul, notes) live in
- * `OrderLogisticsFields`. Splitting keeps each file under CONSTRAINT-14's
- * 80-line JSX cap.
+ * Top-half fields for the order form: PO#, customer, delivery address picker
+ * (directly below the customer so picking a customer and its address is one
+ * motion — builder-requested after iPad verification), container size + type,
+ * quantity, price, requested delivery date. Container + quantity + price
+ * grids live in `OrderContainerFields`; remaining logistics fields
+ * (pickup-only, backhaul, notes) live in `OrderLogisticsFields`. Splitting
+ * keeps each file under CONSTRAINT-14's 80-line JSX cap.
  */
 export default function OrderFormFields({
   mode,
@@ -115,6 +117,10 @@ export default function OrderFormFields({
   const watchedCustomerId = watch('customer_id')
   const selectedAddresses =
     customers.find((customer) => customer.id === watchedCustomerId)?.addresses ?? []
+  // Same conditional the old logistics-section placement had: pickup-only
+  // orders carry no address, so the picker unmounts entirely (values persist
+  // in form state, exactly as before).
+  const isPickup = watch('pickup_only')
   return (
     <>
       <FieldRow label="PO Number" htmlFor="po_number" error={errors.po_number?.message}>
@@ -132,6 +138,16 @@ export default function OrderFormFields({
         register={register}
         error={errors.customer_id?.message}
       />
+
+      {!isPickup && (
+        <AddressSelect
+          addresses={selectedAddresses}
+          register={register}
+          watch={watch}
+          setValue={setValue}
+          error={errors.delivery_address?.message}
+        />
+      )}
 
       <OrderContainerFields
         register={register}
@@ -154,13 +170,7 @@ export default function OrderFormFields({
         />
       </FieldRow>
 
-      <OrderLogisticsFields
-        register={register}
-        watch={watch}
-        setValue={setValue}
-        errors={errors}
-        addresses={selectedAddresses}
-      />
+      <OrderLogisticsFields register={register} />
     </>
   )
 }
