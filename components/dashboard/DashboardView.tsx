@@ -8,13 +8,13 @@ import NeedToContactWidget from './NeedToContactWidget'
 import OpenOrdersWidget from './OpenOrdersWidget'
 import LeadsFollowUpWidget from './LeadsFollowUpWidget'
 import ProductionWidget from './ProductionWidget'
-import InvoiceChart from './InvoiceChart'
+import RevenueChart from './RevenueChart'
 import QuickAddFab from './QuickAddFab'
 import type { ProductionWidgetData } from '@/db/queries/production-widget.constants'
 import type {
   DashboardPeriod,
   DashboardStats,
-  InvoiceTrendRow,
+  RevenueTrendRow,
   LeadFollowUpRow,
   NeedToContactRow,
   OpenOrderRow,
@@ -25,7 +25,7 @@ interface DashboardViewProps {
   needToContact: NeedToContactRow[]
   openOrders: OpenOrderRow[]
   leadsFollowUp: LeadFollowUpRow[]
-  invoiceTrend: InvoiceTrendRow[]
+  revenueTrend: RevenueTrendRow[]
   production: ProductionWidgetData
 }
 
@@ -116,7 +116,7 @@ export default function DashboardView({
   needToContact,
   openOrders,
   leadsFollowUp,
-  invoiceTrend,
+  revenueTrend,
   production,
 }: DashboardViewProps) {
   const router = useRouter()
@@ -146,7 +146,7 @@ export default function DashboardView({
         <PeriodToggle period={stats.period} onSelect={handlePeriodSelect} isPending={isPending} />
       </header>
       <HeroCards stats={stats} />
-      <InvoiceChart data={invoiceTrend} />
+      <RevenueChart data={revenueTrend} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <NeedToContactWidget rows={needToContact} />
         <ProductionWidget

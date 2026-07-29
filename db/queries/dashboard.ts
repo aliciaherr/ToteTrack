@@ -11,20 +11,20 @@ import { db } from '@/db'
 import { DatabaseError } from '@/lib/errors'
 import { DB_DATE_FORMAT } from '@/lib/dates'
 import {
-  INVOICE_TREND_QUERY,
+  REVENUE_TREND_QUERY,
   buildLeadsFollowUpQuery,
   buildNeedToContactQuery,
   buildOpenOrdersQuery,
   buildPoHeroCountsQuery,
-  invoicedSumQuery,
+  revenueSumQuery,
 } from './dashboard.sql'
 
 export type DashboardPeriod = 'monthly' | 'yearly'
 
 export interface DashboardStats {
   period: DashboardPeriod
-  totalInvoiced: number
-  priorPeriodInvoiced: number
+  totalRevenue: number
+  priorPeriodRevenue: number
   deltaPercent: number | null
   // Live count of `status='scheduled'` orders. All-time, never period-filtered
   // — reflects the current pipeline regardless of the Monthly/Yearly toggle.
@@ -62,7 +62,10 @@ export interface LeadFollowUpRow {
   overdue_days: number
 }
 
-export interface InvoiceTrendRow {
+// Field names are the chart-row contract shared with
+// `lib/invoice-chart-transforms.ts`: `billing_month` is the first day of the
+// revenue month bucket, `total_amount` the summed order prices for it.
+export interface RevenueTrendRow {
   billing_month: string
   total_amount: string
 }
@@ -102,7 +105,7 @@ export function computeDeltaPercent(current: number, prior: number): number | nu
   return ((current - prior) / prior) * 100
 }
 
-interface InvoicedSumRow {
+interface RevenueSumRow {
   total: string | null
 }
 
@@ -112,11 +115,13 @@ interface PoHeroCountsRow {
 }
 
 /**
- * Loads the dashboard hero-card stats for a given period. The invoiced-total
- * and its prior-period counterpart are summed from `invoices.total_amount`
- * filtered by `billing_month` within the current/prior calendar window;
- * `deltaPercent` is derived server-side and is `null` when the prior period
- * had zero invoiced revenue.
+ * Loads the dashboard hero-card stats for a given period. The revenue total
+ * and its prior-period counterpart are summed from `orders.price` across all
+ * non-cancelled orders (bookings view — scheduled orders count), bucketed by
+ * the month of `COALESCE(production_date, requested_delivery_date,
+ * created_at)` within the current/prior calendar window. NULL prices
+ * contribute 0. `deltaPercent` is derived server-side and is `null` when the
+ * prior period had zero revenue.
  *
  * The PO hero card returns two counts:
  *  - `openCount`: live count of scheduled (in-flight) orders. Period-agnostic.
@@ -132,21 +137,21 @@ export async function getDashboardStats(period: DashboardPeriod): Promise<Dashbo
   const windows = computePeriodWindow(period, new Date())
   try {
     const [currentSumResult, priorSumResult, poCountsResult] = await Promise.all([
-      db.execute(invoicedSumQuery(windows.currentStart, windows.currentEnd)),
-      db.execute(invoicedSumQuery(windows.priorStart, windows.priorEnd)),
+      db.execute(revenueSumQuery(windows.currentStart, windows.currentEnd)),
+      db.execute(revenueSumQuery(windows.priorStart, windows.priorEnd)),
       db.execute(buildPoHeroCountsQuery(windows.currentStart, windows.currentEnd)),
     ])
-    const totalInvoiced = Number((currentSumResult as unknown as InvoicedSumRow[])[0]?.total ?? 0)
-    const priorPeriodInvoiced = Number((priorSumResult as unknown as InvoicedSumRow[])[0]?.total ?? 0)
+    const totalRevenue = Number((currentSumResult as unknown as RevenueSumRow[])[0]?.total ?? 0)
+    const priorPeriodRevenue = Number((priorSumResult as unknown as RevenueSumRow[])[0]?.total ?? 0)
     const counts = (poCountsResult as unknown as PoHeroCountsRow[])[0] ?? {
       open_count: 0,
       completed_in_period_count: 0,
     }
     return {
       period,
-      totalInvoiced,
-      priorPeriodInvoiced,
-      deltaPercent: computeDeltaPercent(totalInvoiced, priorPeriodInvoiced),
+      totalRevenue,
+      priorPeriodRevenue,
+      deltaPercent: computeDeltaPercent(totalRevenue, priorPeriodRevenue),
       openCount: counts.open_count,
       completedInPeriodCount: counts.completed_in_period_count,
     }
@@ -248,24 +253,26 @@ export async function getLeadsFollowUp(
 }
 
 /**
- * Loads the invoice trend data for the dashboard chart. Returns one row per
- * `billing_month` with `total_amount` aggregated across all invoices in that
- * month. Sorted by `billing_month ASC` so the client-side 4-mode transforms
- * (per-period / cumulative × monthly / annual) can stream in order. Returns
- * `[]` when no invoices exist — the chart renders its empty state.
+ * Loads the revenue trend data for the dashboard chart. Returns one row per
+ * month with `total_amount` = sum of `orders.price` across the non-cancelled
+ * orders whose `COALESCE(production_date, requested_delivery_date,
+ * created_at)` falls in that month (NULL prices contribute 0). Sorted by
+ * month ASC so the client-side 4-mode transforms (per-period / cumulative ×
+ * monthly / annual) can stream in order. Returns `[]` when no orders exist —
+ * the chart renders its empty state.
  *
  * @throws {DatabaseError} when the underlying SQL query fails.
  */
-export async function getInvoiceTrendData(): Promise<InvoiceTrendRow[]> {
+export async function getRevenueTrendData(): Promise<RevenueTrendRow[]> {
   try {
-    const result = await db.execute(INVOICE_TREND_QUERY)
-    return result as unknown as InvoiceTrendRow[]
+    const result = await db.execute(REVENUE_TREND_QUERY)
+    return result as unknown as RevenueTrendRow[]
   } catch (cause) {
-    console.error('getInvoiceTrendData: query failed', {
-      operation: 'getInvoiceTrendData',
+    console.error('getRevenueTrendData: query failed', {
+      operation: 'getRevenueTrendData',
       cause,
     })
-    throw new DatabaseError('getInvoiceTrendData', 'Failed to load invoice trend data', {
+    throw new DatabaseError('getRevenueTrendData', 'Failed to load revenue trend data', {
       cause,
     })
   }

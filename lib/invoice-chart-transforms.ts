@@ -6,7 +6,7 @@
  */
 import { addMonths, format, parseISO, startOfMonth, subMonths } from 'date-fns'
 import { DB_DATE_FORMAT } from './dates'
-import type { InvoiceTrendRow } from '@/db/queries/dashboard'
+import type { RevenueTrendRow } from '@/db/queries/dashboard'
 
 export type ChartMode =
   | 'per_period_monthly'
@@ -21,7 +21,7 @@ export interface ChartPoint {
 
 const ROLLING_MONTH_COUNT = 12
 
-function totalsByBillingMonth(data: InvoiceTrendRow[]): Map<string, number> {
+function totalsByBillingMonth(data: RevenueTrendRow[]): Map<string, number> {
   const map = new Map<string, number>()
   data.forEach((row) => {
     map.set(row.billing_month, Number(row.total_amount))
@@ -29,7 +29,7 @@ function totalsByBillingMonth(data: InvoiceTrendRow[]): Map<string, number> {
   return map
 }
 
-function totalsByYear(data: InvoiceTrendRow[]): Map<string, number> {
+function totalsByYear(data: RevenueTrendRow[]): Map<string, number> {
   const map = new Map<string, number>()
   data.forEach((row) => {
     const year = row.billing_month.slice(0, 4)
@@ -55,7 +55,7 @@ function rollingMonthKeys(today: Date): string[] {
  * explicit `today` to keep the transform pure.
  */
 export function transformPerPeriodMonthly(
-  data: InvoiceTrendRow[],
+  data: RevenueTrendRow[],
   today: Date,
 ): ChartPoint[] {
   const totals = totalsByBillingMonth(data)
@@ -73,7 +73,7 @@ export function transformPerPeriodMonthly(
  * bar heights stay proportionate to the visible window.
  */
 export function transformCumulativeMonthly(
-  data: InvoiceTrendRow[],
+  data: RevenueTrendRow[],
   today: Date,
 ): ChartPoint[] {
   let running = 0
@@ -89,7 +89,7 @@ export function transformCumulativeMonthly(
  * (unlike the monthly transform, there is no fixed window — the x-axis
  * reflects actual history).
  */
-export function transformPerPeriodAnnual(data: InvoiceTrendRow[]): ChartPoint[] {
+export function transformPerPeriodAnnual(data: RevenueTrendRow[]): ChartPoint[] {
   const totals = totalsByYear(data)
   return [...totals.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -100,7 +100,7 @@ export function transformPerPeriodAnnual(data: InvoiceTrendRow[]): ChartPoint[] 
  * Cumulative annual: running total across years. Each bar is guaranteed to
  * be ≥ the previous. Starts at $0 at the first year with data.
  */
-export function transformCumulativeAnnual(data: InvoiceTrendRow[]): ChartPoint[] {
+export function transformCumulativeAnnual(data: RevenueTrendRow[]): ChartPoint[] {
   let running = 0
   return transformPerPeriodAnnual(data).map(({ label, value }) => {
     running += value
@@ -115,7 +115,7 @@ export function transformCumulativeAnnual(data: InvoiceTrendRow[]): ChartPoint[]
  */
 export function transformForMode(
   mode: ChartMode,
-  data: InvoiceTrendRow[],
+  data: RevenueTrendRow[],
   today: Date,
 ): ChartPoint[] {
   switch (mode) {

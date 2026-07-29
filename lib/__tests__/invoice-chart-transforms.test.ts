@@ -6,13 +6,13 @@ import {
   transformPerPeriodAnnual,
   transformPerPeriodMonthly,
 } from '../invoice-chart-transforms'
-import type { InvoiceTrendRow } from '@/db/queries/dashboard'
+import type { RevenueTrendRow } from '@/db/queries/dashboard'
 
 // Anchor date for monthly-window tests: 2026-04-15. Rolling 12-month window
 // runs from 2025-05-01 through 2026-04-01 inclusive.
 const TODAY = new Date('2026-04-15T12:00:00.000Z')
 
-const multiYearData: InvoiceTrendRow[] = [
+const multiYearData: RevenueTrendRow[] = [
   { billing_month: '2024-06-01', total_amount: '1000.00' },
   { billing_month: '2025-02-01', total_amount: '2500.00' },
   { billing_month: '2025-03-01', total_amount: '3000.00' },

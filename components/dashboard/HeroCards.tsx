@@ -31,17 +31,17 @@ function periodLabel(period: DashboardStats['period']): string {
   return period === 'yearly' ? 'vs last year' : 'vs last month'
 }
 
-function TotalInvoicedCard({ stats }: { stats: DashboardStats }) {
+function TotalRevenueCard({ stats }: { stats: DashboardStats }) {
   return (
     <section
-      aria-label="Total invoiced"
+      aria-label="Total revenue"
       className="flex-1 rounded-xl bg-[#F0F4F8] p-5 space-y-3"
     >
       <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        Total Invoiced
+        Total Revenue
       </div>
       <div className="text-3xl font-semibold text-foreground tabular-nums">
-        {formatCurrency(stats.totalInvoiced)}
+        {formatCurrency(stats.totalRevenue)}
       </div>
       <div className="flex items-center gap-2">
         <span
@@ -85,14 +85,15 @@ function PurchaseOrdersCard({ stats }: { stats: DashboardStats }) {
 
 /**
  * Two side-by-side hero cards at the top of the dashboard.
- * `TotalInvoicedCard` is period-aware (current vs prior period delta).
+ * `TotalRevenueCard` is period-aware (current vs prior period delta) and
+ * shows booked revenue — summed order prices for non-cancelled orders.
  * `PurchaseOrdersCard` shows the live `openCount` (always current) and the
  * period-scoped `completedInPeriodCount`.
  */
 export default function HeroCards({ stats }: HeroCardsProps) {
   return (
     <div className="flex flex-col md:flex-row gap-4">
-      <TotalInvoicedCard stats={stats} />
+      <TotalRevenueCard stats={stats} />
       <PurchaseOrdersCard stats={stats} />
     </div>
   )

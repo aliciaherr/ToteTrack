@@ -6,8 +6,8 @@ import type { DashboardStats } from '@/db/queries/dashboard'
 function baseStats(overrides: Partial<DashboardStats> = {}): DashboardStats {
   return {
     period: 'monthly',
-    totalInvoiced: 12500,
-    priorPeriodInvoiced: 10000,
+    totalRevenue: 12500,
+    priorPeriodRevenue: 10000,
     deltaPercent: 25,
     openCount: 4,
     completedInPeriodCount: 9,
@@ -16,8 +16,9 @@ function baseStats(overrides: Partial<DashboardStats> = {}): DashboardStats {
 }
 
 describe('HeroCards', () => {
-  it('renders the invoiced total as USD currency without decimals', () => {
-    render(<HeroCards stats={baseStats({ totalInvoiced: 128540 })} />)
+  it('renders the Total Revenue label and the revenue total as USD currency without decimals', () => {
+    render(<HeroCards stats={baseStats({ totalRevenue: 128540 })} />)
+    expect(screen.getByText('Total Revenue')).toBeInTheDocument()
     expect(screen.getByText('$128,540')).toBeInTheDocument()
   })
 
@@ -33,7 +34,7 @@ describe('HeroCards', () => {
     expect(screen.getByText('vs last year')).toBeInTheDocument()
   })
 
-  it('renders an em-dash when deltaPercent is null (prior period had zero invoiced)', () => {
+  it('renders an em-dash when deltaPercent is null (prior period had zero revenue)', () => {
     render(<HeroCards stats={baseStats({ deltaPercent: null })} />)
     expect(screen.getByText('—')).toBeInTheDocument()
   })

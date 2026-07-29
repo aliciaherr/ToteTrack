@@ -7,16 +7,22 @@ import { sql } from 'drizzle-orm'
 // from injection (SEC-02).
 
 /**
- * Sum of `invoices.total_amount` for invoices whose `billing_month` falls
- * within `[startDate, endDate]` inclusive. `COALESCE(..., 0)` guarantees a
- * numeric result when the window contains no invoices.
+ * Total revenue: sum of `orders.price` across all non-cancelled orders (a
+ * bookings view — scheduled orders count) whose revenue date falls within
+ * `[startDate, endDate]` inclusive. The revenue date is
+ * `COALESCE(production_date, requested_delivery_date, created_at::date)`,
+ * computed in SQL at query time so a changed production date re-buckets the
+ * order automatically; `created_at` is the last resort when both dates are
+ * NULL. `SUM` skips NULL prices (legacy rows contribute 0) and the outer
+ * `COALESCE(..., 0)` guarantees a numeric result for an empty window.
  */
-export function invoicedSumQuery(startDate: string, endDate: string) {
+export function revenueSumQuery(startDate: string, endDate: string) {
   return sql`
-    SELECT COALESCE(SUM(total_amount), 0)::text AS total
-    FROM invoices
-    WHERE billing_month >= ${startDate}
-      AND billing_month <= ${endDate}
+    SELECT COALESCE(SUM(price), 0)::text AS total
+    FROM orders
+    WHERE status <> 'cancelled'
+      AND COALESCE(production_date, requested_delivery_date, created_at::date) >= ${startDate}
+      AND COALESCE(production_date, requested_delivery_date, created_at::date) <= ${endDate}
   `
 }
 
@@ -153,17 +159,22 @@ export function buildLeadsFollowUpQuery(limit: number) {
 }
 
 /**
- * SQL for the invoice trend chart. Rolls up to one row per `billing_month`
- * (SUM(total_amount)), sorted ASC. Both draft and paid invoices are
- * included — the trend shows total invoiced revenue generated each month,
- * not cash collected. The caller reshapes into the 4 chart modes
- * client-side.
+ * SQL for the revenue trend chart. Sums `orders.price` across non-cancelled
+ * orders (bookings view — scheduled orders count, cash collection is
+ * irrelevant), rolled up to one row per month of
+ * `COALESCE(production_date, requested_delivery_date, created_at::date)`
+ * and sorted ASC. The month bucket is computed in SQL at query time, so a
+ * changed production date re-buckets the order automatically. Column
+ * aliases (`billing_month`, `total_amount`) are the chart-row contract
+ * consumed by `lib/invoice-chart-transforms.ts`, which reshapes the rows
+ * into the 4 chart modes client-side.
  */
-export const INVOICE_TREND_QUERY = sql`
+export const REVENUE_TREND_QUERY = sql`
   SELECT
-    billing_month,
-    SUM(total_amount)::text AS total_amount
-  FROM invoices
+    date_trunc('month', COALESCE(production_date, requested_delivery_date, created_at::date))::date AS billing_month,
+    COALESCE(SUM(price), 0)::text AS total_amount
+  FROM orders
+  WHERE status <> 'cancelled'
   GROUP BY billing_month
   ORDER BY billing_month ASC
 `

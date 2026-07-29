@@ -2,7 +2,7 @@ import PageTransition from '@/components/shell/PageTransition'
 import DashboardView from '@/components/dashboard/DashboardView'
 import {
   getDashboardStats,
-  getInvoiceTrendData,
+  getRevenueTrendData,
   getLeadsFollowUp,
   getNeedToContactList,
   getOpenOrdersForDashboard,
@@ -27,13 +27,13 @@ interface DashboardPageProps {
  */
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const period = parsePeriod(searchParams.period)
-  const [stats, needToContact, openOrders, leadsFollowUp, invoiceTrend, production] =
+  const [stats, needToContact, openOrders, leadsFollowUp, revenueTrend, production] =
     await Promise.all([
       getDashboardStats(period),
       getNeedToContactList(),
       getOpenOrdersForDashboard(),
       getLeadsFollowUp(),
-      getInvoiceTrendData(),
+      getRevenueTrendData(),
       getProductionWidgetData(new Date()),
     ])
   return (
@@ -43,7 +43,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         needToContact={needToContact}
         openOrders={openOrders}
         leadsFollowUp={leadsFollowUp}
-        invoiceTrend={invoiceTrend}
+        revenueTrend={revenueTrend}
         production={production}
       />
     </PageTransition>

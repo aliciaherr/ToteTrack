@@ -9,10 +9,10 @@ vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 import {
   computeDeltaPercent,
   getDashboardStats,
-  getInvoiceTrendData,
   getLeadsFollowUp,
   getNeedToContactList,
   getOpenOrdersForDashboard,
+  getRevenueTrendData,
 } from '../dashboard'
 import { DatabaseError } from '@/lib/errors'
 
@@ -48,7 +48,7 @@ describe('computeDeltaPercent', () => {
 })
 
 describe('getDashboardStats', () => {
-  it('monthly: scopes invoiced sum to the current calendar month and prior to the previous month', async () => {
+  it('monthly: scopes the revenue sum to the current calendar month and prior to the previous month', async () => {
     mockExecute
       .mockResolvedValueOnce([{ total: '8500.00' }]) // current month sum
       .mockResolvedValueOnce([{ total: '5000.00' }]) // prior month sum
@@ -58,8 +58,8 @@ describe('getDashboardStats', () => {
 
     expect(stats).toMatchObject({
       period: 'monthly',
-      totalInvoiced: 8500,
-      priorPeriodInvoiced: 5000,
+      totalRevenue: 8500,
+      priorPeriodRevenue: 5000,
       openCount: 7,
       completedInPeriodCount: 3,
     })
@@ -74,7 +74,27 @@ describe('getDashboardStats', () => {
     expect(priorQuery.params).toContain('2026-03-31')
   })
 
-  it('yearly: scopes invoiced sum to the current calendar year and prior to the previous year', async () => {
+  it('sums orders.price, excludes cancelled orders, and buckets by COALESCE(production, requested-delivery, created) date', async () => {
+    mockExecute
+      .mockResolvedValueOnce([{ total: '8500.00' }])
+      .mockResolvedValueOnce([{ total: '5000.00' }])
+      .mockResolvedValueOnce([])
+
+    await getDashboardStats('monthly')
+
+    const compiled = compiledCall(0)
+    expect(compiled.sql).toMatch(/COALESCE\(SUM\(price\),\s*0\)/i)
+    expect(compiled.sql).toMatch(/FROM orders/i)
+    expect(compiled.sql).toMatch(/status\s*<>\s*'cancelled'/i)
+    expect(compiled.sql).toMatch(
+      /COALESCE\(production_date,\s*requested_delivery_date,\s*created_at::date\)\s*>=/i,
+    )
+    expect(compiled.sql).toMatch(
+      /COALESCE\(production_date,\s*requested_delivery_date,\s*created_at::date\)\s*<=/i,
+    )
+  })
+
+  it('yearly: scopes the revenue sum to the current calendar year and prior to the previous year', async () => {
     mockExecute
       .mockResolvedValueOnce([{ total: '120000.00' }])
       .mockResolvedValueOnce([{ total: '100000.00' }])
@@ -83,8 +103,8 @@ describe('getDashboardStats', () => {
     const stats = await getDashboardStats('yearly')
 
     expect(stats.period).toBe('yearly')
-    expect(stats.totalInvoiced).toBe(120000)
-    expect(stats.priorPeriodInvoiced).toBe(100000)
+    expect(stats.totalRevenue).toBe(120000)
+    expect(stats.priorPeriodRevenue).toBe(100000)
     expect(stats.deltaPercent).toBeCloseTo(20)
 
     const currentQuery = compiledCall(0)
@@ -95,7 +115,7 @@ describe('getDashboardStats', () => {
     expect(priorQuery.params).toContain('2025-12-31')
   })
 
-  it('returns deltaPercent = null (not NaN) when the prior period had zero invoiced revenue', async () => {
+  it('returns deltaPercent = null (not NaN) when the prior period had zero revenue', async () => {
     mockExecute
       .mockResolvedValueOnce([{ total: '4200.00' }])
       .mockResolvedValueOnce([{ total: '0' }])
@@ -103,8 +123,8 @@ describe('getDashboardStats', () => {
 
     const stats = await getDashboardStats('monthly')
 
-    expect(stats.totalInvoiced).toBe(4200)
-    expect(stats.priorPeriodInvoiced).toBe(0)
+    expect(stats.totalRevenue).toBe(4200)
+    expect(stats.priorPeriodRevenue).toBe(0)
     expect(stats.deltaPercent).toBeNull()
     expect(stats.openCount).toBe(0)
     expect(stats.completedInPeriodCount).toBe(0)
@@ -268,8 +288,8 @@ describe('getLeadsFollowUp', () => {
   })
 })
 
-describe('getInvoiceTrendData', () => {
-  it('returns the mapped rows and groups by billing_month sorted ASC', async () => {
+describe('getRevenueTrendData', () => {
+  it('returns the mapped rows grouped into one bucket per month sorted ASC', async () => {
     const fixtureRows = [
       { billing_month: '2025-11-01', total_amount: '1500.00' },
       { billing_month: '2025-12-01', total_amount: '2100.00' },
@@ -277,21 +297,33 @@ describe('getInvoiceTrendData', () => {
     ]
     mockExecute.mockResolvedValueOnce(fixtureRows)
 
-    const result = await getInvoiceTrendData()
+    const result = await getRevenueTrendData()
     expect(result).toEqual(fixtureRows)
     const compiled = compiledCall(0)
     expect(compiled.sql).toMatch(/GROUP BY\s+billing_month/i)
     expect(compiled.sql).toMatch(/ORDER BY\s+billing_month\s+ASC/i)
   })
 
-  it('returns an empty array when no invoices exist (not an error)', async () => {
+  it('sums orders.price, excludes cancelled orders, and buckets by the month of COALESCE(production, requested-delivery, created) date', async () => {
     mockExecute.mockResolvedValueOnce([])
-    const result = await getInvoiceTrendData()
+    await getRevenueTrendData()
+    const compiled = compiledCall(0)
+    expect(compiled.sql).toMatch(/COALESCE\(SUM\(price\),\s*0\)/i)
+    expect(compiled.sql).toMatch(/FROM orders/i)
+    expect(compiled.sql).toMatch(/status\s*<>\s*'cancelled'/i)
+    expect(compiled.sql).toMatch(
+      /date_trunc\('month',\s*COALESCE\(production_date,\s*requested_delivery_date,\s*created_at::date\)\)/i,
+    )
+  })
+
+  it('returns an empty array when no orders exist (not an error)', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    const result = await getRevenueTrendData()
     expect(result).toEqual([])
   })
 
   it('throws a DatabaseError when the underlying query fails', async () => {
     mockExecute.mockRejectedValueOnce(new Error('connection lost'))
-    await expect(getInvoiceTrendData()).rejects.toBeInstanceOf(DatabaseError)
+    await expect(getRevenueTrendData()).rejects.toBeInstanceOf(DatabaseError)
   })
 })

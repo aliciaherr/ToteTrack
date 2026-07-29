@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import InvoiceChart from '../InvoiceChart'
-import type { InvoiceTrendRow } from '@/db/queries/dashboard'
+import RevenueChart from '../RevenueChart'
+import type { RevenueTrendRow } from '@/db/queries/dashboard'
 
 const reducedMotionRef = vi.hoisted(() => ({ value: false }))
 
@@ -60,9 +60,9 @@ vi.mock('recharts', () => {
   }
 })
 
-const emptyData: InvoiceTrendRow[] = []
+const emptyData: RevenueTrendRow[] = []
 
-const multiYearData: InvoiceTrendRow[] = [
+const multiYearData: RevenueTrendRow[] = [
   { billing_month: '2024-06-01', total_amount: '1000.00' },
   { billing_month: '2025-03-01', total_amount: '3000.00' },
   { billing_month: '2026-02-01', total_amount: '5500.00' },
@@ -70,7 +70,7 @@ const multiYearData: InvoiceTrendRow[] = [
 ]
 
 function expandChart() {
-  fireEvent.click(screen.getByRole('button', { name: /invoice trend/i }))
+  fireEvent.click(screen.getByRole('button', { name: /revenue trend/i }))
 }
 
 beforeEach(() => {
@@ -83,20 +83,20 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('InvoiceChart', () => {
+describe('RevenueChart', () => {
   it('is collapsed by default — chart body and pill toggles hidden', () => {
-    render(<InvoiceChart data={multiYearData} />)
+    render(<RevenueChart data={multiYearData} />)
     expect(screen.queryByTestId('bar-chart')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /annual/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /invoice trend/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /revenue trend/i })).toHaveAttribute(
       'aria-expanded',
       'false',
     )
   })
 
   it('expands when the header button is clicked and collapses on second click', () => {
-    render(<InvoiceChart data={multiYearData} />)
-    const toggle = screen.getByRole('button', { name: /invoice trend/i })
+    render(<RevenueChart data={multiYearData} />)
+    const toggle = screen.getByRole('button', { name: /revenue trend/i })
     fireEvent.click(toggle)
     expect(screen.getByTestId('bar-chart')).toBeInTheDocument()
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
@@ -106,27 +106,27 @@ describe('InvoiceChart', () => {
   })
 
   it('renders the empty state when data is empty', () => {
-    render(<InvoiceChart data={emptyData} />)
+    render(<RevenueChart data={emptyData} />)
     expandChart()
-    expect(screen.getByText(/no invoice data yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/no revenue data yet/i)).toBeInTheDocument()
     expect(screen.queryByTestId('bar-chart')).not.toBeInTheDocument()
   })
 
   it('renders exactly 12 bars in Per-Period Monthly mode', () => {
-    render(<InvoiceChart data={multiYearData} />)
+    render(<RevenueChart data={multiYearData} />)
     expandChart()
     expect(screen.getByTestId('bar-chart').dataset.pointCount).toBe('12')
   })
 
   it('switches to Annual mode and renders one bar per year with data', () => {
-    render(<InvoiceChart data={multiYearData} />)
+    render(<RevenueChart data={multiYearData} />)
     expandChart()
     fireEvent.click(screen.getByRole('tab', { name: /annual/i }))
     expect(screen.getByTestId('bar-chart').dataset.pointCount).toBe('3')
   })
 
   it('cumulative monthly: each bar value is greater than or equal to the previous', () => {
-    render(<InvoiceChart data={multiYearData} />)
+    render(<RevenueChart data={multiYearData} />)
     expandChart()
     fireEvent.click(screen.getByRole('tab', { name: /cumulative/i }))
     const bars = screen.getAllByTestId('bar-point')
@@ -137,14 +137,14 @@ describe('InvoiceChart', () => {
   })
 
   it('passes animationDuration=300 to the bar series when motion is enabled', () => {
-    render(<InvoiceChart data={multiYearData} />)
+    render(<RevenueChart data={multiYearData} />)
     expandChart()
     expect(screen.getByTestId('bar-series').dataset.animationDuration).toBe('300')
   })
 
   it('passes animationDuration=0 to the bar series when useReducedMotion is true', () => {
     reducedMotionRef.value = true
-    render(<InvoiceChart data={multiYearData} />)
+    render(<RevenueChart data={multiYearData} />)
     expandChart()
     expect(screen.getByTestId('bar-series').dataset.animationDuration).toBe('0')
   })

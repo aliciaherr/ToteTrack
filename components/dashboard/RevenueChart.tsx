@@ -18,10 +18,10 @@ import {
   type ChartPoint,
 } from '@/lib/invoice-chart-transforms'
 import { formatCurrency } from '@/lib/format-currency'
-import type { InvoiceTrendRow } from '@/db/queries/dashboard'
+import type { RevenueTrendRow } from '@/db/queries/dashboard'
 
-interface InvoiceChartProps {
-  data: InvoiceTrendRow[]
+interface RevenueChartProps {
+  data: RevenueTrendRow[]
 }
 
 type TimeScale = 'monthly' | 'annual'
@@ -95,7 +95,7 @@ function ChartEmptyState() {
       className="flex items-center justify-center text-sm text-muted-foreground"
       style={{ height: CHART_HEIGHT_PX }}
     >
-      No invoice data yet.
+      No revenue data yet.
     </div>
   )
 }
@@ -115,14 +115,15 @@ function ChartBody({ points, animationDuration }: { points: ChartPoint[]; animat
 }
 
 /**
- * Dashboard invoice trend chart. Two orthogonal pill toggles drive the
+ * Dashboard revenue trend chart — booked revenue (summed order prices for
+ * non-cancelled orders) per month. Two orthogonal pill toggles drive the
  * 4-mode selector: Monthly/Annual (time scale) × Per Period/Cumulative
  * (total shape). The transform layer (`lib/invoice-chart-transforms.ts`)
- * reshapes raw `billing_month` rollups into the active mode's series.
+ * reshapes raw monthly rollups into the active mode's series.
  * Bar animation runs at 300ms on mode switch; `useReducedMotion()` drops
  * it to 0. Renders a centred empty state when `data` is empty.
  */
-export default function InvoiceChart({ data }: InvoiceChartProps) {
+export default function RevenueChart({ data }: RevenueChartProps) {
   const shouldReduceMotion = useReducedMotion()
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [timeScale, setTimeScale] = useState<TimeScale>('monthly')
@@ -137,16 +138,16 @@ export default function InvoiceChart({ data }: InvoiceChartProps) {
     ? { duration: 0 }
     : { duration: 0.2, ease: 'easeInOut' as const }
   return (
-    <section aria-label="Invoice trend" className="rounded-xl bg-card border border-border">
+    <section aria-label="Revenue trend" className="rounded-xl bg-card border border-border">
       <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4">
         <button
           type="button"
           onClick={() => setIsCollapsed((prev) => !prev)}
           aria-expanded={!isCollapsed}
-          aria-controls="invoice-chart-body"
+          aria-controls="revenue-chart-body"
           className="flex items-center gap-2 min-h-[44px] -mx-2 px-2 rounded-lg hover:bg-muted transition-colors"
         >
-          <h2 className="text-sm font-semibold text-foreground">Invoice Trend</h2>
+          <h2 className="text-sm font-semibold text-foreground">Revenue Trend</h2>
           <motion.span
             animate={{ rotate: isCollapsed ? 0 : 180 }}
             transition={collapseTransition}
@@ -182,7 +183,7 @@ export default function InvoiceChart({ data }: InvoiceChartProps) {
         {!isCollapsed && (
           <motion.div
             key="chart-body"
-            id="invoice-chart-body"
+            id="revenue-chart-body"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
