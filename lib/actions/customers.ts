@@ -62,7 +62,6 @@ const customerInputSchema = z
       .max(MAX_FREQUENCY_DAYS)
       .nullable()
       .optional(),
-    default_delivery_address: z.string().max(500).nullable().optional(),
     notes: z.string().max(NOTES_MAX).nullable().optional(),
     contacts: z
       .array(contactSchema)
@@ -120,7 +119,6 @@ async function insertCustomerRecord(tx: Tx, data: ValidatedCustomer): Promise<{ 
       company_name: data.company_name.trim(),
       status: data.status,
       contact_frequency_days: data.contact_frequency_days ?? null,
-      default_delivery_address: nullIfBlank(data.default_delivery_address),
       notes: nullIfBlank(data.notes),
     })
     .returning({ id: customers.id })
@@ -196,7 +194,6 @@ export async function updateCustomer(
           company_name: parsed.data.company_name.trim(),
           status: parsed.data.status,
           contact_frequency_days: parsed.data.contact_frequency_days ?? null,
-          default_delivery_address: nullIfBlank(parsed.data.default_delivery_address),
           notes: nullIfBlank(parsed.data.notes),
           updated_at: new Date(),
         })

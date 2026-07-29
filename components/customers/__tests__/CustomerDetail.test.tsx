@@ -31,6 +31,20 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
+// CustomerAddresses (rendered inside CustomerDetail) toasts on successful
+// address mutations; the real hook throws without a <ToastProvider>.
+vi.mock('@/lib/hooks/useToast', () => ({
+  useToast: () => ({ toast: vi.fn() }),
+}))
+
+// The address actions module value-imports `@/db` (postgres driver), which
+// throws on missing DATABASE_URL in jsdom — mock it out (Platform-Native Rule).
+vi.mock('@/lib/actions/customer-addresses', () => ({
+  addCustomerAddress: vi.fn(),
+  updateCustomerAddress: vi.fn(),
+  deleteCustomerAddress: vi.fn(),
+}))
+
 vi.mock('framer-motion', () => ({
   motion: new Proxy(
     {},
@@ -51,8 +65,8 @@ const baseDetail: CustomerDetailType = {
   contact_frequency_days: null,
   auto_calculated_frequency_days: 14,
   effective_frequency_days: 14,
-  default_delivery_address: null,
   notes: null,
+  addresses: [],
   contacts: [
     {
       id: 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -129,6 +143,20 @@ describe('CustomerDetail', () => {
       />,
     )
     expect(screen.getByText(/auto \(14 days avg\)/i)).toBeInTheDocument()
+  })
+
+  it('renders the Delivery Addresses section with its empty state', () => {
+    render(
+      <CustomerDetail
+        detail={baseDetail}
+        orders={[]}
+        window="1M"
+        volumeOverview={emptyVolume}
+        onEdit={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/delivery addresses/i)).toBeInTheDocument()
+    expect(screen.getByText(/no saved addresses yet/i)).toBeInTheDocument()
   })
 
   it('shows the "Contact Recommended" overdue banner when overdue_days > 0', () => {

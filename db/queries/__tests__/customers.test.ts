@@ -126,31 +126,61 @@ const sampleContactRow = {
   is_primary: true,
 }
 
+const sampleAddressRows = [
+  { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', address: 'Used yesterday' },
+  { id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', address: 'Never used, newest' },
+]
+
 describe('getCustomerDetail', () => {
-  it('returns the assembled detail with contacts when the customer exists', async () => {
+  it('returns the assembled detail with contacts and MRU-first addresses when the customer exists', async () => {
     mockExecute
       .mockResolvedValueOnce([sampleDetailStatsRow])
       .mockResolvedValueOnce([sampleContactRow])
+      .mockResolvedValueOnce(sampleAddressRows)
 
     const result = await getCustomerDetail(CUSTOMER_ID)
 
     expect(result.id).toBe(CUSTOMER_ID)
     expect(result.company_name).toBe('Acme Industrial')
     expect(result.contacts).toEqual([sampleContactRow])
+    expect(result.addresses).toEqual(sampleAddressRows)
     expect(result.effective_frequency_days).toBe(14) // auto when no override
-    expect(mockExecute).toHaveBeenCalledTimes(2)
+    expect(mockExecute).toHaveBeenCalledTimes(3)
+  })
+
+  it('compiles an MRU-first addresses query and no longer selects the deprecated column', async () => {
+    mockExecute
+      .mockResolvedValueOnce([sampleDetailStatsRow])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    await getCustomerDetail(CUSTOMER_ID)
+
+    const detailQuery = compileCall(0)
+    expect(detailQuery.sql, 'deprecated column must not be selected').not.toMatch(
+      /default_delivery_address/,
+    )
+    const addressesQuery = compileCall(2)
+    expect(addressesQuery.sql).toMatch(/FROM customer_addresses/)
+    expect(addressesQuery.sql, 'MRU-first ordering').toMatch(
+      /ORDER BY last_used_at DESC NULLS LAST, created_at DESC/,
+    )
+    expect(addressesQuery.params).toContain(CUSTOMER_ID)
   })
 
   it('prefers the manual override over the auto-calculated frequency', async () => {
     mockExecute
       .mockResolvedValueOnce([{ ...sampleDetailStatsRow, contact_frequency_days: 21 }])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
     const result = await getCustomerDetail(CUSTOMER_ID)
     expect(result.effective_frequency_days).toBe(21)
   })
 
   it('throws CustomerNotFoundError when the stats query returns no rows', async () => {
-    mockExecute.mockResolvedValueOnce([]).mockResolvedValueOnce([])
+    mockExecute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     let caught: unknown
@@ -167,7 +197,10 @@ describe('getCustomerDetail', () => {
 
   it('throws DatabaseError with cause when the underlying query fails', async () => {
     const driverError = new Error('connection terminated')
-    mockExecute.mockRejectedValueOnce(driverError).mockRejectedValueOnce(driverError)
+    mockExecute
+      .mockRejectedValueOnce(driverError)
+      .mockRejectedValueOnce(driverError)
+      .mockRejectedValueOnce(driverError)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     let caught: unknown
@@ -367,15 +400,65 @@ describe('getCustomerVolumeOverview', () => {
 describe('getActiveCustomersForSelect', () => {
   it('returns id and company_name for active customers, filtered by status', async () => {
     const rows = [
-      { id: '11111111-1111-1111-1111-111111111111', company_name: 'Acme' },
-      { id: '22222222-2222-2222-2222-222222222222', company_name: 'Beta' },
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        company_name: 'Acme',
+        addresses: [],
+      },
+      {
+        id: '22222222-2222-2222-2222-222222222222',
+        company_name: 'Beta',
+        addresses: [],
+      },
     ]
     mockExecute.mockResolvedValueOnce(rows)
     const result = await getActiveCustomersForSelect()
     expect(result).toEqual(rows)
     const { sql } = compileLastCall()
     expect(sql).toMatch(/status = 'active'/i)
-    expect(sql).toMatch(/order by company_name asc/i)
+    expect(sql).toMatch(/order by c\.company_name asc/i)
+  })
+
+  it('returns MRU-ordered addresses per customer and [] for a customer with none', async () => {
+    const acmeAddresses = [
+      { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', address: 'Used yesterday' },
+      { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', address: 'Never used, newest' },
+    ]
+    mockExecute.mockResolvedValueOnce([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        company_name: 'Acme',
+        addresses: acmeAddresses,
+      },
+      {
+        id: '22222222-2222-2222-2222-222222222222',
+        company_name: 'Beta',
+        addresses: null, // COALESCE guards this in real SQL; the mapper must too
+      },
+    ])
+    const result = await getActiveCustomersForSelect()
+    expect(result[0]?.addresses).toEqual(acmeAddresses)
+    expect(result[1]?.addresses).toEqual([])
+    const { sql } = compileLastCall()
+    expect(sql, 'MRU ordering inside json_agg').toMatch(
+      /ORDER BY a\.last_used_at DESC NULLS LAST, a\.created_at DESC/i,
+    )
+    expect(sql, 'zero-address customers must get []').toMatch(/COALESCE/i)
+    expect(sql).toMatch(/'\[\]'::json/)
+  })
+
+  it('parses addresses defensively when the driver returns the json column as a string', async () => {
+    mockExecute.mockResolvedValueOnce([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        company_name: 'Acme',
+        addresses: '[{"id":"cccccccc-cccc-cccc-cccc-cccccccccccc","address":"Dock 4"}]',
+      },
+    ])
+    const result = await getActiveCustomersForSelect()
+    expect(result[0]?.addresses).toEqual([
+      { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', address: 'Dock 4' },
+    ])
   })
 
   it('throws DatabaseError with cause when the underlying query fails', async () => {

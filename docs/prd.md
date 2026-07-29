@@ -804,3 +804,45 @@ As the salesperson, I want to find any PO instantly, and to plan a whole week �
 - [x] Completed/invoiced orders are visually distinct on both the calendar and the dashboard widget
 - [x] `/calendar` still never scrolls as a page; the drawer scrolls internally
 - [x] **Browser-verified on the iPad** — confirmed by the builder 2026-07-27
+
+---
+
+## Feature 14: Multiple Saved Delivery Addresses per Customer
+
+> Numbered 14 because "Feature 13" (long-press-to-arm calendar drag, Task 68) shipped without a PRD heading — that number is retired to avoid collision. Revises Feature 4's single `default_delivery_address` autofill.
+
+### Problem Statement
+Customers ship to more than one address, but only one `default_delivery_address` exists per customer — every other address is re-typed by hand on each order.
+
+### User Story
+As the salesperson, I want each customer's addresses saved and selectable so I pick from a dropdown instead of typing addresses repeatedly.
+
+### User Flow
+1. **New order:** pick customer → address dropdown appears below, listing that customer's saved addresses with the most-recently-used pre-selected → or **+ Add new address** reveals a textarea; on save the address is stored to the customer *and* used for the order.
+2. **Customer detail panel:** new "Delivery Addresses" section — list with inline add / edit / delete (delete confirms first).
+
+### Business Logic
+- New `customer_addresses` table (`customer_id` FK cascade, `address` text, `last_used_at`); existing `default_delivery_address` values backfilled as each customer's first row; the column is deprecated — app code stops reading/writing it; the DB drop is deferred to a later migration (CONSTRAINT-20 caution).
+- Orders keep storing `delivery_address` as a **text snapshot** — editing or deleting a saved address never rewrites order history.
+- MRU: `createOrder` bumps `last_used_at` on the chosen address; the dropdown sorts `last_used_at` desc (nulls last), pre-selecting the top entry.
+- Dedupe: submitting an address text that exactly matches an existing saved row for that customer bumps that row instead of inserting a duplicate.
+
+### Acceptance Criteria
+- [ ] Picking a customer with saved addresses pre-selects the MRU address — no typing needed
+- [ ] "+ Add new address" on the order form persists the address to the customer and uses it for the order
+- [ ] Customer detail panel lists addresses with working add/edit/delete
+- [ ] Editing/deleting a saved address leaves past orders' `delivery_address` untouched
+- [ ] `default_delivery_address` no longer rendered or written anywhere in app code
+
+### Edge Cases
+- **Customer with zero saved addresses** → dropdown shows only "+ Add new address".
+- **Edit-order mode** → current snapshot displayed even if it matches no saved row; resubmitting it saves it to the list (organic backfill via dedupe rules).
+- **Deleting an address** → past orders unaffected (snapshot design).
+
+### Out of Scope
+- Pickup flow changes (next feature)
+- Address entry on the create-customer form (add via detail panel or order form instead)
+- Dropping the deprecated `default_delivery_address` column (later migration)
+
+### Success Metric
+No address is ever typed twice for the same customer.

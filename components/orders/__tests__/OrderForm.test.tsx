@@ -38,8 +38,22 @@ import type { OrderDetail } from '@/db/queries/orders'
 import type { CustomerSelectOption } from '@/db/queries/customers'
 
 const customers: CustomerSelectOption[] = [
-  { id: '22222222-2222-2222-2222-222222222222', company_name: 'Acme Industrial', default_delivery_address: null },
-  { id: '33333333-3333-3333-3333-333333333333', company_name: 'Beta Co', default_delivery_address: null },
+  { id: '22222222-2222-2222-2222-222222222222', company_name: 'Acme Industrial', addresses: [] },
+  { id: '33333333-3333-3333-3333-333333333333', company_name: 'Beta Co', addresses: [] },
+]
+
+// Feature 14 variant: Acme carries two saved addresses (MRU-first, as the
+// query pre-sorts them); Beta still has none.
+const customersWithAddresses: CustomerSelectOption[] = [
+  {
+    id: customers[0].id,
+    company_name: 'Acme Industrial',
+    addresses: [
+      { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', address: '500 MRU Boulevard' },
+      { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', address: '9 Older Lane' },
+    ],
+  },
+  customers[1],
 ]
 
 const sampleDetail: OrderDetail = {
@@ -134,7 +148,11 @@ describe('OrderForm', () => {
     expect(screen.getByLabelText(/330 gal Brand New quantity/i)).toHaveValue(5)
     // A zero cell renders as empty (placeholder "0").
     expect(screen.getByLabelText(/275 gal Reconditioned quantity/i)).toHaveValue(null)
-    expect(screen.getByLabelText(/^Delivery Address$/i)).toHaveValue('123 Main Street')
+    // Feature 14: the stored snapshot matches no saved address, so it shows
+    // as the selected "Current:" option — displayed, never corrupted.
+    expect(screen.getByLabelText(/^Delivery Address$/i)).toHaveDisplayValue(
+      'Current: 123 Main Street',
+    )
   })
 
   it('locks the customer field to a read-only display when lockedCustomerId is set', () => {
@@ -166,6 +184,48 @@ describe('OrderForm', () => {
     expect(screen.getByLabelText(/^Delivery Address$/i)).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText(/pickup only/i))
     expect(screen.queryByLabelText(/^Delivery Address$/i)).toBeNull()
+  })
+
+  it('hides the saved-address dropdown too when pickup_only is toggled on (Feature 14 regression)', () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customersWithAddresses}
+        lockedCustomerId={customersWithAddresses[0].id}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    // Locked customer with saved addresses → the picker is the dropdown variant.
+    expect(screen.getByLabelText(/^Delivery Address$/i)).toHaveDisplayValue('500 MRU Boulevard')
+    fireEvent.click(screen.getByLabelText(/pickup only/i))
+    expect(screen.queryByLabelText(/^Delivery Address$/i)).toBeNull()
+  })
+
+  it('resets the address selection when the customer changes', async () => {
+    render(
+      <OrderForm
+        mode="create"
+        customers={customersWithAddresses}
+        lockedCustomerId={null}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+    // Picking Acme pre-selects its MRU address in the dropdown — no typing.
+    fireEvent.change(screen.getByLabelText(/^Customer$/i), {
+      target: { value: customersWithAddresses[0].id },
+    })
+    expect(await screen.findByLabelText(/^Delivery Address$/i)).toHaveDisplayValue(
+      '500 MRU Boulevard',
+    )
+    // Switching to Beta (no saved addresses) clears it back to an empty textarea.
+    fireEvent.change(screen.getByLabelText(/^Customer$/i), {
+      target: { value: customersWithAddresses[1].id },
+    })
+    const textarea = await screen.findByLabelText(/^Delivery Address$/i)
+    expect(textarea.tagName).toBe('TEXTAREA')
+    expect(textarea).toHaveValue('')
   })
 
   it('blocks submit and surfaces the PO number error when empty', async () => {
@@ -260,6 +320,8 @@ describe('OrderForm', () => {
       unit_price_330_new: 40,
       pickup_only: false,
       delivery_address: '456 Oak Ave',
+      // Typed fresh (no saved addresses) → no saved-address id rides along.
+      delivery_address_id: null,
     })
     expect(arg).not.toHaveProperty('price')
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
@@ -301,6 +363,9 @@ describe('OrderForm', () => {
       unit_price_330_new: 60,
     })
     expect(arg).not.toHaveProperty('price')
+    // Edits keep snapshot semantics: the saved-address id never reaches
+    // updateOrder (Feature 14 backfill happens only through createOrder).
+    expect(arg).not.toHaveProperty('delivery_address_id')
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
   })
 

@@ -109,18 +109,6 @@ export default function CustomerFormBasicFields({
       </div>
 
       <div className="space-y-1">
-        <label className={LABEL_CLASS} htmlFor="default_delivery_address">
-          Default Delivery Address (auto-fills on new orders)
-        </label>
-        <textarea
-          id="default_delivery_address"
-          rows={2}
-          {...register('default_delivery_address')}
-          className={`${FORM_INPUT_CLASS} h-auto py-2`}
-        />
-      </div>
-
-      <div className="space-y-1">
         <label className={LABEL_CLASS} htmlFor="notes">Notes</label>
         <textarea
           id="notes"

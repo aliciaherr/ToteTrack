@@ -42,8 +42,8 @@ const sampleDetail: CustomerDetail = {
   contact_frequency_days: null,
   auto_calculated_frequency_days: 14,
   effective_frequency_days: 14,
-  default_delivery_address: null,
   notes: null,
+  addresses: [],
   contacts: [
     {
       id: 'aaaa1111-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -120,6 +120,27 @@ describe('CustomerForm', () => {
     fireEvent.change(screen.getByLabelText(/contact 1 name/i), { target: { value: 'Sam' } })
     fireEvent.click(screen.getByRole('button', { name: /create customer/i }))
     await waitFor(() => expect(mockCreateCustomer).toHaveBeenCalled())
+  })
+
+  it('renders no delivery-address textarea and omits the field from the submit payload (Feature 14)', async () => {
+    mockCreateCustomer.mockResolvedValueOnce({ id: 'new-id' })
+    render(
+      <CustomerForm
+        mode="create"
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />,
+    )
+    expect(screen.queryByLabelText(/delivery address/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/company name/i), { target: { value: 'NewCo' } })
+    fireEvent.change(screen.getByLabelText(/contact 1 name/i), { target: { value: 'Sam' } })
+    fireEvent.click(screen.getByRole('button', { name: /create customer/i }))
+
+    await vi.waitFor(() => expect(mockCreateCustomer).toHaveBeenCalledTimes(1))
+    const [arg] = mockCreateCustomer.mock.calls[0]
+    expect(arg).not.toHaveProperty('default_delivery_address')
   })
 
   it('passes the form payload to createCustomer on valid submit', async () => {

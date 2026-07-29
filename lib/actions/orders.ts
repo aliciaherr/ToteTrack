@@ -21,9 +21,15 @@ import {
   normalizeUpdate,
   detectQtyOrPriceChange,
 } from './orders.internal'
+import {
+  addressBelongsToCustomer,
+  recordDeliveryAddressUsage,
+} from './orders.addresses'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
 const DUPLICATE_PO_MESSAGE = 'PO number already exists.'
+const ADDRESS_NOT_OWNED_MESSAGE =
+  'Selected delivery address does not belong to this customer.'
 const PO_LOCKED_MESSAGE =
   'PO is locked. Revert to scheduled before editing quantities or price.'
 
@@ -62,6 +68,9 @@ function isUniqueViolation(cause: unknown): boolean {
  * delivery address required when not pickup-only); rejects duplicate
  * `po_number` via Postgres unique-violation (23505) with a user-facing
  * message. Returns the new order id on success.
+ * Feature 14: an optional `delivery_address_id` is ownership-checked against
+ * the customer before the insert, then the address book's MRU state is
+ * updated after it (see `orders.addresses.ts`).
  * @param input Order data including `initial_status` (defaults to 'scheduled')
  *   and an optional `production_date` build-day override — supplied when the PO
  *   is created from a calendar day column, rejected when it names a Saturday or
@@ -78,10 +87,28 @@ export async function createOrder(
     const authError = await assertAuthenticated()
     if (authError) return authError
 
+    // SEC-03: a submitted saved-address id must belong to the submitted
+    // customer, checked BEFORE the order insert so a forged id fails the
+    // whole create. Skipped on pickup-only — no address is used at all.
+    if (!parsed.data.pickup_only && parsed.data.delivery_address_id) {
+      const owned = await addressBelongsToCustomer(
+        parsed.data.delivery_address_id,
+        parsed.data.customer_id,
+      )
+      if (!owned) return { error: ADDRESS_NOT_OWNED_MESSAGE }
+    }
+
     const [row] = await db
       .insert(orders)
       .values(normalizeCreate(parsed.data))
       .returning({ id: orders.id })
+    // Feature 14 MRU bookkeeping (no transaction — mirrors the plain insert
+    // above): bump the picked address, or dedupe/insert typed text. Contains
+    // its own failures (see its JSDoc); true means the address book changed,
+    // which the /customers detail panel renders.
+    if (await recordDeliveryAddressUsage(parsed.data, row.id)) {
+      revalidatePath('/customers')
+    }
     // A new PO lands on three screens at once: the orders list, the calendar
     // column its `production_date` names, and the dashboard production widget
     // when that day is inside the widget's window. Revalidate all three or the

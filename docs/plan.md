@@ -2357,3 +2357,147 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 **Depends on:** None
 
 ---
+
+# Feature 14: Multiple Saved Delivery Addresses — 2026-07-28
+
+> Source: `docs/prd.md` → Feature 14. Order of work: 70 → 71 → 72 and 73 (72/73 independent of each other). Migration 0012 runs against the shared dev/prod database (CONSTRAINT-20) — additive-only, live the moment it runs; no `db:seed`/`db:wipe` at any point.
+
+## Task 70: `customer_addresses` schema, migration 0012, and query layer
+
+**Files:**
+- `db/schema/customers.ts` — modify (add `customerAddresses` table beside `customerContacts`, same style)
+- `db/migrations/0012_customer_addresses.sql` — create (hand-authored, house style with comment header)
+- `db/queries/customers.select.ts` — modify (extend dropdown query with per-customer address list)
+- `db/migrations/__tests__/0012.test.ts` — create
+- `db/queries/__tests__/customers.test.ts` — modify
+
+**Functions to implement:**
+- `customerAddresses` pgTable: `id uuid PK defaultRandom`, `customer_id uuid notNull FK → customers.id onDelete: 'cascade'`, `address text notNull`, `last_used_at timestamptz` (nullable), `created_at`/`updated_at` timestamptz notNull defaultNow, `index('customer_addresses_customer_id_idx')`
+- Migration 0012: `CREATE TABLE`; backfill `INSERT INTO customer_addresses (customer_id, address) SELECT id, default_delivery_address FROM customers WHERE default_delivery_address IS NOT NULL AND btrim(default_delivery_address) <> ''`; `ENABLE ROW LEVEL SECURITY` + `authenticated_access` policy (copy the 0002 pattern verbatim)
+- `getActiveCustomersForSelect(): Promise<CustomerSelectOption[]>` — extend with `addresses: { id: string; address: string }[]` via `json_agg` scalar subquery, ordered `last_used_at DESC NULLS LAST, created_at DESC`; `CustomerSelectOption` KEEPS deprecated `default_delivery_address` until Task 72 (amended 2026-07-28 — `useDeliveryAddressAutofill` still compiles against it; both removed together in Task 72)
+
+**Acceptance criteria:**
+- [x] [CONSTRAINT-05] migration enables RLS + `authenticated_access` policy on `customer_addresses`
+- [x] Migration is purely additive — no DROP/ALTER of existing columns; `default_delivery_address` untouched in the DB
+- [x] Backfill skips NULL and blank-after-trim addresses
+- [x] Given a customer with 3 addresses, when options load, then `addresses` is ordered MRU-first; a customer with none gets `[]`
+- [x] [EH-01] query failures throw `DatabaseError` with `{ operation, cause }` logged
+
+**Tests required:**
+- `0012.test.ts` → SQL-text asserts: creates table, backfills, enables RLS + policy, touches nothing else (0011 pattern) (happy + guard)
+- `getActiveCustomersForSelect` → `returns MRU-ordered addresses arrays per customer` (happy path)
+- `getActiveCustomersForSelect` → `throws DatabaseError with cause when the underlying query fails` (error case)
+
+**Status:** [x] Done 2026-07-28 — schema + migration 0012 (NOT yet applied to the shared DB — builder-gated) + MRU query extension; 10 new tests (823 suite-wide), `tsc` clean. Deviations logged in session log: interface keeps deprecated field until Task 72; `OrderForm.test.tsx` literals gained `addresses: []`.
+
+**Depends on:** None
+
+---
+
+## Task 71: Customer-address server actions
+
+**Files:**
+- `lib/actions/customer-addresses.ts` — create
+- `lib/actions/__tests__/customer-addresses.test.ts` — create
+
+**Functions to implement:**
+- `addCustomerAddress(customer_id: string, address: string): Promise<{ id: string } | { error: string }>` — dedupe: exact-text match for that customer bumps `last_used_at` and returns the existing id
+- `updateCustomerAddress(id: string, address: string): Promise<{ success: true } | { error: string }>`
+- `deleteCustomerAddress(id: string): Promise<{ success: true } | { error: string }>` — hard delete; past orders unaffected (snapshot design)
+
+**Acceptance criteria:**
+- [x] All three call `assertAuthenticated()` first; `UUID_RE` guards on ids; blank/whitespace-only address rejected server-side
+- [x] [SEC-03] inputs validated server-side regardless of client validation (zod `trim().min(1).max(500)` — cap added matching `DELIVERY_ADDRESS_MAX`)
+- [x] [EH-01] failures logged with `{ operation, cause }` context, generic user-facing error returned — never thrown to the client
+- [x] `revalidatePath` on success — `/customers`, `/orders`, `/calendar` (file-local `ADDRESS_REVALIDATE_PATHS`)
+- [x] [CQ-01] each function < 50 lines (longest 34)
+
+**Tests required:**
+- `addCustomerAddress` → `inserts and returns id for a new address` (happy path)
+- `addCustomerAddress` → `bumps last_used_at and returns existing id on exact-text duplicate` (edge)
+- `addCustomerAddress` → `returns error when unauthenticated / blank address` (error case)
+- `updateCustomerAddress` → `updates address text` (happy path) / `rejects invalid uuid` (error case)
+- `deleteCustomerAddress` → `deletes the row` (happy path) / `returns generic error when db throws` (error case)
+
+**Status:** [x] Done 2026-07-28 — 3 actions + 10 tests (833 suite-wide), `tsc` clean. Dedupe via exact trimmed-text `eq`; update/delete report "Address not found." on empty `.returning()`.
+
+**Depends on:** Task 70
+
+---
+
+## Task 72: Order form — address dropdown with inline add-new + MRU
+
+**Files:**
+- `components/orders/AddressSelect.tsx` — create (`'use client'`; dropdown + "+ Add new address" textarea toggle; < 200 lines)
+- `components/orders/OrderLogisticsFields.tsx` — modify (replace address textarea with `AddressSelect`)
+- `components/orders/useOrderForm.ts` — modify (delete `useDeliveryAddressAutofill`; reset address selection when `customer_id` changes)
+- `components/orders/orderFormSchema.ts` — modify (add `delivery_address_id: string | null` form value; `formValuesToCreateInput` passes it through)
+- `lib/actions/orders.ts` — modify (`createOrder` post-insert address handling)
+- `lib/actions/orders.validation.ts` — modify (`CreateOrderInput` gains optional `delivery_address_id`)
+- `components/orders/__tests__/OrderForm.test.tsx` — modify
+- `lib/actions/__tests__/orders.test.ts` — modify
+
+**Functions to implement:**
+- `AddressSelect({ addresses, value, onSelect, disabled })` — renders saved addresses MRU-first, pre-selects the first; "+ Add new address" swaps to a textarea; selection writes text into `delivery_address` and id into `delivery_address_id` (new-address entries carry `delivery_address_id: null`)
+- `createOrder` post-insert: `delivery_address_id` present → bump that row's `last_used_at`; absent with non-blank `delivery_address` → insert into `customer_addresses` with `last_used_at = now()` (exact-text dedupe → bump instead)
+
+**Acceptance criteria:**
+- [x] Given a customer with saved addresses, when picked, then the dropdown pre-selects MRU and `delivery_address` is populated — no typing
+- [x] Given zero saved addresses, the address input renders as the textarea directly (cleaner than a one-option dropdown; "+ Add new address" path)
+- [x] A new address entered on the order form is persisted to `customer_addresses` within `createOrder`
+- [x] Changing the customer resets the address selection
+- [x] Edit mode: current snapshot displayed even when it matches no saved row; unchanged resubmit does not create a duplicate (dedupe; `delivery_address_id` stays null)
+- [x] Address remains optional — pickup-only behavior byte-for-byte unchanged; [CONSTRAINT-19] calendar never writes `requested_delivery_date`
+- [x] Calendar's embedded `OrderForm` (Feature 12 drawer) works unchanged
+- [x] [CONSTRAINT-03] `AddressSelect` is `'use client'`; [CQ-01] functions < 50 lines; [CQ-02] components < 200 lines (state split into `useAddressSelect.ts`)
+- [x] [SEC-03] server validates `delivery_address_id` is a UUID belonging to the order's customer before the order insert
+
+**Tests required:**
+- `AddressSelect` → `pre-selects the MRU address and populates the field` (happy path)
+- `AddressSelect` → `shows only add-new when the address list is empty` (edge)
+- `OrderForm` → `resets address selection when the customer changes` (happy path)
+- `createOrder` → `bumps last_used_at when delivery_address_id is provided` (happy path)
+- `createOrder` → `inserts a new customer address when no id and text is non-blank` (happy path)
+- `createOrder` → `dedupes an exact-text match instead of inserting` (edge)
+- `createOrder` → `rejects a delivery_address_id not belonging to the customer` (error case)
+
+**Status:** [x] Done 2026-07-28 — AddressSelect + useAddressSelect + MRU preselect hook + createOrder ownership check & bookkeeping (`orders.addresses.ts`); `useDeliveryAddressAutofill` deleted; deprecated field dropped from `CustomerSelectOption` (planned here). 14 new tests (847 suite-wide), `tsc` clean. No transaction around insert+bookkeeping (mirrors existing plain insert); post-insert bookkeeping failure contained + logged, create still succeeds — pinned by test.
+
+**Depends on:** Task 70, Task 71
+
+---
+
+## Task 73: Customer detail address management + deprecate `default_delivery_address`
+
+**Files:**
+- `components/customers/CustomerAddresses.tsx` — create (`'use client'`; list + inline add/edit/delete with delete confirmation; < 200 lines)
+- `components/customers/CustomerDetail.tsx` — modify (render "Delivery Addresses" section)
+- `components/customers/CustomerFormBasicFields.tsx` — modify (remove the `default_delivery_address` textarea)
+- `components/customers/customerFormSchema.ts` — modify (remove the field from `CustomerFormValues`, `detailToFormValues`, `formValuesToInput`)
+- `lib/actions/customers.ts` — modify (`createCustomer`/`updateCustomer` stop writing `default_delivery_address`)
+- `db/queries/customers.ts` — modify (customer detail query includes the address list; stops selecting the deprecated column where practical)
+- `components/customers/__tests__/CustomerAddresses.test.tsx` — create
+- `components/customers/__tests__/CustomerForm.test.tsx`, `CustomerDetail.test.tsx` — modify
+
+**Functions to implement:**
+- `CustomerAddresses({ customerId, addresses })` — MRU-first list; inline add (textarea + save), inline edit, delete with confirm; wired to Task 71 actions; loading/error states surfaced
+
+**Acceptance criteria:**
+- [x] Detail panel lists addresses MRU-first with working add/edit/delete via Task 71 actions
+- [x] Delete asks for confirmation before calling the action (inline row-level confirm; guard-tested)
+- [x] [EH-01] action errors surface visibly in the UI — never silently swallowed
+- [x] `default_delivery_address` is no longer rendered or written anywhere in app code (DB column remains, deprecated — drop deferred; repo grep verified)
+- [x] Existing customer create/edit flows pass unchanged tests apart from the removed field
+- [x] [CQ-02] `CustomerAddresses` 195 lines (< 200; state split into `useCustomerAddresses.ts`); [CONSTRAINT-03] `'use client'`
+- [x] Suite green (`npx vitest run` — 860/860), `npx tsc --noEmit` clean
+
+**Tests required:**
+- `CustomerAddresses` → `renders the list and completes an add flow` (happy path)
+- `CustomerAddresses` → `surfaces the action error message on failure` (error case)
+- `CustomerForm` → `renders no address textarea and omits the field from the submit payload` (happy path)
+
+**Status:** [x] Done 2026-07-28 — CustomerAddresses (195) + useCustomerAddresses hook + `customers.detail.ts` query split (cured pre-existing 300-cap breach in `db/queries/customers.ts`); deprecation sweep verified by repo grep. 13 new tests (860 suite-wide), `tsc` clean. Feature 14 code-complete; PRD boxes await browser verification.
+
+**Depends on:** Task 70, Task 71
+
+---

@@ -110,6 +110,11 @@ export default function OrderFormFields({
   errors,
   qtyError,
 }: OrderFormFieldsProps) {
+  // The address picker only offers the selected customer's saved addresses
+  // (Feature 14); no customer selected yet → empty list → free-text entry.
+  const watchedCustomerId = watch('customer_id')
+  const selectedAddresses =
+    customers.find((customer) => customer.id === watchedCustomerId)?.addresses ?? []
   return (
     <>
       <FieldRow label="PO Number" htmlFor="po_number" error={errors.po_number?.message}>
@@ -149,7 +154,13 @@ export default function OrderFormFields({
         />
       </FieldRow>
 
-      <OrderLogisticsFields register={register} watch={watch} errors={errors} />
+      <OrderLogisticsFields
+        register={register}
+        watch={watch}
+        setValue={setValue}
+        errors={errors}
+        addresses={selectedAddresses}
+      />
     </>
   )
 }

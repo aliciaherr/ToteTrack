@@ -23,11 +23,15 @@ import { InvalidDateError } from '@/lib/errors'
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
 const ORDER_ID = '33333333-3333-3333-3333-333333333333'
 const CUSTOMER_ID = '22222222-2222-2222-2222-222222222222'
+const ADDRESS_ID = '55555555-5555-5555-5555-555555555555'
 
 // Captures the last `.values(...)` payload so tests can assert what would
 // be written to the orders table without running a real query.
 let lastInsertValues: Record<string, unknown> | null = null
 let lastUpdateSet: Record<string, unknown> | null = null
+// Separate capture for the customer_addresses insert (Feature 14) so the
+// order-row assertion above is never clobbered by the second insert.
+let lastAddressInsertValues: Record<string, unknown> | null = null
 
 function stubInsertReturning(id: string) {
   lastInsertValues = null
@@ -186,11 +190,50 @@ function stubSelectRejects(cause: unknown) {
   })
 }
 
+// Feature 14 stubs: the `customer_addresses` lookup (ownership check before
+// the order insert, or the dedupe probe after it) and the address insert.
+function stubSelectAddressRow(row: { id: string } | null) {
+  mockSelect.mockReturnValueOnce({
+    from: () => ({
+      where: () => ({
+        limit: () => Promise.resolve(row ? [row] : []),
+      }),
+    }),
+  })
+}
+
+function stubAddressInsert() {
+  mockInsert.mockReturnValueOnce({
+    values: (payload: Record<string, unknown>) => {
+      lastAddressInsertValues = payload
+      return {
+        returning: () => Promise.resolve([{ id: ADDRESS_ID }]),
+      }
+    },
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetUser.mockResolvedValue(AUTH_OK)
   lastInsertValues = null
   lastUpdateSet = null
+  lastAddressInsertValues = null
+  // Default DB behavior for the Feature 14 address bookkeeping that runs
+  // after every non-pickup order insert: lookups find nothing, writes
+  // resolve. Tests asserting address behavior stack ...Once stubs on top;
+  // pre-Feature-14 tests just fall through to these without noise.
+  mockSelect.mockImplementation(() => ({
+    from: () => ({
+      where: () => ({ limit: () => Promise.resolve([]) }),
+    }),
+  }))
+  mockInsert.mockImplementation(() => ({
+    values: () => ({ returning: () => Promise.resolve([{ id: ADDRESS_ID }]) }),
+  }))
+  mockUpdate.mockImplementation(() => ({
+    set: () => ({ where: () => Promise.resolve(undefined) }),
+  }))
 })
 
 describe('createOrder', () => {
@@ -473,6 +516,101 @@ describe('createOrder', () => {
       'createOrder: insert failed',
       expect.objectContaining({ poNumber: 'PO-9001', customerId: CUSTOMER_ID }),
     )
+    consoleSpy.mockRestore()
+  })
+
+  // Feature 14: address-book MRU bookkeeping around the order insert.
+
+  it('bumps last_used_at when delivery_address_id is provided', async () => {
+    stubSelectAddressRow({ id: ADDRESS_ID }) // ownership check passes
+    stubInsertReturning(ORDER_ID)
+    stubUpdateResolves()
+    const result = await createOrder({ ...VALID_CREATE, delivery_address_id: ADDRESS_ID })
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(lastUpdateSet).toMatchObject({ last_used_at: expect.any(Date) })
+    // SEC-03 ordering: the ownership lookup ran BEFORE the order insert.
+    expect(mockSelect.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInsert.mock.invocationCallOrder[0],
+    )
+    // Only the order row was inserted — a picked address is bumped, not re-added.
+    expect(mockInsert).toHaveBeenCalledTimes(1)
+    // The customer detail panel renders the address book, so it revalidates too.
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/customers')
+  })
+
+  it('rejects a delivery_address_id not belonging to the customer', async () => {
+    stubSelectAddressRow(null) // no row for (id, customer_id) — foreign/forged id
+    const result = await createOrder({ ...VALID_CREATE, delivery_address_id: ADDRESS_ID })
+    expect(result).toEqual({
+      error: 'Selected delivery address does not belong to this customer.',
+    })
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed delivery_address_id via Zod before touching the database', async () => {
+    const result = await createOrder({ ...VALID_CREATE, delivery_address_id: 'not-a-uuid' })
+    expect(result).toEqual({ error: 'Invalid delivery address id.' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('inserts a new customer address when no id and the text is non-blank', async () => {
+    stubInsertReturning(ORDER_ID) // order row
+    stubSelectAddressRow(null) // dedupe probe finds no exact-text match
+    stubAddressInsert() // customer_addresses row
+    const result = await createOrder(VALID_CREATE)
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(lastAddressInsertValues).toMatchObject({
+      customer_id: CUSTOMER_ID,
+      address: '123 Main Street',
+      last_used_at: expect.any(Date),
+    })
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/customers')
+  })
+
+  it('dedupes an exact-text match instead of inserting', async () => {
+    stubInsertReturning(ORDER_ID) // order row
+    stubSelectAddressRow({ id: ADDRESS_ID }) // dedupe probe hits
+    stubUpdateResolves()
+    const result = await createOrder(VALID_CREATE)
+    expect(result).toEqual({ id: ORDER_ID })
+    // The match is bumped, never re-inserted: one insert total (the order row).
+    expect(mockInsert).toHaveBeenCalledTimes(1)
+    expect(lastAddressInsertValues).toBeNull()
+    expect(lastUpdateSet).toMatchObject({ last_used_at: expect.any(Date) })
+  })
+
+  it('writes nothing to the address book when the order is pickup-only', async () => {
+    // Blank-address non-pickup input is impossible (schema rejects it), so
+    // pickup-only IS the no-address-writes path.
+    stubInsertReturning(ORDER_ID)
+    const result = await createOrder({
+      ...VALID_CREATE,
+      pickup_only: true,
+      delivery_address: '',
+    })
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockInsert).toHaveBeenCalledTimes(1)
+    expect(mockRevalidatePath).not.toHaveBeenCalledWith('/customers')
+  })
+
+  it('still returns the order id when address bookkeeping fails after the insert', async () => {
+    // The PO row is already committed; reporting an error would push the
+    // salesperson into a duplicate-PO retry. The failure logs loudly instead.
+    stubInsertReturning(ORDER_ID)
+    stubSelectRejects(new Error('connection terminated')) // dedupe probe blows up
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const result = await createOrder(VALID_CREATE)
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'createOrder: address bookkeeping failed',
+      expect.objectContaining({ orderId: ORDER_ID, customerId: CUSTOMER_ID }),
+    )
+    expect(mockRevalidatePath).not.toHaveBeenCalledWith('/customers')
     consoleSpy.mockRestore()
   })
 })

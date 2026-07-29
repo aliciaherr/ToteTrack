@@ -100,7 +100,6 @@ export const customerDetailQuery = (customerId: string) => sql`
     c.company_name,
     c.status,
     c.contact_frequency_days,
-    c.default_delivery_address,
     c.notes,
     COALESCE(os.completed_order_count, 0)::int AS completed_order_count,
     os.last_completed_date,
@@ -126,6 +125,19 @@ export const customerContactsQuery = (customerId: string) => sql`
   FROM customer_contacts
   WHERE customer_id = ${customerId}
   ORDER BY is_primary DESC, created_at ASC
+`
+
+/**
+ * Saved delivery addresses for a single customer, most-recently-used first
+ * (`last_used_at DESC NULLS LAST`, ties broken newest-created first) — the
+ * same MRU ordering the order form's address picker uses in
+ * `getActiveCustomersForSelect`.
+ */
+export const customerAddressesQuery = (customerId: string) => sql`
+  SELECT id, address
+  FROM customer_addresses
+  WHERE customer_id = ${customerId}
+  ORDER BY last_used_at DESC NULLS LAST, created_at DESC
 `
 
 /**

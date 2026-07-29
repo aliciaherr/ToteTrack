@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, type UseFormReturn } from 'react-hook-form'
 import {
   detailToFormValues,
@@ -41,25 +41,33 @@ function firstClientValidationError(values: OrderFormValues): string | null {
 }
 
 /**
- * Auto-fills the delivery address from the selected customer's
- * `default_delivery_address`. Create mode only — edit mode keeps the per-order
- * address that was captured at order creation. Fires on initial mount (covers
- * locked-customer deep links) and whenever the user changes the customer
- * dropdown.
+ * Resets the address selection whenever the salesperson actually changes the
+ * customer, then pre-selects the new customer's most-recently-used address —
+ * `addresses` arrives MRU-first from `getActiveCustomersForSelect`, so index 0
+ * is it (Feature 14; replaces the Feature-4 `useDeliveryAddressAutofill`,
+ * which read the now-deprecated `default_delivery_address`). A customer with
+ * no saved addresses clears both fields. Edit mode: the guard ref starts at
+ * the order's own customer, so mount never overwrites the stored address
+ * snapshot — only a real dropdown change re-derives the field. Create mode:
+ * the ref starts empty, so a locked-customer deep link pre-selects on mount.
  */
-function useDeliveryAddressAutofill(
+export function useMruAddressPreselect(
   form: UseFormReturn<OrderFormValues>,
   mode: 'create' | 'edit',
   customers: CustomerSelectOption[],
 ) {
   const watchedCustomerId = form.watch('customer_id')
+  const prevCustomerIdRef = useRef<string | null>(
+    mode === 'edit' ? watchedCustomerId : null,
+  )
   useEffect(() => {
-    if (mode !== 'create') return
-    if (!watchedCustomerId) return
+    if (prevCustomerIdRef.current === watchedCustomerId) return
+    prevCustomerIdRef.current = watchedCustomerId
     const picked = customers.find((c) => c.id === watchedCustomerId)
-    if (!picked) return
-    form.setValue('delivery_address', picked.default_delivery_address ?? '')
-  }, [watchedCustomerId, mode, customers, form])
+    const mru = picked?.addresses[0] ?? null
+    form.setValue('delivery_address', mru?.address ?? '')
+    form.setValue('delivery_address_id', mru?.id ?? null)
+  }, [watchedCustomerId, customers, form])
 }
 
 interface SubmitDeps {
@@ -114,8 +122,8 @@ function makeSubmitHandler(deps: SubmitDeps) {
 
 /**
  * Form state and submit flow behind `OrderForm`. The submit handler and the
- * address autofill are built by the module-level pieces above; this hook only
- * wires react-hook-form and the two error channels to them.
+ * MRU address pre-selection are built by the module-level pieces above; this
+ * hook only wires react-hook-form and the two error channels to them.
  */
 export function useOrderForm(options: OrderFormOptions) {
   const { mode, initialDetail, customers, lockedCustomerId, productionDate, onSaved } = options
@@ -130,7 +138,7 @@ export function useOrderForm(options: OrderFormOptions) {
     mode: 'onSubmit',
   })
 
-  useDeliveryAddressAutofill(form, mode, customers)
+  useMruAddressPreselect(form, mode, customers)
 
   const onSubmit = makeSubmitHandler({
     isEdit,

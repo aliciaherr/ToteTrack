@@ -1,11 +1,9 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { subDays, startOfYear, format } from 'date-fns'
 import { db } from '@/db'
-import { CustomerNotFoundError, DatabaseError } from '@/lib/errors'
+import { DatabaseError } from '@/lib/errors'
 import {
   CUSTOMER_LIST_QUERY_BODY,
-  customerContactsQuery,
-  customerDetailQuery,
   customerOrdersQuery,
   customerVolumeAveragesQuery,
 } from './customers.sql'
@@ -23,8 +21,15 @@ export {
 
 export {
   getActiveCustomersForSelect,
+  type CustomerAddressOption,
   type CustomerSelectOption,
 } from './customers.select'
+
+export {
+  getCustomerDetail,
+  type CustomerContactRow,
+  type CustomerDetail,
+} from './customers.detail'
 
 export type CustomerListSort = 'alphabetical' | 'order_count' | 'need_to_contact'
 export type CustomerListStatus = 'active' | 'inactive'
@@ -58,30 +63,6 @@ export interface CustomerListRow {
   overdue_days: number | null
 }
 
-export interface CustomerContactRow {
-  id: string
-  name: string
-  role: string | null
-  email: string | null
-  phone: string | null
-  is_primary: boolean
-}
-
-export interface CustomerDetail {
-  id: string
-  company_name: string
-  status: CustomerListStatus
-  contact_frequency_days: number | null
-  auto_calculated_frequency_days: number | null
-  effective_frequency_days: number | null
-  default_delivery_address: string | null
-  notes: string | null
-  contacts: CustomerContactRow[]
-  last_completed_date: string | null
-  completed_order_count: number
-  overdue_days: number | null
-}
-
 export interface CustomerOrderRow {
   id: string
   po_number: string
@@ -95,20 +76,6 @@ export interface CustomerOrderRow {
   price: string
   requested_delivery_date: string | null
   backhaul: boolean
-}
-
-
-interface CustomerDetailStatsRow {
-  id: string
-  company_name: string
-  status: CustomerListStatus
-  contact_frequency_days: number | null
-  default_delivery_address: string | null
-  notes: string | null
-  completed_order_count: number
-  last_completed_date: string | null
-  auto_calculated_frequency_days: number | null
-  overdue_days: number | null
 }
 
 function buildOrderClause(sort: CustomerListSort): SQL {
@@ -173,60 +140,6 @@ export async function getCustomers(
       cause,
     })
     throw new DatabaseError('getCustomers', 'Failed to load customer list', { cause })
-  }
-}
-
-function assembleCustomerDetail(
-  stats: CustomerDetailStatsRow,
-  contacts: CustomerContactRow[],
-): CustomerDetail {
-  const effective = stats.contact_frequency_days ?? stats.auto_calculated_frequency_days
-  return {
-    id: stats.id,
-    company_name: stats.company_name,
-    status: stats.status,
-    contact_frequency_days: stats.contact_frequency_days,
-    auto_calculated_frequency_days: stats.auto_calculated_frequency_days,
-    effective_frequency_days: effective,
-    default_delivery_address: stats.default_delivery_address,
-    notes: stats.notes,
-    contacts,
-    last_completed_date: stats.last_completed_date,
-    completed_order_count: stats.completed_order_count,
-    overdue_days: stats.overdue_days,
-  }
-}
-
-/**
- * Loads the full detail view for a single customer, including aggregated order
- * stats (last completed date, completed order count, auto-calculated contact
- * frequency, overdue days) and the ordered contacts list (primary first,
- * then by created_at).
- *
- * The `effective_frequency_days` field resolves the manual override when set
- * and falls back to the auto-calculated value; callers should display it and
- * label the source using `contact_frequency_days`.
- *
- * @throws {CustomerNotFoundError} when no row exists for `customerId`.
- * @throws {DatabaseError} when the underlying SQL query fails.
- */
-export async function getCustomerDetail(customerId: string): Promise<CustomerDetail> {
-  try {
-    const [statsResult, contactsResult] = await Promise.all([
-      db.execute(customerDetailQuery(customerId)),
-      db.execute(customerContactsQuery(customerId)),
-    ])
-    const statsRow = (statsResult as unknown as CustomerDetailStatsRow[])[0]
-    if (!statsRow) throw new CustomerNotFoundError(customerId)
-    return assembleCustomerDetail(statsRow, contactsResult as unknown as CustomerContactRow[])
-  } catch (cause) {
-    if (cause instanceof CustomerNotFoundError) throw cause
-    console.error('getCustomerDetail: query failed', {
-      operation: 'getCustomerDetail',
-      customerId,
-      cause,
-    })
-    throw new DatabaseError('getCustomerDetail', 'Failed to load customer detail', { cause })
   }
 }
 

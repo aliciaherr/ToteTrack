@@ -22,7 +22,6 @@ export interface CustomerFormValues {
   company_name: string
   status: 'active' | 'inactive'
   contact_frequency_days: string
-  default_delivery_address: string
   notes: string
   contacts: CustomerContactFormValue[]
 }
@@ -39,7 +38,6 @@ export const EMPTY_FORM_VALUES: CustomerFormValues = {
   company_name: '',
   status: 'active',
   contact_frequency_days: '',
-  default_delivery_address: '',
   notes: '',
   contacts: [{ ...EMPTY_CONTACT, is_primary: true }],
 }
@@ -69,7 +67,6 @@ export function detailToFormValues(detail: CustomerDetail | null | undefined): C
     company_name: detail.company_name,
     status: detail.status,
     contact_frequency_days: detail.contact_frequency_days?.toString() ?? '',
-    default_delivery_address: detail.default_delivery_address ?? '',
     notes: detail.notes ?? '',
     contacts,
   }
@@ -97,7 +94,6 @@ export function formValuesToInput(values: CustomerFormValues): CustomerInput {
     company_name: values.company_name.trim(),
     status: values.status,
     contact_frequency_days: parseFrequency(values.contact_frequency_days),
-    default_delivery_address: stringOrNull(values.default_delivery_address),
     notes: stringOrNull(values.notes),
     contacts: values.contacts.map((contact) => ({
       id: contact.id,

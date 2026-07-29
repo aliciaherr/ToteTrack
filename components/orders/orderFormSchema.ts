@@ -44,6 +44,13 @@ export interface OrderFormValues {
   unit_price_330_new: string | null
   pickup_only: boolean
   delivery_address: string
+  /**
+   * `customer_addresses` row id when the salesperson picked a saved address
+   * from the dropdown (Feature 14); null when the address was typed fresh
+   * ("+ Add new address") or is an edit-mode snapshot. Bridged through
+   * setValue/watch by `AddressSelect` — never a registered input.
+   */
+  delivery_address_id: string | null
   requested_delivery_date: string
   backhaul: boolean
   notes: string
@@ -74,6 +81,7 @@ export const EMPTY_FORM_VALUES: OrderFormValues = {
   unit_price_330_new: null,
   pickup_only: false,
   delivery_address: '',
+  delivery_address_id: null,
   requested_delivery_date: todayIsoDate(),
   backhaul: false,
   notes: '',
@@ -114,6 +122,10 @@ export function detailToFormValues(
     unit_price_330_new: detail.unit_price_330_new,
     pickup_only: detail.pickup_only,
     delivery_address: detail.delivery_address ?? '',
+    // The stored address is a point-in-time snapshot, not a reference — it
+    // starts with no saved-address id, so resubmitting an unchanged edit never
+    // links (or duplicates) an address-book row (Feature 14).
+    delivery_address_id: null,
     requested_delivery_date: detail.requested_delivery_date ?? '',
     backhaul: detail.backhaul,
     notes: detail.notes ?? '',
@@ -214,6 +226,7 @@ export function formValuesToCreateInput(
     ...formValuesToQtyUnitPrices(values),
     pickup_only: values.pickup_only,
     delivery_address: nullIfBlank(values.delivery_address),
+    delivery_address_id: values.delivery_address_id,
     requested_delivery_date: values.requested_delivery_date,
     backhaul: values.backhaul,
     initial_status: 'scheduled',
@@ -225,7 +238,10 @@ export function formValuesToCreateInput(
 /**
  * Converts form values into the update-order action's input shape. The
  * `initial_status` field is dropped — status transitions go through
- * `updateOrderStatus`, not through the edit form.
+ * `updateOrderStatus`, not through the edit form. `delivery_address_id` is
+ * also intentionally dropped: edits keep snapshot semantics and never touch
+ * the address book — MRU bumps and organic backfill happen only through
+ * `createOrder` (Feature 14).
  */
 export function formValuesToUpdateInput(values: OrderFormValues): UpdateOrderInput {
   return {

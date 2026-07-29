@@ -234,6 +234,17 @@ export const createOrderInputSchema = orderBaseSchema
   .extend({
     // Single in-flight state after the v2 PO model dropped `pending`.
     initial_status: z.literal('scheduled').default('scheduled'),
+    // Feature 14: id of the saved `customer_addresses` row the salesperson
+    // picked from the address dropdown, so `createOrder` can bump its
+    // `last_used_at`. Null/absent when the address was typed fresh ("+ Add
+    // new address") or the order is pickup-only. Ownership — the row must
+    // belong to `customer_id` — is verified in the action BEFORE the order
+    // insert (SEC-03); the schema only guards the shape.
+    delivery_address_id: z
+      .string()
+      .regex(UUID_RE, 'Invalid delivery address id.')
+      .nullable()
+      .optional(),
     // Optional build-day override (Feature 11). Present only when the PO is
     // created from a calendar day column — the day whose `+` was clicked wins
     // over the delivery-date default, whatever delivery date the form carries

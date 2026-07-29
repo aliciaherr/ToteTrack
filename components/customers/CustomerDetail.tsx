@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import CustomerAddresses from './CustomerAddresses'
 import CustomerContactCard from './CustomerContactCard'
 import OrderHistory from './OrderHistory'
 import VolumeOverview from './VolumeOverview'
@@ -92,9 +93,10 @@ function FrequencyLine({ detail }: { detail: CustomerDetailType }) {
 
 /**
  * Right-panel customer detail view. Renders the company header, primary
- * contact card (with collapsible more-contacts), contact-frequency line, and
- * the order history table filtered by the active time window. Renders the
- * empty state when `detail` is null (no row selected or stale id).
+ * contact card (with collapsible more-contacts), contact-frequency line,
+ * saved delivery addresses (Feature 14), and the order history table filtered
+ * by the active time window. Renders the empty state when `detail` is null
+ * (no row selected or stale id).
  */
 export default function CustomerDetail({
   detail,
@@ -120,6 +122,7 @@ export default function CustomerDetail({
         lastCompletedDate={detail.last_completed_date}
       />
       <FrequencyLine detail={detail} />
+      <CustomerAddresses customerId={detail.id} addresses={detail.addresses} />
       <VolumeOverview data={volumeOverview} />
       <OrderHistory orders={orders} window={window} />
     </div>

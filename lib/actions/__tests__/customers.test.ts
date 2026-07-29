@@ -62,6 +62,38 @@ function stubTransactionReturning(id: string) {
   })
 }
 
+interface CapturedWrites {
+  insertValues: unknown[]
+  updateSets: unknown[]
+}
+
+// Like stubTransactionReturning, but records every insert values / update set
+// payload so tests can assert on exactly what would be written.
+function stubTransactionCapturing(id: string): CapturedWrites {
+  const captured: CapturedWrites = { insertValues: [], updateSets: [] }
+  mockTransaction.mockImplementationOnce(async (fn: (tx: unknown) => unknown) => {
+    const tx = {
+      insert: () => ({
+        values: (values: unknown) => {
+          captured.insertValues.push(values)
+          return { returning: () => Promise.resolve([{ id }]) }
+        },
+      }),
+      update: () => ({
+        set: (set: unknown) => {
+          captured.updateSets.push(set)
+          return { where: () => Promise.resolve(undefined) }
+        },
+      }),
+      delete: () => ({
+        where: () => Promise.resolve(undefined),
+      }),
+    }
+    return await fn(tx)
+  })
+  return captured
+}
+
 function stubOrderCount(count: number) {
   mockSelect.mockReturnValueOnce({
     from: () => ({
@@ -114,6 +146,18 @@ describe('createCustomer', () => {
     expect(mockTransaction).toHaveBeenCalled()
   })
 
+  it('never writes the deprecated default_delivery_address column (Feature 14)', async () => {
+    const captured = stubTransactionCapturing(CUSTOMER_ID)
+    const result = await createCustomer({
+      ...VALID_CUSTOMER,
+      // Stale clients may still send the field; the schema must strip it.
+      default_delivery_address: '123 Legacy Ln',
+    } as Parameters<typeof createCustomer>[0])
+    expect(result).toEqual({ id: CUSTOMER_ID })
+    expect(captured.insertValues.length).toBeGreaterThan(0)
+    expect(captured.insertValues[0]).not.toHaveProperty('default_delivery_address')
+  })
+
   it('rejects when no contact is marked primary', async () => {
     const result = await createCustomer({
       ...VALID_CUSTOMER,
@@ -137,6 +181,14 @@ describe('updateCustomer', () => {
     expect(result).toEqual({ success: true })
     expect(mockTransaction).toHaveBeenCalledOnce()
     expect(mockRevalidatePath).toHaveBeenCalledWith('/customers')
+  })
+
+  it('never writes the deprecated default_delivery_address column (Feature 14)', async () => {
+    const captured = stubTransactionCapturing(CUSTOMER_ID)
+    const result = await updateCustomer(CUSTOMER_ID, VALID_CUSTOMER)
+    expect(result).toEqual({ success: true })
+    expect(captured.updateSets.length).toBeGreaterThan(0)
+    expect(captured.updateSets[0]).not.toHaveProperty('default_delivery_address')
   })
 
   it('rejects a malformed customer id before touching the database', async () => {
