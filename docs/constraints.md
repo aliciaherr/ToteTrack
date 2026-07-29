@@ -327,6 +327,20 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ---
 
+### CONSTRAINT-21 — Order delivery addresses are text snapshots; `customer_addresses` is the saved list
+
+**Decision:** Feature 14 (2026-07-28). Three binding rules:
+
+- **`orders.delivery_address` stays a plain text snapshot — never an FK** to `customer_addresses`. Editing or deleting a saved address must never rewrite historical orders. Any future feature that wants "update the address everywhere" is a new product decision, not a refactor.
+- **`customer_addresses` is the single source for saved addresses**: `UNIQUE (customer_id, address)` (migration `0013`), MRU via `last_used_at` (bumped on order use; NULL on plain adds), all writes via upsert `ON CONFLICT` — no check-then-insert.
+- **`customers.default_delivery_address` is DEPRECATED**: the column remains in the DB but no app code may read or write it. Dropping it is a future migration, only after Feature 14 has proven itself live over time.
+
+**Who decided and when:** Builder approved the design 2026-07-28 (brainstorm → Feature 14 spec); snapshot rule and deprecation were explicit in the approved plan.
+
+**What this closes off:** Address-book edits can never fix a typo on past orders (by design — order history is immutable evidence). The deprecated column blocks reuse of that name until the drop migration lands.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -351,3 +365,4 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 | 18 | PO multi-combo wide-row schema + atomic completion + edit lock | Drops `container_size`/`container_type`/`quantity`; adds 6 qty cols; total `price` user-entered (no per-unit pricing); invoiced/cancelled blocks qty/price edits | Builder | 2026-04-24 |
 | 19 | Production date separate from delivery promise | Adds `production_date`/`same_day_delivery`/`production_sort_index`; calendar never writes `requested_delivery_date`; weekends-only business-day math, no holidays; calendar popup read-only; page never scrolls, card scales to keep 4 visible; `@dnd-kit` added under CONSTRAINT-03 | Builder | 2026-07-26 |
 | 20 | Dev and prod share one Supabase project | Never run `db:wipe`/`db:seed`; no automated write-flow testing until a dev environment exists | Builder | 2026-07-28 |
+| 21 | Order addresses = text snapshots; `customer_addresses` = saved list | `orders.delivery_address` never becomes an FK; saved-address writes are `ON CONFLICT` upserts against `UNIQUE (customer_id, address)`; `default_delivery_address` deprecated — no app code touches it, drop deferred | Builder | 2026-07-28 |

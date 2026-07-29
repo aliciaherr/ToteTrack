@@ -53,26 +53,35 @@ Calls `supabase.auth.signOut()`. Redirects to `/login`.
 getDashboardStats(period: 'monthly' | 'yearly'): Promise<DashboardStats>
 
 type DashboardStats = {
-  totalInvoiced: number
-  priorPeriodInvoiced: number
-  pendingOrderCount: number
-  scheduledOrderCount: number
+  totalRevenue: number
+  priorPeriodRevenue: number
+  deltaPercent: number | null
+  openCount: number
+  completedInPeriodCount: number
   period: 'monthly' | 'yearly'
 }
 ```
-Monthly: sum of `invoices.total_amount` for current calendar month.
-Yearly: sum for current calendar year.
-Prior period: prior month (monthly) or prior year (yearly).
+Revenue (2026-07-29, replaces invoiced totals): `SUM(orders.price)` over `status <> 'cancelled'`,
+period-matched on `COALESCE(production_date, requested_delivery_date, created_at::date)`.
+Bookings semantics — scheduled orders count. Monthly: current calendar month; yearly: current
+calendar year. Prior period: prior month/year; `deltaPercent` null when prior period is 0.
 **Errors:** Throws with context on DB failure.
 
 ---
 
-### `getInvoiceTrendData`
+### `getRevenueTrendData`
 **File:** `db/queries/dashboard.ts` | **Type:** Query
 ```ts
-getInvoiceTrendData(): Promise<{ billingMonth: Date; totalAmount: number }[]>
+getRevenueTrendData(): Promise<RevenueTrendRow[]>
+
+type RevenueTrendRow = {
+  billing_month: string   // month bucket of COALESCE(production_date, requested_delivery_date, created_at::date)
+  total_amount: string    // SUM(orders.price), non-cancelled orders
+}
 ```
-Returns all invoices sorted by `billing_month ASC`. Client-side processing transforms into 4-mode datasets.
+Replaces `getInvoiceTrendData` (2026-07-29). Field names `billing_month`/`total_amount` are a kept
+contract — `lib/invoice-chart-transforms.ts` consumes them for the 4-mode chart datasets.
+Sorted `billing_month ASC`.
 **Errors:** Throws with context on DB failure.
 
 ---

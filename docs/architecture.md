@@ -30,13 +30,14 @@
 
 ## Data Model
 
-8 entity types with relationships → full spec in `docs/data-model.md`.
+9 entity types with relationships → full spec in `docs/data-model.md`.
 
 **Entity overview:**
 
 | Entity | Purpose |
 |--------|---------|
-| `customers` | Customer companies; includes `default_delivery_address` (auto-fills new orders) |
+| `customers` | Customer companies. `default_delivery_address` is DEPRECATED (Feature 14, 2026-07-28) — column retained in DB, unused by app code; drop deferred |
+| `customer_addresses` | Saved delivery addresses per customer (Feature 14, migrations 0012/0013) — MRU via `last_used_at`, `UNIQUE (customer_id, address)`; orders still store `delivery_address` as a text snapshot |
 | `customer_contacts` | Individual contacts per customer (1+ per customer); email + phone both optional |
 | `orders` | Purchase orders; `requested_delivery_date` is nullable. Also carries the production-calendar columns `production_date` / `same_day_delivery` / `production_sort_index` (migration `0010`) |
 | `leads` | Prospective customers; email + phone both optional |
@@ -135,7 +136,7 @@ components/
     NeedToContactWidget.tsx ← 'use client'
     OpenOrdersWidget.tsx    ← 'use client' — was PendingOrdersWidget; renamed in PO model v2
     LeadsFollowUpWidget.tsx ← 'use client'
-    InvoiceChart.tsx        ← 'use client' — Recharts
+    RevenueChart.tsx        ← 'use client' — Recharts (renamed from InvoiceChart 2026-07-29; charts order revenue)
     ProductionWidget.tsx    ← 'use client' — next 2 business days + unscheduled count (Feature 11)
   customers/
     CustomerLayout.tsx      ← 'use client' — two-panel state
@@ -236,7 +237,7 @@ db/
     support.ts        ← support_tickets + support_attachments tables
     index.ts          ← re-exports all
   queries/
-    dashboard.ts      ← getDashboardStats, getNeedToContactList, getInvoiceTrendData, etc.
+    dashboard.ts      ← getDashboardStats, getNeedToContactList, getRevenueTrendData, etc.
     customers.ts      ← getCustomers, getCustomerDetail, getCustomerOrders, getVolumeOverview
     orders.ts         ← getOrders, getOrderDetail
     calendar.ts       ← getCalendarOrders, getUnscheduledOrders + CalendarOrderRow (Feature 11)

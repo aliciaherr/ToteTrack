@@ -262,3 +262,37 @@ Going back would mean reintroducing derived positions, and with them both the dr
 **Check before approving:** (a) A connection failure mid-cancel keeps the dialog open with an error so you can retry — right call, versus closing it? (b) Orders-tab edits now refresh three screens; this is cheap (a cache tag flush, not a re-render storm) and free-tier safe.
 
 **What this closes off:** Nothing. Pure hardening — no behavior removed, no dependency added. Known leftovers, deliberately deferred and logged: the same shared sign-in check should eventually replace the private copies still living in the invoices, customers, leads and support actions.
+
+## FB-17 — Customers Now Keep an Address Book; Orders Keep Receipts
+
+**Date:** 2026-07-28
+**Architecture reference:** `docs/architecture.md` → Data Model (`customer_addresses`), CONSTRAINT-21
+**Tasks:** Feature 14, Tasks 70–73 (+ security fix pass: migration `0013`)
+
+**Decided:** Each customer now has a saved list of delivery addresses. The order form offers them as a dropdown (most-recently-used pre-selected) with an inline "+ Add new address"; the customer page manages the list. Each order still stores its own frozen copy of the address text — picking from the list copies the text in, it does not link to it.
+
+**Means for your product:** No address is ever typed twice for the same customer. And because orders keep frozen copies, fixing or deleting a saved address never changes what past orders say — an old PO remains evidence of where it actually shipped.
+
+**Check before approving:**
+- Deleting a saved address leaves every past order untouched — confirmed on the iPad?
+- The old single "default address" field is gone from all screens; its data was copied into each customer's address list. Anything missing?
+
+**What this closes off:** There is deliberately no "fix this address everywhere" button — a typo saved onto three past orders stays on them (each order is editable individually). The database keeps one duplicate-proof list per customer, enforced at the database level, so double-taps can't create twins.
+
+---
+
+## FB-18 — The Dashboard Now Shows Bookings, Not Billings
+
+**Date:** 2026-07-29
+**Architecture reference:** `docs/architecture.md` → Component Architecture (`RevenueChart`), `docs/api-spec.md` → `getDashboardStats` / `getRevenueTrendData`
+**Tasks:** none — builder-directed change, same-day
+
+**Decided:** "Total Invoiced" (sum of issued invoices) is replaced by "Total Revenue" — the summed price of every non-cancelled order, bucketed into the month of its production date (falling back to delivery date, then entry date). The trend chart follows the same rule.
+
+**Means for your product:** The number now moves the moment you book or schedule work, not when you invoice it — it answers "how much business is on the books this month?" instead of "how much have I billed?". Expect it to read higher than the old number, and expect history to shift slightly (an order completed in June but invoiced in July now counts in June). Rescheduling an order's production date moves its value to the new month automatically.
+
+**Check before approving:**
+- Is bookings the number you want on the hero card, or do you eventually want both bookings and billed side by side?
+- One legacy order (`MAn00003239`) has no prices filled in and counts as $0 until its unit prices are entered.
+
+**What this closes off:** The dashboard no longer reports invoiced revenue anywhere — if that view matters again (e.g. for taxes), it's a new card/chart to add, not a toggle.
