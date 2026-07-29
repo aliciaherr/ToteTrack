@@ -24,7 +24,10 @@ export default function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    // method="POST" is the pre-hydration fallback only — with JS loaded, handleSubmit
+    // preventDefaults the native submit. Without it, a pre-hydration submit degrades to
+    // GET and puts the password in the URL/server logs (QA finding 2, 2026-07-28).
+    <form method="POST" onSubmit={handleSubmit} noValidate>
       <div className="mb-4">
         <label
           htmlFor="password"
