@@ -109,7 +109,7 @@ function ProductionDayColumn({ group }: { group: ProductionDayGroup }) {
 
 function UnscheduledPill({ count }: { count: number }) {
   return (
-    <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium">
+    <span className="inline-flex items-center rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-xs font-medium">
       {count} unscheduled
     </span>
   )

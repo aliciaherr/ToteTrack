@@ -66,8 +66,8 @@ function CalloutPill({
       onClick={onToggle}
       aria-expanded={isExpanded}
       aria-controls="unscheduled-dropdown"
-      className={`inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-800 px-4 min-h-[44px] text-sm font-medium transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        isOver ? 'ring-2 ring-amber-500' : ''
+      className={`inline-flex items-center gap-2 rounded-full bg-red-100 text-red-800 px-4 min-h-[44px] text-sm font-medium transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        isOver ? 'ring-2 ring-red-500' : ''
       }`}
     >
       <span className="tabular-nums font-semibold">{count}</span>

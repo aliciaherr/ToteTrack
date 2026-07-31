@@ -144,13 +144,13 @@ describe('ProductionWidget', () => {
     expect(screen.queryByText(/more$/)).not.toBeInTheDocument()
   })
 
-  it('shows the unscheduled count as an amber pill', () => {
+  it('shows the unscheduled count as a light red pill', () => {
     renderWidget([makeGroup('2026-07-27', 1)], 4)
 
     const pill = screen.getByText('4 unscheduled')
     expect(pill).toBeInTheDocument()
-    expect(pill.className).toContain('bg-amber-100')
-    expect(pill.className).toContain('text-amber-800')
+    expect(pill.className).toContain('bg-red-100')
+    expect(pill.className).toContain('text-red-800')
   })
 
   it('says all orders are dated rather than showing a zero pill', () => {
