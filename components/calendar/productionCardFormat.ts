@@ -3,6 +3,7 @@ import {
   TYPE_ROWS,
   cellKey,
   type QtyGridValues,
+  type SizeKey,
   type TypeKey,
 } from '@/components/shared/qtyGridValues'
 
@@ -27,10 +28,23 @@ const TYPE_CODES: Record<TypeKey, string> = {
 /** Em dash used by every PO surface for "nothing here" (matches `formatPoTotal`). */
 export const EMPTY_MIX_TEXT = '—'
 
+/** One non-zero quantity cell, e.g. `12×275 REC`, with its keys for styling. */
+export interface ProductionCombo {
+  quantity: number
+  sizeKey: SizeKey
+  typeKey: TypeKey
+  /** The rendered form, e.g. `12×275 REC`. */
+  label: string
+}
+
 export interface ProductionMix {
-  /** Comma-joined combos, e.g. `12×275 REC, 8×330 REB`. `—` when all six are zero. */
-  text: string
-  /** Combos omitted from `text`; 0 when everything fit. Drives the `+N more` suffix. */
+  /**
+   * The visible combos as structured values, so the calendar card can style
+   * each one by size/type. Empty when all six cells are zero — surfaces render
+   * `productionMixText` (the em dash) instead.
+   */
+  combos: ProductionCombo[]
+  /** Combos omitted from `combos`; 0 when everything fit. Drives the `+N more` suffix. */
   hiddenCount: number
 }
 
@@ -48,23 +62,35 @@ export interface ProductionMix {
  * @param values The PO's six `qty_‹size›_‹type›` cells.
  */
 export function formatProductionMix(values: QtyGridValues): ProductionMix {
-  const combos: string[] = []
+  const combos: ProductionCombo[] = []
 
   for (const { sizeKey } of SIZE_COLS) {
     for (const { typeKey } of TYPE_ROWS) {
       const quantity = values[cellKey(sizeKey, typeKey)]
       if (quantity > 0) {
-        combos.push(`${quantity}×${sizeKey} ${TYPE_CODES[typeKey]}`)
+        combos.push({
+          quantity,
+          sizeKey,
+          typeKey,
+          label: `${quantity}×${sizeKey} ${TYPE_CODES[typeKey]}`,
+        })
       }
     }
   }
 
-  if (combos.length === 0) {
-    return { text: EMPTY_MIX_TEXT, hiddenCount: 0 }
-  }
-
   return {
-    text: combos.slice(0, MAX_VISIBLE_COMBOS).join(', '),
+    combos: combos.slice(0, MAX_VISIBLE_COMBOS),
     hiddenCount: Math.max(0, combos.length - MAX_VISIBLE_COMBOS),
   }
+}
+
+/**
+ * The mix as plain text — `12×275 REC, 8×330 REB`, or the em dash when every
+ * cell is zero. The single text form shared by text-only surfaces
+ * (AddOrderMenu) and the card's empty state, so they cannot drift from the
+ * structured combos.
+ */
+export function productionMixText(mix: ProductionMix): string {
+  if (mix.combos.length === 0) return EMPTY_MIX_TEXT
+  return mix.combos.map((combo) => combo.label).join(', ')
 }

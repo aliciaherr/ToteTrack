@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import ProductionCard from '../ProductionCard'
 import {
   formatProductionMix,
+  productionMixText,
   EMPTY_MIX_TEXT,
   MAX_VISIBLE_COMBOS,
 } from '../productionCardFormat'
@@ -48,7 +49,11 @@ describe('formatProductionMix', () => {
   it('formats a single combo as quantity, size and type code', () => {
     const mix = formatProductionMix({ ...ZERO_QTY, qty_275_recon: 12 })
 
-    expect(mix).toEqual({ text: '12×275 REC', hiddenCount: 0 })
+    expect(mix).toEqual({
+      combos: [{ quantity: 12, sizeKey: '275', typeKey: 'recon', label: '12×275 REC' }],
+      hiddenCount: 0,
+    })
+    expect(productionMixText(mix)).toBe('12×275 REC')
   })
 
   it('orders combos by size first, then by the TYPE_ROWS order', () => {
@@ -59,14 +64,14 @@ describe('formatProductionMix', () => {
       qty_275_recon: 12,
     })
 
-    expect(mix.text).toBe('5×275 REB, 12×275 REC, 8×330 REC')
+    expect(productionMixText(mix)).toBe('5×275 REB, 12×275 REC, 8×330 REC')
   })
 
   it('drops zero cells entirely', () => {
     const mix = formatProductionMix({ ...ZERO_QTY, qty_275_new: 3, qty_330_new: 4 })
 
-    expect(mix.text).toBe('3×275 NEW, 4×330 NEW')
-    expect(mix.text).not.toContain('0×')
+    expect(productionMixText(mix)).toBe('3×275 NEW, 4×330 NEW')
+    expect(productionMixText(mix)).not.toContain('0×')
   })
 
   it(`lists at most ${MAX_VISIBLE_COMBOS} combos and reports the rest as hidden`, () => {
@@ -80,12 +85,15 @@ describe('formatProductionMix', () => {
     })
 
     expect(mix.hiddenCount).toBe(2)
-    expect(mix.text.split(', ')).toHaveLength(MAX_VISIBLE_COMBOS)
-    expect(mix.text).toBe('1×275 REB, 2×275 REC, 3×275 NEW, 4×330 REB')
+    expect(mix.combos).toHaveLength(MAX_VISIBLE_COMBOS)
+    expect(productionMixText(mix)).toBe('1×275 REB, 2×275 REC, 3×275 NEW, 4×330 REB')
   })
 
   it('returns the em dash and no hidden count when every cell is zero', () => {
-    expect(formatProductionMix(ZERO_QTY)).toEqual({ text: EMPTY_MIX_TEXT, hiddenCount: 0 })
+    const mix = formatProductionMix(ZERO_QTY)
+
+    expect(mix).toEqual({ combos: [], hiddenCount: 0 })
+    expect(productionMixText(mix)).toBe(EMPTY_MIX_TEXT)
   })
 })
 
@@ -107,6 +115,32 @@ describe('ProductionCard', () => {
     expect(screen.getByTestId('production-card-mix')).toHaveTextContent(
       '1×275 REB, 2×275 REC, 3×275 NEW, 4×330 REB +2 more',
     )
+  })
+
+  it('colors combos by size hue and type intensity — REB text-only, REC light, NEW medium', () => {
+    render(
+      <ProductionCard
+        row={makeRow({
+          qty_275_recon: 0,
+          qty_275_rebot: 6,
+          qty_330_recon: 22,
+          qty_330_new: 30,
+        })}
+      />,
+    )
+
+    // 275 = green, 330 = blue; REB carries no background, REC a light tint,
+    // NEW a medium tint — the size/type color language for the calendar.
+    const reb = screen.getByText('6×275 REB')
+    expect(reb.className).toContain('text-green-700')
+    expect(reb.className).not.toContain('bg-')
+
+    const rec = screen.getByText('22×330 REC')
+    expect(rec.className).toContain('text-blue-700')
+    expect(rec.className).toContain('bg-blue-700/13')
+
+    const brandNew = screen.getByText('30×330 NEW')
+    expect(brandNew.className).toContain('bg-blue-700/32')
   })
 
   it('renders em dash when delivery date is null', () => {

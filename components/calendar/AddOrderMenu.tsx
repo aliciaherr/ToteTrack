@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect } from 'react'
 import { format } from 'date-fns'
-import { formatProductionMix } from './productionCardFormat'
+import { formatProductionMix, productionMixText } from './productionCardFormat'
 import { useStartNewOrder } from './newOrderDay'
 import { DB_DATE_FORMAT } from '@/lib/dates'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
@@ -92,7 +92,7 @@ export default function AddOrderMenu({ date, rows, onPick, onClose }: AddOrderMe
               {row.po_number}
             </span>
             <span className="block text-xs text-muted-foreground truncate">
-              {row.customer_name ?? 'Unknown customer'} · {formatProductionMix(row).text}
+              {row.customer_name ?? 'Unknown customer'} · {productionMixText(formatProductionMix(row))}
             </span>
           </button>
         ))
