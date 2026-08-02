@@ -62,9 +62,11 @@ A **type-only** import is erased at compile time and does not require the direct
 
 > **Revised 2026-07-27 (`@security` CRIT-01):** the email's secrecy is defense-in-depth, not a wall — it appears in committed docs (`architecture.md`, `assumptions.md`, this file) on a public repo and must be treated as **publicly known**. The password is the only real secret: it lives nowhere but the Supabase dashboard, the salesperson's memory, and the gitignored `docs/testing-setup.md` — never in any committed file, *including QA and review reports* (that is how the 2026-04-25 leak happened; see `docs/security-report.md` and FI-06). The no-hardcode / no-UI rules above still stand unchanged — tests use placeholder emails (`user@example.com`), not the real one.
 
-**Who decided and when:** @plan (A-02 resolution), 2026-04-20
+> **Revised 2026-08-02 (CRIT-01 rotation):** two Supabase Auth users now exist — the **prod user** (new internal email, set only in Vercel's `ADMIN_EMAIL`) and the **QA user** (the original email, rotated password, kept in local `.env` + gitignored `testing-setup.md`). The single-user *pattern* is unchanged: each environment's `signIn` uses its own `ADMIN_EMAIL`, the UI still shows password-only, and neither email appears in source or UI. Both users have identical full RLS access to the one shared DB — the QA user is a separate identity, not a sandbox (CONSTRAINT-20 unchanged).
 
-**What this closes off:** Adding multiple users without a significant auth architecture change. This is single-user by design.
+**Who decided and when:** @plan (A-02 resolution), 2026-04-20; two-user revision: Builder, 2026-08-02
+
+**What this closes off:** Adding multiple *product* users without a significant auth architecture change. This is single-user by design.
 
 ---
 

@@ -312,3 +312,21 @@ Going back would mean reintroducing derived positions, and with them both the dr
 **Check before approving:** Nothing — this is invisible plumbing. The 55 existing query-shape tests passed without modification, which is the proof the behavior didn't move.
 
 **What this closes off:** Nothing. It reopens something, in fact: rule changes to "overdue" are now one-file edits instead of three-file hunts.
+
+---
+
+## FB-20 - The Database Phone Line Was Replaced, and Login Got Two Keys
+
+**Date:** 2026-08-02
+**Architecture reference:** `docs/architecture.md` -> Infrastructure (database connection) + Security Architecture (authentication)
+**Tasks:** none - emergency outage session (commits `54462e4`, `5b89483`)
+
+**Decided:** Two things. (1) The app now talks to the database through Supabase's "session" pooler (port 5432) instead of the "transaction" pooler (port 6543), because the transaction pooler started silently losing answers to queries - pages waited forever for replies that never came. The app also now hangs up idle database lines and holds at most 2 per server instance. (2) Login was split into two identities: a new production user (what the salesperson's login uses) and the old user, whose leaked password was replaced, kept for testing.
+
+**Means for your product:** The site works again, and any future database problem shows up as a fast, visible error instead of an endless spinner. The leaked password from April is now dead. Day-to-day nothing looks different.
+
+**Check before approving:**
+- On days with many deploys in a row, the site can briefly error until old server instances clear (~15 min). Rare at your scale; the fix if it recurs is raising "Pool Size" in Supabase settings.
+- The session pooler is a workaround. When Supabase fixes their transaction pooler, switching back (one character in one env var) removes that limitation entirely.
+
+**What this closes off:** Nothing permanently. The QA user is a separate key to the same room - it is not a safe playground; test data still lands in real data.

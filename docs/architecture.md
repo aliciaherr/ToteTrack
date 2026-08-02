@@ -298,6 +298,8 @@ lib/
 
 **Deployment:** Push to `main` → Vercel auto-deploys. All environment variables set in Vercel dashboard — never in source.
 
+**Database connection (revised 2026-08-02, FB-20):** `DATABASE_URL` points at Supabase's **session-mode pooler (port 5432)** — a deliberate workaround, not the preferred mode. The transaction pooler (:6543, the correct serverless mode) was losing/misrouting query responses (observed directly; likely fallout from Supabase's Jul 23 pooler maintenance in us-east-2), which hung every authenticated page. Session mode caps total clients at pool_size (15, builder-declined raising); `db/index.ts` therefore holds **max 2 connections per instance** plus `idle_timeout`/`max_lifetime`/`connect_timeout` — all load-bearing, do not remove. Deploy-heavy days can transiently 500 with `EMAXCONNSESSION` until stale instances die. Retest :6543 periodically and switch back once Supabase fixes it.
+
 **Supabase pausing mitigation:** cron-job.org pings `[SUPABASE_URL]/rest/v1/customers?select=id&limit=1` with `apikey` header every 5 days. Prevents 7-day inactivity pause. Setup documented in `README.md`.
 
 **File storage budget:** 1GB free. At 10MB max per PO document, that's ~100 PO docs before limit. Typical PDFs (100KB–500KB) give substantially more headroom.
@@ -307,7 +309,9 @@ lib/
 ## Security Architecture
 
 ### Authentication
-Supabase Auth single-user pattern (A-02). Fixed internal email (`admin@totetrack.app`, stored as `ADMIN_EMAIL` env var, never shown in UI). Password-only login screen.
+Supabase Auth single-user pattern (A-02). Fixed internal email stored as `ADMIN_EMAIL` env var, never shown in UI. Password-only login screen.
+
+**Revised 2026-08-02 (CRIT-01 rotation):** two auth users now exist — the **prod user** (new email, set only in Vercel's `ADMIN_EMAIL`) and the **QA user** (the original email, kept in local `.env` so local dev signs in as it; password in gitignored `testing-setup.md`). The app remains single-user per environment — `signIn` still uses whichever `ADMIN_EMAIL` its environment provides. Both users have identical full RLS access to the one shared DB (CONSTRAINT-20: not a sandbox).
 
 ### Authorization
 Row Level Security (RLS) on all 8 tables. Policy: `FOR ALL TO authenticated USING (true) WITH CHECK (true)`. Single user — any authenticated session has full access. RLS prevents any unauthenticated query from returning data, even if server-side code has a bug.
