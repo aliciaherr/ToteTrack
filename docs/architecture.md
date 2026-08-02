@@ -245,6 +245,7 @@ db/
     calendar.constants.ts ← UNSCHEDULED_DROPDOWN_VISIBLE, CALENDAR_WEEKS_BUFFER (client-safe sibling — see Platform-Native Rules)
     production-widget.ts ← getProductionWidgetData — the dashboard's next-2-business-days widget
     production-widget.constants.ts ← productionWidgetDays + row/group types (client-safe sibling)
+    customer-overdue.sql.ts ← shared order_stats/auto_freq CTEs + overdue-days fragments — the single source of the overdue-customer rule, composed by customers.sql.ts and dashboard.sql.ts (CQ-07 extraction, 2026-08-02); server-side only
     leads.ts          ← getLeads, getLeadDetail, getLeadNotes
     invoices.ts       ← getInvoiceableOrders, getInvoices, getInvoiceDetail
     support.ts        ← getTickets, getTicketDetail

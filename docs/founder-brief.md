@@ -296,3 +296,19 @@ Going back would mean reintroducing derived positions, and with them both the dr
 - One legacy order (`MAn00003239`) has no prices filled in and counts as $0 until its unit prices are entered.
 
 **What this closes off:** The dashboard no longer reports invoiced revenue anywhere — if that view matters again (e.g. for taxes), it's a new card/chart to add, not a toggle.
+
+---
+
+## FB-19 — One Definition of "Overdue Customer" Instead of Three Copies
+
+**Date:** 2026-08-02
+**Architecture reference:** `docs/architecture.md` → Database Layer (`db/queries/customer-overdue.sql.ts`)
+**Tasks:** none — code-review fix pass (commit `8e54c2c`)
+
+**Decided:** The SQL that decides when a customer is overdue for contact (their completed-order history, their average reorder gap, and the "days overdue" arithmetic) used to be pasted into three different query files — the customer list, the customer detail panel, and the dashboard's Need-to-Contact widget. It now lives in one shared module that the other files assemble from.
+
+**Means for your product:** Nothing changes on screen today — the compiled queries are verifiably identical to before. What changes is the failure mode: previously, a future tweak to the overdue rule (say, "ignore orders older than two years") had to be applied in three places, and missing one would make the dashboard and the customer list silently disagree about who's overdue. Now there is exactly one place to change, and all three surfaces move together.
+
+**Check before approving:** Nothing — this is invisible plumbing. The 55 existing query-shape tests passed without modification, which is the proof the behavior didn't move.
+
+**What this closes off:** Nothing. It reopens something, in fact: rule changes to "overdue" are now one-file edits instead of three-file hunts.
