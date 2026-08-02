@@ -2,12 +2,15 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from './schema'
 
-// Pool size cap per postgres-js client. Kept small because Supabase's
-// transaction pooler already multiplexes real DB connections behind
-// pgBouncer — client-side pooling is redundant and eats into the per-
-// instance client-connection quota (free tier caps client connections
-// relatively low; exceeding it throws `Max client connections reached`).
-const CLIENT_POOL_MAX = 5
+// Pool size cap per postgres-js client. DATABASE_URL points at Supabase's
+// SESSION-mode pooler (port 5432) since 2026-08-02 — the transaction pooler
+// (6543) was losing/misrouting query responses and hanging every
+// authenticated page (see session log). Session mode caps total clients at
+// the project's pool_size (15 on free tier) and each Vercel instance holds
+// its connections until frozen instances die, so per-instance max must stay
+// tiny: 2 conns × ~7 instances fits the cap. Exceeding it throws
+// EMAXCONNSESSION `max clients reached in session mode`.
+const CLIENT_POOL_MAX = 2
 
 const connectionString = process.env.DATABASE_URL
 if (!connectionString) {
