@@ -109,30 +109,6 @@ export async function getInvoiceableOrders(billingMonth: Date): Promise<Invoicea
 }
 
 /**
- * Returns the existing invoice for the given calendar month, or `null` if
- * none. Used by the generator to detect the overwrite case before inserting:
- * if a row comes back, the client surfaces the "already exists — overwrite?"
- * confirmation modal.
- */
-export async function getInvoiceForMonth(
-  billingMonth: Date,
-): Promise<{ id: string; invoice_number: string } | null> {
-  const monthStart = format(startOfMonth(billingMonth), DB_DATE_FORMAT)
-  try {
-    const rows = (await db.execute(sql`
-      SELECT id, invoice_number
-      FROM invoices
-      WHERE billing_month = ${monthStart}
-      LIMIT 1
-    `)) as unknown as { id: string; invoice_number: string }[]
-    return rows[0] ?? null
-  } catch (cause) {
-    console.error('getInvoiceForMonth: query failed', { billingMonth: monthStart, cause })
-    throw new DatabaseError('getInvoiceForMonth', 'Failed to look up invoice for month', { cause })
-  }
-}
-
-/**
  * Loads the invoice ledger rows for the right-panel list. v3: no status,
  * no per-customer filtering — flat chronological list, newest billing
  * month first.

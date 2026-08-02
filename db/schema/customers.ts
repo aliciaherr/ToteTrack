@@ -6,6 +6,7 @@ export const customers = pgTable('customers', {
   company_name: text('company_name').notNull(),
   status: customerStatusEnum('status').notNull().default('active'),
   contact_frequency_days: integer('contact_frequency_days'),
+  // DEPRECATED (Feature 14 / CONSTRAINT-21) — retained in DB, never read/written by app code; drop deferred.
   default_delivery_address: text('default_delivery_address'),
   notes: text('notes'),
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

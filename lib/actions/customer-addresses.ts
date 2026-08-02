@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { db } from '@/db'
 import { customerAddresses } from '@/db/schema'
 import { UUID_RE } from '@/lib/validators/uuid'
-import { firstZodMessage } from './orders.validation'
+import { DELIVERY_ADDRESS_MAX, firstZodMessage } from './orders.validation'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
 // Saved addresses surface in three places: the customer detail panel
@@ -18,17 +18,15 @@ import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 // because it includes `/dashboard`, which never renders addresses.
 const ADDRESS_REVALIDATE_PATHS = ['/customers', '/orders', '/calendar'] as const
 
-// Same cap as `DELIVERY_ADDRESS_MAX` (orders) — an address is bounded
-// identically everywhere.
-const ADDRESS_MAX = 500
-
 // `.trim()` runs before `.min(1)` so whitespace-only strings are rejected
 // server-side. The parsed output is the trimmed text — what gets stored.
+// Shares `DELIVERY_ADDRESS_MAX` (orders) — an address is bounded identically
+// everywhere.
 const addressSchema = z
   .string()
   .trim()
   .min(1, 'Address is required.')
-  .max(ADDRESS_MAX, `Address must be ${ADDRESS_MAX} characters or fewer.`)
+  .max(DELIVERY_ADDRESS_MAX, `Address must be ${DELIVERY_ADDRESS_MAX} characters or fewer.`)
 
 function revalidateAddressPaths(): void {
   for (const path of ADDRESS_REVALIDATE_PATHS) revalidatePath(path)

@@ -1,6 +1,7 @@
 /**
- * Pure transforms that reshape the raw invoice-trend data (one row per
- * `billing_month`) into the 4 shapes the dashboard chart renders. Separated
+ * Pure transforms that reshape the raw revenue-trend data (one row per
+ * `billing_month` revenue bucket) into the 4 shapes the dashboard chart
+ * renders. Separated
  * from the chart component so each transform has a dedicated unit test and
  * the component file stays well under the CQ-02 200-line component cap.
  */
@@ -50,9 +51,9 @@ function rollingMonthKeys(today: Date): string[] {
 
 /**
  * Per-period monthly: rolling last 12 calendar months. Months with no
- * invoices render as $0 bars (present in the series with a zero value so the
- * x-axis timeline stays continuous). Exposed for testing — accepts an
- * explicit `today` to keep the transform pure.
+ * revenue-dated orders render as $0 bars (present in the series with a zero
+ * value so the x-axis timeline stays continuous). Exposed for testing —
+ * accepts an explicit `today` to keep the transform pure.
  */
 export function transformPerPeriodMonthly(
   data: RevenueTrendRow[],
@@ -85,9 +86,9 @@ export function transformCumulativeMonthly(
 
 /**
  * Per-period annual: one bar per calendar year that has at least one
- * invoice. Sorted by year ascending. Years with zero invoices are omitted
- * (unlike the monthly transform, there is no fixed window — the x-axis
- * reflects actual history).
+ * revenue-dated order. Sorted by year ascending. Years with zero revenue are
+ * omitted (unlike the monthly transform, there is no fixed window — the
+ * x-axis reflects actual history).
  */
 export function transformPerPeriodAnnual(data: RevenueTrendRow[]): ChartPoint[] {
   const totals = totalsByYear(data)

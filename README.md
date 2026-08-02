@@ -56,7 +56,7 @@ Do this once per Supabase project. The migrations and auth user are persistent �
 
 ### 2. Apply the database migrations
 
-There are **eleven** migration files under `db/migrations/`. They must **all** run, **in numerical order**, on a fresh Supabase project. Skipping any of them leaves the schema behind the application code and screens will fail at query time.
+There are **thirteen** migration files under `db/migrations/`. They must **all** run, **in numerical order**, on a fresh Supabase project. Skipping any of them leaves the schema behind the application code and screens will fail at query time.
 
 - `0001_initial_schema.sql` — tables, enums, foreign keys (generated from the Drizzle schema)
 - `0002_rls_policies.sql` — enables Row Level Security on all eight tables (CONSTRAINT-05 — mandatory, never disable)
@@ -69,14 +69,16 @@ There are **eleven** migration files under `db/migrations/`. They must **all** r
 - `0009_po_unit_prices.sql` — the six `unit_price_*` columns; `price` becomes a derived total (Feature 10)
 - `0010_production_calendar.sql` — `production_date`, `same_day_delivery`, `production_sort_index` (Feature 11 / CONSTRAINT-19)
 - `0011_backfill_production_date.sql` — **data migration, no schema change.** Writes a starting `production_date` for existing rows. Must run *after* `0010`. Idempotent, and a no-op on a genuinely fresh database with no orders.
+- `0012_customer_addresses.sql` — the `customer_addresses` table (saved delivery addresses, Feature 14), backfilled from `customers.default_delivery_address`, with RLS enabled
+- `0013_customer_addresses_unique.sql` — collapses any duplicate saved addresses, then adds a `UNIQUE (customer_id, address)` index. Must run *after* `0012`.
 
 There is **no CLI migration runner** in this repo. Apply each file by pasting it into the Supabase SQL Editor and running them in sequence:
 
 1. Open the Supabase Dashboard → SQL Editor → New query.
 2. Paste the contents of `db/migrations/0001_initial_schema.sql` → Run.
-3. Repeat for each remaining file **in numerical order**, through `0011`.
+3. Repeat for each remaining file **in numerical order**, through `0013`.
 
-Verify the result by running `SELECT tablename FROM pg_tables WHERE schemaname = 'public';` — you should see `customers`, `customer_contacts`, `orders`, `leads`, `lead_notes`, `invoices`, `support_tickets`, and `support_attachments`.
+Verify the result by running `SELECT tablename FROM pg_tables WHERE schemaname = 'public';` — you should see `customers`, `customer_contacts`, `customer_addresses`, `orders`, `leads`, `lead_notes`, `invoices`, `support_tickets`, and `support_attachments`.
 
 ### 3. Create the single Auth user
 

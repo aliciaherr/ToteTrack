@@ -5,16 +5,13 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '@/db'
 import { customers, customerContacts, orders } from '@/db/schema'
-import { createClient } from '@/lib/supabase/server'
+import { UUID_RE } from '@/lib/validators/uuid'
+import { firstZodMessage, nullIfBlank } from './orders.validation'
+import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 import { MAX_CONTACTS_PER_CUSTOMER } from './customers.constants'
 
-// User-facing fallback for any server-side failure that isn't a validation or
-// auth rejection. The detailed cause is captured in server logs via
-// console.error — never surfaced to the client (SEC-05, EH-04).
-const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
-
-// Min year-0 / max ~30 years — a manual frequency override beyond this is
-// almost certainly an entry error.
+// Max 10 years — a manual frequency override beyond this is almost certainly
+// an entry error.
 const MAX_FREQUENCY_DAYS = 10 * 365
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -25,7 +22,6 @@ const CONTACT_ROLE_MAX = 120
 const CONTACT_EMAIL_MAX = 254
 const CONTACT_PHONE_MAX = 40
 const NOTES_MAX = 2000
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const contactSchema = z
   .object({
@@ -83,12 +79,6 @@ export type CustomerInput = z.input<typeof customerInputSchema>
 type ValidatedCustomer = z.output<typeof customerInputSchema>
 type ValidatedContact = ValidatedCustomer['contacts'][number]
 
-function nullIfBlank(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
-}
-
 function normalizeContact(contact: ValidatedContact) {
   return {
     name: contact.name.trim(),
@@ -97,17 +87,6 @@ function normalizeContact(contact: ValidatedContact) {
     phone: nullIfBlank(contact.phone),
     is_primary: contact.is_primary,
   }
-}
-
-async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user) return { error: 'You are not signed in.' }
-  return null
-}
-
-function firstZodMessage(error: z.ZodError): string {
-  return error.issues[0]?.message ?? 'Invalid input.'
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -147,13 +126,18 @@ async function insertContacts(
 export async function createCustomer(
   input: CustomerInput,
 ): Promise<{ id: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  const parsed = customerInputSchema.safeParse(input)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
+  // Captured before the transaction so the failure log can identify which
+  // customer the write was for (EH-02). Undefined until validation passes.
+  let companyName: string | undefined
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    const parsed = customerInputSchema.safeParse(input)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+    companyName = parsed.data.company_name
+
     const result = await db.transaction(async (tx) => {
       const customer = await insertCustomerRecord(tx, parsed.data)
       await insertContacts(tx, customer.id, parsed.data.contacts)
@@ -162,7 +146,7 @@ export async function createCustomer(
     revalidatePath('/customers')
     return { id: result.id }
   } catch (cause) {
-    console.error('createCustomer: transaction failed', { cause })
+    console.error('createCustomer: transaction failed', { companyName, cause })
     return { error: GENERIC_FAILURE_MESSAGE }
   }
 }
@@ -178,15 +162,16 @@ export async function updateCustomer(
   id: string,
   input: CustomerInput,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  if (!UUID_RE.test(id)) return { error: 'Invalid customer id.' }
-
-  const parsed = customerInputSchema.safeParse(input)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    if (!UUID_RE.test(id)) return { error: 'Invalid customer id.' }
+
+    const parsed = customerInputSchema.safeParse(input)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     await db.transaction(async (tx) => {
       await tx
         .update(customers)
@@ -218,12 +203,13 @@ export async function updateCustomer(
 export async function deleteCustomer(
   id: string,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  if (!UUID_RE.test(id)) return { error: 'Invalid customer id.' }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    if (!UUID_RE.test(id)) return { error: 'Invalid customer id.' }
+
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(orders)

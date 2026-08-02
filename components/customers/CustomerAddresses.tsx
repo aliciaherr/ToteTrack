@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { FORM_INPUT_CLASS } from './customerFormSchema'
 import { useCustomerAddresses, type CustomerAddressesState } from './useCustomerAddresses'
+// Same bound the server actions enforce (lib/actions/customer-addresses.ts).
+// Safe to import client-side: orders.validation.ts is not a 'use server' file.
+import { DELIVERY_ADDRESS_MAX } from '@/lib/actions/orders.validation'
 import type { CustomerAddressOption } from '@/db/queries/customers'
-
-// Same bound the server actions enforce (`ADDRESS_MAX` in lib/actions/customer-addresses.ts).
-const ADDRESS_MAX_LENGTH = 500
 
 interface CustomerAddressesProps {
   customerId: string
@@ -32,7 +32,7 @@ function AddressEditor({
     <div className="space-y-2">
       <textarea
         rows={2}
-        maxLength={ADDRESS_MAX_LENGTH}
+        maxLength={DELIVERY_ADDRESS_MAX}
         value={text}
         onChange={(event) => setText(event.target.value)}
         aria-label={ariaLabel}

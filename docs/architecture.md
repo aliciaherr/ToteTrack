@@ -166,6 +166,7 @@ components/
     ProductionCard.tsx      ← presentational card, context-free
     productionCardStatus.ts ← isBuiltStatus + built/active surface classes, shared with the dashboard widget (extracted 2026-07-27 at the 200-line cap)
     productionCardFormat.ts ← formatProductionMix (the `12×275 REC` line)
+    productionCardColors.tsx ← COMBO_CLASS + ColoredMix — the mix line's size/type coloring (line-cap split)
     SortableProductionCard.tsx ← drag wrapper; the tap target that opens the popup, arms on touch long-press (Task 68)
     CalendarDndContext.tsx  ← sensors (mouse/pen + keyboard — touch deliberately has none), collision detection, auto-scroll, DragOverlay
     calendarDnd.ts          ← pure drop resolution + sensor constants (type-only @dnd-kit import)

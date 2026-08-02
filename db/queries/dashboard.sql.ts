@@ -1,7 +1,15 @@
 import { sql } from 'drizzle-orm'
+import {
+  ORDER_STATS_CTE,
+  AUTO_FREQ_CTE,
+  EFFECTIVE_FREQUENCY_EXPR,
+  OVERDUE_DAYS_EXPR,
+} from './customer-overdue.sql'
 
 // Raw SQL builders for the dashboard query module. Extracted so
 // `dashboard.ts` stays under the 300-line service-file cap (CQ-02).
+// The overdue-customer rule (order_stats / auto_freq / overdue_days) lives in
+// `customer-overdue.sql.ts` and is composed here (CQ-07).
 // Drizzle's `sql` template parameterises every interpolated value — no
 // string concatenation crosses the boundary, so these fragments are safe
 // from injection (SEC-02).
@@ -57,50 +65,26 @@ export function buildPoHeroCountsQuery(startDate: string, endDate: string) {
  * qualifies when active AND either (a) manual override is set OR (b) they
  * have ≥ 2 completed orders (auto-freq AVG over LAG() needs two rows).
  * Outer filter: `overdue_days > 0`. Sort: `overdue_days DESC`.
+ *
+ * The overdue expression appears in both SELECT and WHERE because Postgres
+ * forbids referencing a SELECT alias in WHERE — both splices come from the
+ * single `OVERDUE_DAYS_EXPR` fragment, so the rule still has one home.
  */
 export function buildNeedToContactQuery(limit: number) {
   return sql`
-    WITH order_stats AS (
-      SELECT
-        o.customer_id,
-        COUNT(*) FILTER (WHERE o.status IN ('completed', 'invoiced'))::int AS completed_order_count,
-        MAX(o.requested_delivery_date) FILTER (WHERE o.status IN ('completed', 'invoiced')) AS last_completed_date
-      FROM orders o
-      GROUP BY o.customer_id
-    ),
-    auto_freq AS (
-      SELECT
-        customer_id,
-        AVG(interval_days)::numeric AS avg_freq_days
-      FROM (
-        SELECT
-          customer_id,
-          requested_delivery_date - LAG(requested_delivery_date) OVER (
-            PARTITION BY customer_id ORDER BY requested_delivery_date
-          ) AS interval_days
-        FROM orders
-        WHERE status IN ('completed', 'invoiced')
-      ) intervals
-      WHERE interval_days IS NOT NULL
-      GROUP BY customer_id
-    )
+    WITH ${ORDER_STATS_CTE},
+    ${AUTO_FREQ_CTE}
     SELECT
       c.id,
       c.company_name,
-      (
-        (CURRENT_DATE - os.last_completed_date)::int
-        - CEIL(COALESCE(c.contact_frequency_days::numeric, af.avg_freq_days))::int
-      ) AS overdue_days
+      ${OVERDUE_DAYS_EXPR} AS overdue_days
     FROM customers c
     LEFT JOIN order_stats os ON os.customer_id = c.id
     LEFT JOIN auto_freq af ON af.customer_id = c.id
     WHERE c.status = 'active'
       AND os.last_completed_date IS NOT NULL
-      AND COALESCE(c.contact_frequency_days::numeric, af.avg_freq_days) IS NOT NULL
-      AND (
-        (CURRENT_DATE - os.last_completed_date)::int
-        - CEIL(COALESCE(c.contact_frequency_days::numeric, af.avg_freq_days))::int
-      ) > 0
+      AND ${EFFECTIVE_FREQUENCY_EXPR} IS NOT NULL
+      AND ${OVERDUE_DAYS_EXPR} > 0
     ORDER BY overdue_days DESC, c.company_name ASC
     LIMIT ${limit}
   `

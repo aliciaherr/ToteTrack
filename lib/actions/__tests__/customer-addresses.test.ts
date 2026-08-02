@@ -81,6 +81,11 @@ function expectRevalidatedAll() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetUser.mockResolvedValue(AUTH_OK)
+  // Capture vars are also reset inside the stub helpers; resetting here too
+  // keeps tests that never install a stub from seeing a previous test's payload.
+  lastInsertValues = null
+  lastUpdateSet = null
+  lastConflictSet = null
 })
 
 describe('addCustomerAddress', () => {
@@ -162,6 +167,14 @@ describe('updateCustomerAddress', () => {
     expect(result).toEqual({ error: 'Address not found.' })
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
+
+  it('rejects when the user is not authenticated', async () => {
+    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null })
+    const result = await updateCustomerAddress(ADDRESS_ID, '456 Oak Ave')
+    expect(result).toEqual({ error: 'You are not signed in.' })
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+  })
 })
 
 describe('deleteCustomerAddress', () => {
@@ -171,6 +184,28 @@ describe('deleteCustomerAddress', () => {
     expect(result).toEqual({ success: true })
     expect(mockDelete).toHaveBeenCalledOnce()
     expectRevalidatedAll()
+  })
+
+  it('rejects a malformed address id before touching the database', async () => {
+    const result = await deleteCustomerAddress('not-a-uuid')
+    expect(result).toEqual({ error: 'Invalid address id.' })
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('returns an error when no row matched the id', async () => {
+    stubDeleteReturning([])
+    const result = await deleteCustomerAddress(ADDRESS_ID)
+    expect(result).toEqual({ error: 'Address not found.' })
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('rejects when the user is not authenticated', async () => {
+    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null })
+    const result = await deleteCustomerAddress(ADDRESS_ID)
+    expect(result).toEqual({ error: 'You are not signed in.' })
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 
   it('returns a user-facing error and logs context when the delete fails', async () => {
