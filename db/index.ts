@@ -22,9 +22,24 @@ const globalForPostgres = globalThis as unknown as {
   postgresClient: ReturnType<typeof postgres> | undefined
 }
 
+// Serverless connection lifecycle (fixes the 2026-08-02 production hang):
+// Vercel function instances idle between visits, and the network path
+// (Supavisor / AWS NAT) silently drops idle TCP sockets after a few minutes.
+// Without these timeouts postgres-js reuses the dead socket and a query
+// waits forever — the user sees an infinite loading state. idle_timeout
+// closes our side first so a thawed instance always dials fresh;
+// max_lifetime bounds connection age; connect_timeout turns a failed dial
+// into a loud error instead of a hang. Standard postgres-js serverless
+// settings, per Supabase's own guidance.
 const client =
   globalForPostgres.postgresClient ??
-  postgres(connectionString, { prepare: false, max: CLIENT_POOL_MAX })
+  postgres(connectionString, {
+    prepare: false,
+    max: CLIENT_POOL_MAX,
+    idle_timeout: 20,
+    max_lifetime: 60 * 30,
+    connect_timeout: 10,
+  })
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPostgres.postgresClient = client
