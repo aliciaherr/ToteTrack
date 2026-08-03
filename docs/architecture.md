@@ -362,7 +362,7 @@ Currently applied to:
 
 ## Performance Considerations
 
-- Need-to-Contact calculation: computed at query time via SQL aggregation. Single-user with hundreds of orders — runs in milliseconds. No background job or materialized view needed.
+- Need-to-Contact calculation: computed at query time via SQL aggregation. Single-user with hundreds of orders — runs in milliseconds. No background job or materialized view needed. A customer with a scheduled order is never overdue (`overdue_days` NULL, excluded from the widget) — an order is already booked, so there is nothing to contact them about (Task 74, 2026-08-02).
 - **Calendar range filter is index-backed again (2026-07-27).** `getCalendarOrders` now filters on the bare column (`o.production_date >= from AND <= to`), which is sargable, so `orders_production_date_idx` serves it. The previous `COALESCE(production_date, …)` form forced a sequential scan and was logged as **FI-02**; removing the read-time derivation removed the problem rather than working around it. No functional index is needed.
 - Server Components: data fetched before page renders — no client-side loading state for initial content.
 - Animations: `useReducedMotion()` checked in all animated components — instant transitions when accessibility preference set.

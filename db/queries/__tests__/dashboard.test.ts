@@ -174,6 +174,14 @@ describe('getNeedToContactList', () => {
     expect(compiled.sql).toMatch(/ORDER BY\s+overdue_days\s+DESC/i)
   })
 
+  it('excludes customers with a scheduled order — a booked order means no contact needed (Task 74)', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getNeedToContactList()
+    const compiled = compiledCall(0)
+    expect(compiled.sql).toMatch(/bool_or\(o\.status\s*=\s*'scheduled'\)\s+AS\s+has_scheduled_order/i)
+    expect(compiled.sql).toMatch(/os\.has_scheduled_order\s+IS NOT TRUE/i)
+  })
+
   it('returns an empty array when no customers qualify (not an error)', async () => {
     mockExecute.mockResolvedValueOnce([])
     const result = await getNeedToContactList()

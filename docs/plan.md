@@ -2501,3 +2501,15 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 **Depends on:** Task 70, Task 71
 
 ---
+
+## Task 74: Need-to-Contact — suppress customers with a scheduled order
+
+**Rule change (stub — approved in-session 2026-08-02):** a customer with any `status = 'scheduled'` order is never overdue for contact — an order is already booked. `overdue_days` returns NULL for them (all surfaces show nothing), and the dashboard Need-to-Contact list excludes them. Frequency math stays completed-only. Implemented as `has_scheduled_order` (`bool_or`) in the `order_stats` CTEs in `db/queries/customer-overdue.sql.ts` + a WHERE guard in `buildNeedToContactQuery`. Read-path only — no schema change.
+
+**Acceptance criteria:**
+- [x] Customer with a scheduled order: absent from Need-to-Contact, `overdue_days` NULL on customer list + detail
+- [x] Suite green, `tsc` clean
+
+**Status:** [x] Done 2026-08-02 — `has_scheduled_order` via `bool_or` in both `order_stats` CTEs; `WHEN os.has_scheduled_order THEN NULL` leads the overdue CASE; `IS NOT TRUE` guard in Need-to-Contact WHERE (NULL-safe for no-order customers). 3 new SQL-contract tests (878 suite-wide), `tsc` clean.
+
+---

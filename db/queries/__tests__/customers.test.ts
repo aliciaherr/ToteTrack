@@ -75,6 +75,14 @@ describe('getCustomers', () => {
     expect(compiled).not.toMatch(/ILIKE/)
   })
 
+  it('suppresses overdue_days for customers with a scheduled order (Task 74)', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCustomers()
+    const { sql: compiled } = compileLastCall()
+    expect(compiled).toMatch(/bool_or\(o\.status\s*=\s*'scheduled'\)\s+AS\s+has_scheduled_order/i)
+    expect(compiled).toMatch(/CASE\s+WHEN os\.has_scheduled_order THEN NULL/i)
+  })
+
   it('orders by completed_order_count DESC when sort=order_count', async () => {
     mockExecute.mockResolvedValueOnce([])
     await getCustomers({ sort: 'order_count' })
@@ -158,6 +166,9 @@ describe('getCustomerDetail', () => {
     const detailQuery = compileCall(0)
     expect(detailQuery.sql, 'deprecated column must not be selected').not.toMatch(
       /default_delivery_address/,
+    )
+    expect(detailQuery.sql, 'scheduled order suppresses overdue (Task 74)').toMatch(
+      /bool_or\(status\s*=\s*'scheduled'\)\s+AS\s+has_scheduled_order/i,
     )
     const addressesQuery = compileCall(2)
     expect(addressesQuery.sql).toMatch(/FROM customer_addresses/)

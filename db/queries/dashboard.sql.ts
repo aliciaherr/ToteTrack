@@ -64,6 +64,10 @@ export function buildPoHeroCountsQuery(startDate: string, endDate: string) {
  * Effective frequency = `COALESCE(manual_override, auto_freq)`. A customer
  * qualifies when active AND either (a) manual override is set OR (b) they
  * have ≥ 2 completed orders (auto-freq AVG over LAG() needs two rows).
+ * A customer with a scheduled order is excluded outright — an order is
+ * already booked, so there is nothing to contact them about (Task 74). The
+ * `IS NOT TRUE` form keeps no-order customers (NULL from the LEFT JOIN) on
+ * the correct side of the filter.
  * Outer filter: `overdue_days > 0`. Sort: `overdue_days DESC`.
  *
  * The overdue expression appears in both SELECT and WHERE because Postgres
@@ -82,6 +86,7 @@ export function buildNeedToContactQuery(limit: number) {
     LEFT JOIN order_stats os ON os.customer_id = c.id
     LEFT JOIN auto_freq af ON af.customer_id = c.id
     WHERE c.status = 'active'
+      AND os.has_scheduled_order IS NOT TRUE
       AND os.last_completed_date IS NOT NULL
       AND ${EFFECTIVE_FREQUENCY_EXPR} IS NOT NULL
       AND ${OVERDUE_DAYS_EXPR} > 0

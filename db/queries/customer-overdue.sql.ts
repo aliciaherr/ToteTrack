@@ -5,11 +5,16 @@ import { sql } from 'drizzle-orm'
 // `dashboard.sql.ts` (Need-to-Contact query). The rule, in one place:
 //
 //   - A "completed" order means `status IN ('completed', 'invoiced')`.
-//   - `order_stats`: completed-order count + last completed delivery date.
+//   - `order_stats`: completed-order count + last completed delivery date +
+//     whether any order is currently scheduled.
 //   - `auto_freq`: average gap in days between consecutive completed orders
 //     (LAG over a window ordered by requested_delivery_date).
 //   - Effective contact frequency = manual override if set, else auto average.
 //   - overdue_days = (days since last completed order) - CEIL(effective freq).
+//   - A customer with a scheduled order is never overdue (overdue_days NULL):
+//     an order is already booked, so there is nothing to contact them about
+//     (Task 74). The frequency math stays completed-only — scheduled dates
+//     are promises, not delivery facts.
 //
 // Fragments assume the canonical aliases used at every call site:
 // `c` = customers, `os` = order_stats, `af` = auto_freq.
@@ -26,7 +31,8 @@ export const ORDER_STATS_CTE = sql`order_stats AS (
     SELECT
       o.customer_id,
       COUNT(*) FILTER (WHERE o.status IN ('completed', 'invoiced'))::int AS completed_order_count,
-      MAX(o.requested_delivery_date) FILTER (WHERE o.status IN ('completed', 'invoiced')) AS last_completed_date
+      MAX(o.requested_delivery_date) FILTER (WHERE o.status IN ('completed', 'invoiced')) AS last_completed_date,
+      bool_or(o.status = 'scheduled') AS has_scheduled_order
     FROM orders o
     GROUP BY o.customer_id
   )`
@@ -59,7 +65,8 @@ export const AUTO_FREQ_CTE = sql`auto_freq AS (
 export const customerOrderStatsCte = (customerId: string) => sql`order_stats AS (
     SELECT
       COUNT(*) FILTER (WHERE status IN ('completed', 'invoiced'))::int AS completed_order_count,
-      MAX(requested_delivery_date) FILTER (WHERE status IN ('completed', 'invoiced')) AS last_completed_date
+      MAX(requested_delivery_date) FILTER (WHERE status IN ('completed', 'invoiced')) AS last_completed_date,
+      bool_or(status = 'scheduled') AS has_scheduled_order
     FROM orders
     WHERE customer_id = ${customerId}
   )`
@@ -98,10 +105,12 @@ export const OVERDUE_DAYS_EXPR = sql`(
       )`
 
 /**
- * NULL-guarded `overdue_days` select item: NULL when the customer has no
- * completed orders or no derivable frequency, else the overdue arithmetic.
+ * NULL-guarded `overdue_days` select item: NULL when the customer has a
+ * scheduled order (nothing to contact them about — Task 74), no completed
+ * orders, or no derivable frequency; else the overdue arithmetic.
  */
 export const OVERDUE_DAYS_SELECT_CASE = sql`CASE
+      WHEN os.has_scheduled_order THEN NULL
       WHEN os.last_completed_date IS NULL THEN NULL
       WHEN ${EFFECTIVE_FREQUENCY_EXPR} IS NULL THEN NULL
       ELSE ${OVERDUE_DAYS_EXPR}

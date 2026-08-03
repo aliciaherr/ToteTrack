@@ -330,3 +330,19 @@ Going back would mean reintroducing derived positions, and with them both the dr
 - The session pooler is a workaround. When Supabase fixes their transaction pooler, switching back (one character in one env var) removes that limitation entirely.
 
 **What this closes off:** Nothing permanently. The QA user is a separate key to the same room - it is not a safe playground; test data still lands in real data.
+
+---
+
+## FB-21 — A Booked Order Silences the "Call Them" Reminder
+
+**Date:** 2026-08-02
+**Architecture reference:** `docs/architecture.md` → Performance Considerations (Need-to-Contact rule)
+**Tasks:** Task 74
+
+**Decided:** A customer who already has a scheduled order no longer appears in the Need-to-Contact list, and their "overdue" indicator disappears everywhere (customer list and detail show nothing) until that order completes or is cancelled.
+
+**Means for your product:** The reminder list now means exactly "call these people to book an order." Before, a customer could show as overdue even though their next delivery was already on the books — a call you'd never actually make. The reorder-frequency math itself is untouched: it still learns only from completed deliveries, so a promised date can't skew the averages.
+
+**Check before approving:** If a scheduled order sits open for a long time (never marked complete or cancelled), that customer stays silenced the whole while. Acceptable because a stale scheduled order is itself visible on the dashboard's Open Orders widget and the calendar.
+
+**What this closes off:** Nothing — one-line rule in one shared SQL module; trivially reversible.
