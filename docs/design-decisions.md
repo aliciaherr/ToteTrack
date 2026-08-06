@@ -39,8 +39,8 @@
 - **Density:** Moderate — not spreadsheet-tight, not spacious — match the mockup exactly
 
 ### Iconography
-- Material-style icons (as used in the mockup)
-- Consistent sizing across nav and table rows
+- ~~Material-style icons (as used in the mockup)~~ — **as-built: `lucide-react` (`^1.8.0`).** No Material icon package is or ever was installed; every icon in `components/**` comes from lucide. Discovered 2026-08-06. Accepted as-is — swapping icon sets now touches every screen for no user-facing gain.
+- Consistent sizing across nav and table rows — `h-5 w-5` in nav, `size-4` inside buttons.
 
 ---
 
