@@ -1,17 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
-import { hasAnyChannel } from './contactLinks'
+import { useCallback, useRef, useState } from 'react'
+import { useDismissOnOutsideOrEsc } from '@/lib/hooks/useDismissOnOutsideOrEsc'
+import { hasAnyChannel } from '@/lib/contact-links'
 import { ChannelItems, ContactRow } from './ContactMenuParts'
+import { ContactMenuTrigger } from './ContactMenuTrigger'
 import type { CalendarContact } from '@/db/queries/calendar'
 
 interface ContactMenuProps {
   contacts: CalendarContact[]
-  /** True while a popup mutation is in flight. */
-  disabled: boolean
   /**
    * Reports the menu opening and closing. The production-card popup uses it to
    * stand down its own Escape handler while this menu is up — see
@@ -21,29 +18,20 @@ interface ContactMenuProps {
 }
 
 /**
- * The Contact menu on the production-card popup: reach the people on this
- * order's customer by text or email without leaving the calendar.
+ * Open state, expansion state and dismissal for the menu, kept out of the
+ * component so the render stays inside the 50-line function cap (CQ-01).
  *
- * The trigger greys out on "no usable channel" rather than "no contacts", and
- * that is deliberate — a contact row carrying neither an email nor a phone is
- * the same dead end as having no contacts at all, so offering a menu that can
- * only show two disabled rows would be a promise the data cannot keep.
- *
- * The panel is absolutely positioned and left-aligned at 220px so it cannot
- * clip horizontally inside the popup's ~400px usable width. It overlays the
- * content below it; that is intended — the menu is transient and the status
- * block it covers is not readable-while-choosing anyway.
- *
- * The panel is **not** `role="dialog"`. `useFocusTrap` shrinks the popup's tab
- * ring to the first `[role="dialog"]` it finds inside the panel, and a menu
- * claiming that role would hijack a trap meant for the confirm dialogs.
+ * Escape closes the menu and stops there. The popup behind it is already
+ * standing down (it was told `onOpenChange(true)`), so the next press closes the
+ * popup — the same two-step the confirm dialogs produce. The dismissing press is
+ * deliberately *not* swallowed, unlike the dashboard speed dial's: this menu
+ * only ever opens inside a modal panel, so the tap that closes it has nothing
+ * behind it worth protecting.
  */
-export default function ContactMenu({ contacts, disabled, onOpenChange }: ContactMenuProps) {
+function useContactMenu(onOpenChange: (open: boolean) => void) {
   const [open, setOpen] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
-
-  const isDisabled = disabled || !hasAnyChannel(contacts)
 
   const setMenuOpen = useCallback(
     (next: boolean) => {
@@ -58,47 +46,45 @@ export default function ContactMenu({ contacts, disabled, onOpenChange }: Contac
 
   const close = useCallback(() => setMenuOpen(false), [setMenuOpen])
 
-  useEffect(() => {
-    if (!open) return
+  useDismissOnOutsideOrEsc(open, wrapperRef, close, { pointerEvent: 'pointerdown' })
 
-    // Escape closes the menu and stops there. The popup behind it is already
-    // standing down (it was told `onOpenChange(true)`), so the next press
-    // closes the popup — the same two-step the confirm dialogs produce.
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') close()
-    }
-    function handlePointerDown(event: PointerEvent) {
-      if (!wrapperRef.current?.contains(event.target as Node)) close()
-    }
+  return { open, expandedId, setExpandedId, wrapperRef, setMenuOpen, close }
+}
 
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('pointerdown', handlePointerDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('pointerdown', handlePointerDown)
-    }
-  }, [open, close])
+/**
+ * The Contact menu on the production-card popup: reach the people on this
+ * order's customer by text or email without leaving the calendar.
+ *
+ * The trigger greys out on "no usable channel" rather than "no contacts", and
+ * that is deliberate — a contact row carrying neither an email nor a phone is
+ * the same dead end as having no contacts at all, so offering a menu that can
+ * only show two disabled rows would be a promise the data cannot keep. There is
+ * no host-driven `disabled`: the menu only reads, so unlike the popup's pills it
+ * stays usable while a mutation is in flight, and a prop whose only call site
+ * hardcoded `false` was a contract no caller could exercise.
+ *
+ * The panel is absolutely positioned and left-aligned at 220px so it cannot
+ * clip horizontally inside the popup's ~400px usable width. It overlays the
+ * content below it; that is intended — the menu is transient and the status
+ * block it covers is not readable-while-choosing anyway.
+ *
+ * The panel is **not** `role="dialog"`. `useFocusTrap` shrinks the popup's tab
+ * ring to the first `[role="dialog"]` it finds inside the panel, and a menu
+ * claiming that role would hijack a trap meant for the confirm dialogs.
+ */
+export default function ContactMenu({ contacts, onOpenChange }: ContactMenuProps) {
+  const { open, expandedId, setExpandedId, wrapperRef, setMenuOpen, close } =
+    useContactMenu(onOpenChange)
 
   return (
     // `relative` anchors the panel; `shrink-0` because this wrapper — not the
     // button inside it — is the flex item in the status block's nowrap row.
     <div ref={wrapperRef} className="relative shrink-0">
-      <Button
-        type="button"
-        variant="outline"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={isDisabled}
-        title={isDisabled ? 'No contact details on file' : undefined}
-        onClick={() => setMenuOpen(!open)}
-        className="min-h-[44px] shrink-0"
-      >
-        Contact
-        <ChevronDown
-          aria-hidden="true"
-          className={cn('size-4 transition-transform duration-200', open && 'rotate-180')}
-        />
-      </Button>
+      <ContactMenuTrigger
+        open={open}
+        disabled={!hasAnyChannel(contacts)}
+        onToggle={() => setMenuOpen(!open)}
+      />
 
       {open && (
         <div

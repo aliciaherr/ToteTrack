@@ -1,8 +1,8 @@
 'use client'
 
-import { Button } from '@/components/ui/button'
 import CancelOrderDialog from './CancelOrderDialog'
 import RevertOrderDialog from './RevertOrderDialog'
+import { ActionRow, StatusButton } from './OrderStatusActionsParts'
 import { useStatusActions } from './useStatusActions'
 import type { PoStatus } from '@/db/queries/orders'
 
@@ -25,39 +25,76 @@ interface OrderStatusActionsProps {
   leadingAction?: React.ReactNode
 }
 
-function ErrorAlert({ message }: { message: string }) {
+/** Everything `useStatusActions` hands back, passed whole to one branch. */
+type StatusActions = ReturnType<typeof useStatusActions>
+
+/** The forward path on a scheduled order: complete it, or cancel it. */
+function ScheduledActions({
+  actions,
+  poNumber,
+  leadingAction,
+}: {
+  actions: StatusActions
+  poNumber: string
+  leadingAction?: React.ReactNode
+}) {
+  const { errorMessage, disabled, cancelOpen, openCancel } = actions
+
   return (
-    <div
-      role="alert"
-      className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2"
+    <ActionRow
+      errorMessage={errorMessage}
+      leadingAction={leadingAction}
+      confirmDialog={
+        <CancelOrderDialog
+          open={cancelOpen}
+          poNumber={poNumber}
+          onCancel={() => openCancel(false)}
+          onConfirm={actions.handleCancelConfirm}
+        />
+      }
     >
-      {message}
-    </div>
+      <StatusButton onClick={actions.markComplete} disabled={disabled}>
+        Mark as Complete
+      </StatusButton>
+      <StatusButton variant="destructive" onClick={() => openCancel(true)} disabled={disabled}>
+        Cancel Order
+      </StatusButton>
+    </ActionRow>
   )
 }
 
-/** One status button. 44px tall, whatever the branch — the touch-target floor. */
-function StatusButton({
-  variant,
-  onClick,
-  disabled,
-  children,
+/** The undo path — an invoiced revert also recomputes or deletes the invoice. */
+function RevertAction({
+  actions,
+  poNumber,
+  currentStatus,
+  leadingAction,
 }: {
-  variant?: 'destructive' | 'outline'
-  onClick: () => void
-  disabled: boolean
-  children: React.ReactNode
+  actions: StatusActions
+  poNumber: string
+  currentStatus: PoStatus
+  leadingAction?: React.ReactNode
 }) {
+  const { errorMessage, disabled, revertOpen, openRevert } = actions
+
   return (
-    <Button
-      type="button"
-      variant={variant}
-      onClick={onClick}
-      disabled={disabled}
-      className="min-h-[44px] shrink-0 whitespace-nowrap px-3"
+    <ActionRow
+      errorMessage={errorMessage}
+      leadingAction={leadingAction}
+      confirmDialog={
+        <RevertOrderDialog
+          open={revertOpen}
+          poNumber={poNumber}
+          currentStatus={currentStatus}
+          onCancel={() => openRevert(false)}
+          onConfirm={actions.handleRevertConfirm}
+        />
+      }
     >
-      {children}
-    </Button>
+      <StatusButton variant="outline" onClick={() => openRevert(true)} disabled={disabled}>
+        Revert to Scheduled
+      </StatusButton>
+    </ActionRow>
   )
 }
 
@@ -65,17 +102,12 @@ function StatusButton({
  * Renders the status-transition buttons for the selected order. Branches on
  * the current status:
  *   - `scheduled` → "Mark as Complete" + "Cancel Order" (forward path)
- *   - `completed` / `cancelled` / `invoiced` → "Revert to Scheduled" (undo
- *     path — invoiced reverts also recompute or delete the parent invoice)
+ *   - `completed` / `cancelled` / `invoiced` → "Revert to Scheduled" (undo path)
  *
- * Both forward and undo paths surface a confirmation dialog before the
- * server action fires. All mutation state lives in `useStatusActions`.
- *
- * Both branches lay out identically: one `flex-nowrap` row that starts with
- * `leadingAction`. `nowrap` because the widest case — Contact + Mark as
- * Complete + Cancel Order — has to hold one line inside the calendar popup's
- * ~400px usable width, and a wrapped third button there reads as a separate
- * section rather than a peer of the other two.
+ * Both paths surface a confirmation dialog before the server action fires, and
+ * both lay out through the same `ActionRow`. All mutation state lives in
+ * `useStatusActions` and is held *here*, above the branch, so a status change
+ * swaps the buttons without resetting an in-flight error or open confirm.
  */
 export default function OrderStatusActions({
   orderId,
@@ -85,61 +117,20 @@ export default function OrderStatusActions({
   onDialogOpenChange,
   leadingAction,
 }: OrderStatusActionsProps) {
-  const {
-    errorMessage,
-    disabled,
-    cancelOpen,
-    openCancel,
-    revertOpen,
-    openRevert,
-    markComplete,
-    handleCancelConfirm,
-    handleRevertConfirm,
-  } = useStatusActions({ orderId, onStatusChange, onDialogOpenChange })
+  const actions = useStatusActions({ orderId, onStatusChange, onDialogOpenChange })
 
   if (currentStatus === 'scheduled') {
     return (
-      <div className="space-y-2">
-        {errorMessage && <ErrorAlert message={errorMessage} />}
-        <div className="flex flex-nowrap items-center gap-2">
-          {leadingAction}
-          <StatusButton onClick={markComplete} disabled={disabled}>
-            Mark as Complete
-          </StatusButton>
-          <StatusButton
-            variant="destructive"
-            onClick={() => openCancel(true)}
-            disabled={disabled}
-          >
-            Cancel Order
-          </StatusButton>
-        </div>
-        <CancelOrderDialog
-          open={cancelOpen}
-          poNumber={poNumber}
-          onCancel={() => openCancel(false)}
-          onConfirm={handleCancelConfirm}
-        />
-      </div>
+      <ScheduledActions actions={actions} poNumber={poNumber} leadingAction={leadingAction} />
     )
   }
 
   return (
-    <div className="space-y-2">
-      {errorMessage && <ErrorAlert message={errorMessage} />}
-      <div className="flex flex-nowrap items-center gap-2">
-        {leadingAction}
-        <StatusButton variant="outline" onClick={() => openRevert(true)} disabled={disabled}>
-          Revert to Scheduled
-        </StatusButton>
-      </div>
-      <RevertOrderDialog
-        open={revertOpen}
-        poNumber={poNumber}
-        currentStatus={currentStatus}
-        onCancel={() => openRevert(false)}
-        onConfirm={handleRevertConfirm}
-      />
-    </div>
+    <RevertAction
+      actions={actions}
+      poNumber={poNumber}
+      currentStatus={currentStatus}
+      leadingAction={leadingAction}
+    />
   )
 }

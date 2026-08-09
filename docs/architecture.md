@@ -143,7 +143,7 @@ components/
     CustomerList.tsx        ← 'use client'
     CustomerDetail.tsx      ← 'use client'
     CustomerForm.tsx        ← 'use client'
-    CustomerContactCard.tsx ← 'use client' — Text/Email action buttons per contact
+    CustomerContactCard.tsx ← 'use client' — Text/Email action buttons per contact; hrefs come from lib/contact-links.ts (Task 75 — it built them raw until then)
     VolumeOverview.tsx      ← 'use client'
   orders/
     OrderLayout.tsx         ← 'use client' — two-panel state
@@ -180,7 +180,9 @@ components/
     AddOrderMenu.tsx        ← the per-day `+ Add order` pick list
     ProductionCardDialog.tsx ← the card popup. **No longer read-only** (Feature 12) — writes `same_day_delivery`, `backhaul` and status
     ProductionCardDialogParts.tsx / productionCardDialogHooks.ts ← line-cap splits; the hooks file holds the project's only focus trap + the nested-dialog Escape gate
-    ProductionCardDialogControls.tsx ← the two pill toggles + the status section (Feature 12)
+    ProductionCardDialogControls.tsx ← the two pill toggles + the status section (Feature 12); passes the Contact menu into OrderStatusActions' leadingAction slot (Task 75)
+    ContactMenu.tsx         ← Task 75 — the popup's Contact dropdown; one contact skips the picker, two or more nest one level as a single-open accordion
+    ContactMenuTrigger.tsx / ContactMenuParts.tsx ← line-cap splits; trigger button, and the stateless channel/contact rows
     newOrderDay.tsx      ← context carrying "start a new order on this day" up to the layout, mirroring cardSelection.tsx
     NewOrderDrawer.tsx   ← DetailDrawer + OrderForm mode="create", hosted on /calendar (Feature 12)
   leads/
@@ -272,8 +274,10 @@ lib/
     support.ts       ← createTicket, uploadTicketAttachment
   hooks/
     useToast.ts       ← toast queue hook
+    useDismissOnOutsideOrEsc.ts ← Task 75 — open-gated outside-press + Escape dismissal, shared by ContactMenu and QuickAddFab. Options carry the two call sites' real differences (pointerdown vs capture-phase mousedown; whether the dismissing press is swallowed) rather than flattening them
   animations.ts       ← shared Framer Motion variant constants
   calendar-range.ts   ← parseCalendarWeek + buildCalendarRange for the /calendar route's ?week= param
+  contact-links.ts    ← smsHref / mailtoHref / isPresent / isReachable. The ONE place `sms:` and `mailto:` hrefs are built. Both sides of the mailto `@` are percent-encoded — the email column is hand-typed free text, and a raw `?cc=` in it would open a draft with a silent CC that reads as normal. Phone sanitizing strips a trailing extension only (an unanchored `x` ate the number in `Text 555-0100`)
   format-currency.ts  ← shared USD formatter, drops trailing zeros (e.g. 25.50 → $25.5)
   dates.ts            ← DB_DATE_FORMAT + the business-day helpers (isBusinessDay,
                         prevBusinessDay, nextBusinessDay, startOfBusinessWeek,

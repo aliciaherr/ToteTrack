@@ -118,8 +118,8 @@ export function TogglePillRow({
  * `onDialogOpenChange` is how the popup learns that a nested surface — the
  * status block's confirmation dialog, or this Contact menu — is mounted inside
  * it, so it can stand down its own Escape handler while that surface owns the
- * key. `disabled={false}`: the menu is read-only, so unlike the pills it stays
- * usable while a mutation is in flight.
+ * key. The menu takes no `disabled`: it is read-only, so unlike the pills it
+ * stays usable while a mutation is in flight.
  */
 export function StatusSection({
   row,
@@ -139,11 +139,7 @@ export function StatusSection({
         onStatusChange={onStatusChange}
         onDialogOpenChange={onDialogOpenChange}
         leadingAction={
-          <ContactMenu
-            contacts={row.contacts}
-            disabled={false}
-            onOpenChange={onDialogOpenChange}
-          />
+          <ContactMenu contacts={row.contacts} onOpenChange={onDialogOpenChange} />
         }
       />
     </section>

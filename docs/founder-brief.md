@@ -346,3 +346,24 @@ Going back would mean reintroducing derived positions, and with them both the dr
 **Check before approving:** If a scheduled order sits open for a long time (never marked complete or cancelled), that customer stays silenced the whole while. Acceptable because a stale scheduled order is itself visible on the dashboard's Open Orders widget and the calendar.
 
 **What this closes off:** Nothing — one-line rule in one shared SQL module; trivially reversible.
+
+## FB-22 — One Tap to Text or Email the Customer, and a Quiet Bug Closed on the Way
+
+**Date:** 2026-08-09
+**Architecture reference:** `docs/architecture.md` → Component Structure (`calendar/`, `customers/`) + `lib/contact-links.ts`
+**Tasks:** Task 75
+
+**Decided:** Tapping an order on the calendar now offers a **Contact** button beside Mark as Complete and Cancel Order. It opens Messages or Mail with the customer's contact already filled in. One contact goes straight to the two choices; several show a short list of names, each opening its own Message/Email pair. A customer with nothing on file greys the button out.
+
+**Means for your product:** Chasing a delivery no longer means leaving the calendar, opening Customers, finding the company, and copying a number by hand. It is now one tap from the order you are already looking at.
+
+Two defects were found and fixed while building it, both silent:
+- The **Customers screen has been building email links unsafely since it was written.** If a contact's email field ever held stray text after the address, the mail app would read it as instructions — a draft could open with an extra recipient CC'd, looking completely normal on the way out. Both screens now share one guarded builder. Nothing suggests this ever happened to you; the field is yours to type into. It simply can't now.
+- A phone written as **"Text 555-0100"** produced a dead Message link. The code looked for extensions (`x204`) and the `x` in "Text" swallowed the number. Now only a real trailing extension is stripped.
+
+**Check before approving:**
+- On desktop, the Message option does nothing — `sms:` is a phone/tablet handler. Verified working on the iPad, which is the device this is for.
+- If a stored value is not a real number or address, the app still opens the messaging app with a blank or visibly-wrong recipient rather than blocking you. That is deliberate: you land where you meant to go and can correct it by hand. It also means bad contact data shows up as a wrong draft, not an error message.
+- Only the primary-first contact list on the order's customer is offered. There is no way to text someone who isn't saved on that customer.
+
+**What this closes off:** Nothing. Prefilled message templates (e.g. a delivery notice vs. a delay notice) were deliberately deferred, not designed out — the menu has room for them.

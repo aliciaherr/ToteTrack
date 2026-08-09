@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { ChevronDown, Mail, MessageSquare } from 'lucide-react'
 import { collapsibleVariants } from '@/lib/animations'
+import { isPresent, isReachable, mailtoHref, smsHref } from '@/lib/contact-links'
 import type { CustomerContactRow } from '@/db/queries/customers'
 
 interface CustomerContactCardProps {
@@ -15,18 +16,31 @@ interface CustomerContactCardProps {
 const ACTION_BTN_CLASS =
   'inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 text-sm font-medium rounded-md border border-border hover:bg-muted transition-colors text-foreground'
 
-function ContactActions({ email, phone }: { email: string | null; phone: string | null }) {
-  if (!email && !phone) return null
+/**
+ * Text / Email buttons for one contact.
+ *
+ * Hrefs come from `lib/contact-links` rather than being interpolated here. Both
+ * columns are hand-typed free text: raw interpolation let a stored
+ * `dana@acme.test?cc=rival@competitor.test` open a draft with a silent CC, and
+ * `isPresent` (not truthiness) is what stops a whitespace-only field from
+ * rendering a button that goes nowhere.
+ *
+ * The props object *is* the channel shape `isReachable` wants, so it is passed
+ * whole rather than rebuilt.
+ */
+function ContactActions(channels: { email: string | null; phone: string | null }) {
+  if (!isReachable(channels)) return null
+  const { email, phone } = channels
   return (
     <div className="flex items-center gap-2 shrink-0">
-      {phone ? (
-        <a href={`sms:${phone}`} className={ACTION_BTN_CLASS} aria-label={`Text ${phone}`}>
+      {isPresent(phone) ? (
+        <a href={smsHref(phone)} className={ACTION_BTN_CLASS} aria-label={`Text ${phone}`}>
           <MessageSquare className="h-4 w-4" aria-hidden="true" />
           Text
         </a>
       ) : null}
-      {email ? (
-        <a href={`mailto:${email}`} className={ACTION_BTN_CLASS} aria-label={`Email ${email}`}>
+      {isPresent(email) ? (
+        <a href={mailtoHref(email)} className={ACTION_BTN_CLASS} aria-label={`Email ${email}`}>
           <Mail className="h-4 w-4" aria-hidden="true" />
           Email
         </a>

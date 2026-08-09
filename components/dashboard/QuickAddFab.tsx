@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { Plus, Package, UserPlus, Target, type LucideIcon } from 'lucide-react'
@@ -9,6 +9,7 @@ import {
   speedDialContainerVariants,
   speedDialOptionVariants,
 } from '@/lib/animations'
+import { useDismissOnOutsideOrEsc } from '@/lib/hooks/useDismissOnOutsideOrEsc'
 import { useAppShellDrawerState } from '@/components/shell/drawer-state'
 
 interface QuickAddOption {
@@ -25,36 +26,17 @@ const OPTIONS: readonly QuickAddOption[] = [
 ]
 
 /**
- * Closes the menu when the user mouses down outside `containerRef` or presses
- * Esc. Mousedown uses capture phase + preventDefault so the dismissing tap
- * does not also activate the element behind the menu.
+ * How this FAB dismisses: capture-phase mousedown so the dismissing tap is
+ * swallowed before it reaches whatever sits behind the fanned-out menu — the
+ * dashboard beneath is full of live widgets, and closing the dial should not
+ * also open something. `ContactMenu` shares the hook with the opposite choice;
+ * see `useDismissOnOutsideOrEsc`.
  */
-function useDismissOnOutsideOrEsc(
-  isOpen: boolean,
-  containerRef: React.RefObject<HTMLElement>,
-  onDismiss: () => void,
-): void {
-  useEffect(() => {
-    if (!isOpen) return
-    function handleMouseDown(event: MouseEvent) {
-      const target = event.target as Node | null
-      if (containerRef.current && target && !containerRef.current.contains(target)) {
-        event.preventDefault()
-        event.stopPropagation()
-        onDismiss()
-      }
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') onDismiss()
-    }
-    document.addEventListener('mousedown', handleMouseDown, true)
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown, true)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, containerRef, onDismiss])
-}
+const DISMISS_OPTIONS = {
+  pointerEvent: 'mousedown',
+  capture: true,
+  swallowOutside: true,
+} as const
 
 interface FabOptionProps {
   option: QuickAddOption
@@ -115,7 +97,7 @@ export default function QuickAddFab() {
     [router],
   )
 
-  useDismissOnOutsideOrEsc(isOpen, containerRef, close)
+  useDismissOnOutsideOrEsc(isOpen, containerRef, close, DISMISS_OPTIONS)
 
   if (isDrawerOpen) return null
 

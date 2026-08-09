@@ -435,6 +435,35 @@ describe('ProductionCardDialog — status block', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('Escape closes the Contact menu only, then the popup', () => {
+    // The one test that holds the Contact menu's wiring in place: the popup
+    // stands down its own Escape handler only because the menu's
+    // `onOpenChange` is bound to `onDialogOpenChange`. Unbind it and the first
+    // press closes the popup too, which is what this asserts it must not do.
+    renderDialog(
+      makeRow({
+        status: 'scheduled',
+        contacts: [
+          { id: 'c1', name: 'Dana Reyes', email: 'dana@acme.test', phone: '(555) 010-2030' },
+          { id: 'c2', name: 'Mo Okafor', email: null, phone: '555 010 4050' },
+        ],
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^contact$/i }))
+    expect(screen.getByTestId('contact-menu')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByTestId('contact-menu')).toBeNull()
+    expect(screen.getByTestId('production-card-dialog')).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+
+    // …and the second press is the one the popup answers.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
+  })
+
   it('hands focus back to the control that opened the confirm', async () => {
     renderDialog(makeRow({ status: 'scheduled' }))
     const trigger = screen.getByRole('button', { name: /^cancel order$/i })

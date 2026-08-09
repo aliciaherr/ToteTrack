@@ -2,7 +2,7 @@
 
 import { ChevronRight, Mail, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { hasAnyChannel, isPresent, mailtoHref, telHref } from './contactLinks'
+import { isPresent, isReachable, mailtoHref, smsHref } from '@/lib/contact-links'
 import type { CalendarContact } from '@/db/queries/calendar'
 
 // The rows inside `ContactMenu`'s panel. Its own sibling so both files stay
@@ -16,10 +16,16 @@ const ROW = 'flex w-full items-center gap-2 min-h-[44px] rounded-md px-3 text-sm
  * One reachable channel.
  *
  * A present channel is an `<a>` so the OS handler opens on tap and the row is
- * keyboard-reachable; an absent one is a disabled `<button>`. Never a dead `<a>`
- * — an anchor without an href is not focusable, reads as plain text to a screen
- * reader, and silently does nothing when tapped, which is indistinguishable
- * from the app being broken.
+ * keyboard-reachable; an absent one is a disabled `<button>`. What is banned
+ * here is `href={undefined}` — an anchor without an href is not focusable, reads
+ * as plain text to a screen reader, and silently does nothing when tapped, which
+ * is indistinguishable from the app being broken.
+ *
+ * An href whose *target* is empty is a different thing and is allowed: a stored
+ * `'call the yard'` passes `isPresent`, so `smsHref` yields a bare `sms:` and
+ * this renders a real, focusable anchor that opens the messaging app with an
+ * empty To field. That is the intended outcome — the operator finishes the job
+ * by hand, the same bargain `mailtoHref` makes with a malformed address.
  *
  * @param label Visible text and accessible name.
  * @param icon The lucide glyph for this channel.
@@ -92,7 +98,7 @@ export function ChannelItems({
       <ChannelItem
         label="Message"
         icon={MessageSquare}
-        href={isPresent(contact.phone) ? telHref(contact.phone) : null}
+        href={isPresent(contact.phone) ? smsHref(contact.phone) : null}
         indented={indented}
         onChoose={onChoose}
       />
@@ -130,10 +136,13 @@ export function ContactRow({
   onToggle: () => void
   onChoose: () => void
 }) {
-  const reachable = hasAnyChannel([contact])
+  const reachable = isReachable(contact)
 
   return (
-    <div>
+    // `role="none"` because this wrapper sits directly inside `role="menu"`: an
+    // untyped `<div>` between them breaks the menu→menuitem chain, and a screen
+    // reader stops counting the rows as menu items.
+    <div role="none">
       <button
         type="button"
         role="menuitem"

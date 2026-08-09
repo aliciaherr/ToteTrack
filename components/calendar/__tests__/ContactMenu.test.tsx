@@ -28,10 +28,8 @@ function swallowNavigation(event: MouseEvent) {
   event.preventDefault()
 }
 
-function renderMenu(contacts: CalendarContact[], disabled = false) {
-  return render(
-    <ContactMenu contacts={contacts} disabled={disabled} onOpenChange={onOpenChange} />,
-  )
+function renderMenu(contacts: CalendarContact[]) {
+  return render(<ContactMenu contacts={contacts} onOpenChange={onOpenChange} />)
 }
 
 /** The Contact trigger. */
@@ -70,12 +68,6 @@ describe('ContactMenu — trigger', () => {
     expect(trigger()).toBeDisabled()
   })
 
-  it('is disabled while the host reports a mutation in flight', () => {
-    renderMenu([DANA], true)
-
-    expect(trigger()).toBeDisabled()
-  })
-
   it('advertises itself as a menu trigger and reports its expanded state', () => {
     renderMenu([DANA])
 
@@ -97,6 +89,17 @@ describe('ContactMenu — one contact', () => {
     expect(within(menu).queryByRole('menuitem', { name: 'Dana Reyes' })).toBeNull()
     expect(within(menu).getByRole('menuitem', { name: /message/i })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: /email/i })).toBeInTheDocument()
+  })
+
+  it('offers Message before Email', () => {
+    // A product decision, not an accident of the JSX: texting a driver gets a
+    // reply faster than mailing them, and this menu is used from the shop floor.
+    renderMenu([DANA])
+    const menu = openMenu()
+
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items[0]).toHaveAccessibleName(/message/i)
+    expect(items[1]).toHaveAccessibleName(/email/i)
   })
 
   it('renders a live channel as an anchor carrying the built href', () => {
@@ -164,6 +167,25 @@ describe('ContactMenu — several contacts', () => {
       'href',
       'sms:5550104050',
     )
+  })
+
+  it('clicking the same contact again collapses it', () => {
+    // The self-collapse half of the toggle: `setExpandedId` returns null when
+    // the clicked row is already the expanded one. Only the switch-to-another
+    // half was covered, so a toggle that always expanded would have passed.
+    renderMenu([DANA, MO])
+    const menu = openMenu()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Dana Reyes' }))
+    expect(within(menu).getByRole('menuitem', { name: /message/i })).toBeInTheDocument()
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Dana Reyes' }))
+
+    expect(within(menu).getByRole('menuitem', { name: 'Dana Reyes' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(within(menu).queryByRole('menuitem', { name: /message/i })).toBeNull()
   })
 
   it('keeps an unreachable contact listed but disabled', () => {
@@ -241,15 +263,18 @@ describe('ContactMenu — dismissal', () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
   })
 
-  it('drops its listeners on unmount', () => {
-    const removeSpy = vi.spyOn(window, 'removeEventListener')
+  it('stops reacting to Escape and outside presses once unmounted', () => {
+    // Asserted behaviourally, not by spying on `removeEventListener`: a spy
+    // satisfied by `expect.any(Function)` passes even when cleanup removed the
+    // wrong function reference — the exact leak it looks like it is guarding.
     const { unmount } = renderMenu([DANA])
     openMenu()
-
     unmount()
+    const callsWhileMounted = (onOpenChange as ReturnType<typeof vi.fn>).mock.calls.length
 
-    expect(removeSpy).toHaveBeenCalledWith('keydown', expect.any(Function))
-    expect(removeSpy).toHaveBeenCalledWith('pointerdown', expect.any(Function))
-    removeSpy.mockRestore()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.pointerDown(document.body)
+
+    expect(onOpenChange).toHaveBeenCalledTimes(callsWhileMounted)
   })
 })

@@ -179,6 +179,73 @@ describe('OrderStatusActions', () => {
     )
   })
 
+  it('renders leadingAction ahead of the status buttons on a scheduled order', () => {
+    // Position, not mere presence: the calendar popup depends on the Contact
+    // menu leading the row, and two separate `getBy` calls would pass with the
+    // node rendered anywhere at all.
+    render(
+      <OrderStatusActions
+        orderId={ORDER_ID}
+        poNumber={PO_NUMBER}
+        currentStatus="scheduled"
+        leadingAction={<button type="button">Contact</button>}
+      />,
+    )
+
+    const leading = screen.getByRole('button', { name: 'Contact' })
+    const complete = screen.getByRole('button', { name: /mark as complete/i })
+    expect(leading.parentElement).toBe(complete.parentElement)
+    expect(
+      leading.compareDocumentPosition(complete) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it.each(['completed', 'cancelled', 'invoiced'] as const)(
+    'renders leadingAction ahead of Revert to Scheduled on a %s order',
+    (currentStatus) => {
+      // The revert branch grew its own wrapping row when `leadingAction` landed
+      // and had never been covered — the prop could have been dropped from this
+      // branch alone without a single test noticing.
+      render(
+        <OrderStatusActions
+          orderId={ORDER_ID}
+          poNumber={PO_NUMBER}
+          currentStatus={currentStatus}
+          leadingAction={<button type="button">Contact</button>}
+        />,
+      )
+
+      const leading = screen.getByRole('button', { name: 'Contact' })
+      const revert = screen.getByRole('button', { name: /revert to scheduled/i })
+      expect(leading.parentElement).toBe(revert.parentElement)
+      expect(
+        leading.compareDocumentPosition(revert) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    },
+  )
+
+  it('adds nothing to either row when leadingAction is undefined — the Orders tab is unchanged', () => {
+    // The "Orders tab renders unchanged" claim, as evidence rather than
+    // inference: the row holds the status buttons and nothing else.
+    const { unmount } = render(
+      <OrderStatusActions orderId={ORDER_ID} poNumber={PO_NUMBER} currentStatus="scheduled" />,
+    )
+    const scheduledRow = screen.getByRole('button', { name: /mark as complete/i }).parentElement!
+    expect(Array.from(scheduledRow.children)).toEqual([
+      screen.getByRole('button', { name: /mark as complete/i }),
+      screen.getByRole('button', { name: /cancel order/i }),
+    ])
+    unmount()
+
+    render(
+      <OrderStatusActions orderId={ORDER_ID} poNumber={PO_NUMBER} currentStatus="invoiced" />,
+    )
+    const revertRow = screen.getByRole('button', { name: /revert to scheduled/i }).parentElement!
+    expect(Array.from(revertRow.children)).toEqual([
+      screen.getByRole('button', { name: /revert to scheduled/i }),
+    ])
+  })
+
   it('surfaces a server error inline and does not notify the parent on failure', async () => {
     mockUpdateOrderStatus.mockResolvedValueOnce({ error: 'Something went wrong.' })
     const onStatusChange = vi.fn()

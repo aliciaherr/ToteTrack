@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { hasAnyChannel, isPresent, mailtoHref, telHref } from '../contactLinks'
-import type { CalendarContact } from '@/db/queries/calendar'
+import { hasAnyChannel, isPresent, isReachable, mailtoHref, smsHref } from '../contact-links'
 
-function makeContact(overrides: Partial<CalendarContact> = {}): CalendarContact {
+/**
+ * The structural shape `isReachable` accepts — deliberately not `CalendarContact`
+ * or `CustomerContactRow`, because the module under test is shared and must not
+ * know about either feature's DB row.
+ */
+function makeContact(overrides: Partial<{ email: string | null; phone: string | null }> = {}) {
   return {
-    id: 'contact-1',
-    name: 'Dana Reyes',
     email: 'dana@acme-industrial.test',
     phone: '(555) 010-2030',
     ...overrides,
@@ -25,29 +27,42 @@ describe('isPresent', () => {
   })
 })
 
-describe('telHref', () => {
+describe('smsHref', () => {
   it('strips formatting down to dialable digits', () => {
-    expect(telHref('(555) 010-2030')).toBe('sms:5550102030')
+    expect(smsHref('(555) 010-2030')).toBe('sms:5550102030')
   })
 
   it('keeps a single leading + for an international number', () => {
-    expect(telHref('+44 20 7946 0958')).toBe('sms:+442079460958')
+    expect(smsHref('+1 (555) 010-0100')).toBe('sms:+15550100100')
+    expect(smsHref('+44 20 7946 0958')).toBe('sms:+442079460958')
   })
 
   it('drops an extension suffix rather than folding its digits in', () => {
     // `ext`, `ext.` and a bare `x` all appear in hand-entered phone fields.
-    expect(telHref('555-010-2030 ext 12')).toBe('sms:5550102030')
-    expect(telHref('555-010-2030 ext. 12')).toBe('sms:5550102030')
-    expect(telHref('555-010-2030 x99')).toBe('sms:5550102030')
-    expect(telHref('555-010-2030 EXT 12')).toBe('sms:5550102030')
+    expect(smsHref('555-010-2030 ext 12')).toBe('sms:5550102030')
+    expect(smsHref('555-010-2030 ext. 12')).toBe('sms:5550102030')
+    expect(smsHref('555-010-2030 x99')).toBe('sms:5550102030')
+    expect(smsHref('555-010-2030 EXT 12')).toBe('sms:5550102030')
+    // No space in front of the marker: the left anchor is "not a letter", not a
+    // word boundary, because there is no boundary between a digit and an `x`.
+    expect(smsHref('555-010-2030x99')).toBe('sms:5550102030')
+  })
+
+  it('keeps the number when an x sits inside a word rather than marking an extension', () => {
+    // Regression: an unanchored `x.*$` matched the `x` in "Text" and "fax" and
+    // returned a bare `sms:` for a number that was right there in the field.
+    expect(smsHref('Text 555-0100')).toBe('sms:5550100')
+    expect(smsHref('fax: 555-0100')).toBe('sms:5550100')
   })
 
   it('yields an empty target for a phone with nothing dialable in it', () => {
-    // Error case: the field held free text, not a number. Callers gate on
-    // `isPresent` first, so this never reaches a rendered link — but it must
-    // not produce `sms:undefined` or throw.
-    expect(telHref('   ')).toBe('sms:')
-    expect(telHref('call the yard')).toBe('sms:')
+    // Error case: the field held free text, not a number. `isPresent` says the
+    // column is filled, so this *does* render as a live link — tapping it opens
+    // the composer with an empty To field for the operator to fill in, the same
+    // correctable-recipient bargain `mailtoHref` makes. It must not produce
+    // `sms:undefined` or throw.
+    expect(smsHref('   ')).toBe('sms:')
+    expect(smsHref('call the yard')).toBe('sms:')
   })
 })
 
@@ -97,14 +112,21 @@ describe('mailtoHref', () => {
   })
 })
 
+describe('isReachable', () => {
+  it('is true when either channel is on file', () => {
+    expect(isReachable(makeContact({ email: null }))).toBe(true)
+    expect(isReachable(makeContact({ phone: null }))).toBe(true)
+  })
+
+  it('is false when both channels are null, empty or whitespace-only', () => {
+    expect(isReachable(makeContact({ email: null, phone: null }))).toBe(false)
+    expect(isReachable(makeContact({ email: '   ', phone: '' }))).toBe(false)
+  })
+})
+
 describe('hasAnyChannel', () => {
   it('is true when one contact has a phone and another has an email', () => {
-    expect(
-      hasAnyChannel([
-        makeContact({ id: 'a', email: null }),
-        makeContact({ id: 'b', phone: null }),
-      ]),
-    ).toBe(true)
+    expect(hasAnyChannel([makeContact({ email: null }), makeContact({ phone: null })])).toBe(true)
   })
 
   it('is false for an empty contact list', () => {
@@ -114,8 +136,8 @@ describe('hasAnyChannel', () => {
   it('is false when every contact is whitespace-only on both channels', () => {
     expect(
       hasAnyChannel([
-        makeContact({ id: 'a', email: '   ', phone: '' }),
-        makeContact({ id: 'b', email: null, phone: null }),
+        makeContact({ email: '   ', phone: '' }),
+        makeContact({ email: null, phone: null }),
       ]),
     ).toBe(false)
   })
