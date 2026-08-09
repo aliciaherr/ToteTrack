@@ -368,3 +368,26 @@ Two defects were found and fixed while building it, both silent:
 - Only the primary-first contact list on the order's customer is offered. There is no way to text someone who isn't saved on that customer.
 
 **What this closes off:** Nothing. Prefilled message templates (e.g. a delivery notice vs. a delay notice) were deliberately deferred, not designed out — the menu has room for them.
+
+---
+
+## FB-23 — Every Screen on the iPad Was One Nudge Too Tall
+
+**Date:** 2026-08-09
+**Architecture reference:** none — no structural change. The rule is recorded as CONSTRAINT-23 in `docs/constraints.md`.
+**Tasks:** none — unplanned bug fix, commit `d3314d7`.
+
+**Decided:** Every screen is now measured against the height of the iPad screen **as it actually is when you open it** — with the browser's tab bar showing — rather than the height it would be if the tab bar were hidden.
+
+**Means for your product:** You reported that on the iPad, in both Safari and Chrome, every tab opened very slightly too tall: a small scroll was needed before the screen settled, after which the tab bar tucked away and everything behaved as intended. That was not a design quirk, it was a measurement bug, and it was on every screen in the app.
+
+The cause is worth knowing because it will come up again. When a web page asks for "the full height of the screen," the iPad answers with the height it *would* be once the browser hides its own toolbar — not the height available right now. So each screen was built about a tab-bar taller than the space it had, and that overhang was the scroll you were doing. Scrolling hid the toolbar, the two heights matched, and the problem disappeared — which is exactly why it looked like it fixed itself.
+
+Every screen now asks a different question — "how much room is there *with* the browser's chrome visible" — and gets an honest answer. The rubber-band bounce when you drag down on a screen with nothing to scroll is gone too; on a page where there is never anything below, that bounce reads as a promise the app can't keep.
+
+**Check before approving:**
+- The trade-off is deliberate. If the toolbar ever does collapse — scrolling something inside the page, say the week strip — you get a tab-bar's worth of empty space at the bottom until it returns. The alternative was a height that tracks the toolbar live, which re-shuffles the calendar grid mid-scroll. A stable layout with a little dead space beat a layout that moves while you are reading it. Tell me if that dead space is uglier in practice than it sounds and it can be revisited.
+- The calendar's four-visible-cards rule now measures against the smaller height, so on a short screen cards may hit their minimum size and clamp rather than scale. Not seen on the iPad; worth an eye if the app is ever opened on a phone.
+- **No automated test can catch this class of bug.** The test suite runs in a fake browser with no toolbar to mismeasure — all 936 tests passed while every screen was wrong on the real device. This was found by you, on the iPad, and that is the only way it could have been found.
+
+**What this closes off:** The most common way of writing "full screen height" in this stack (`h-screen`) is now banned in this codebase, because it is the exact construction that caused this. Nothing enforces that automatically yet — it is a written rule, so a future screen can still reintroduce the bug silently.
