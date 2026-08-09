@@ -343,6 +343,20 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ---
 
+### CONSTRAINT-22 — `sms:`/`mailto:` hrefs are built by `lib/contact-links.ts`, never inline
+
+**Decision:** Task 75 (2026-08-09). No component may construct a `sms:`, `mailto:` or `tel:` href from a database column. Every such href comes from `lib/contact-links.ts` (`smsHref` / `mailtoHref`), and the guard on whether to render the link at all is `isPresent` / `isReachable`, never truthiness.
+
+**Why this is a constraint and not a preference:** three separate screens — the calendar card popup, `CustomerContactCard` and `LeadDetail` — each built these hrefs inline from raw column text. The contact columns are hand-typed free text with nothing validating them, so a stored `john@acme.com?cc=someone` opened a mail draft with a silent CC that looked entirely normal on the way out. Two of the three sites were found only because a reviewer was explicitly told to assume another existed. The rule exists so the fourth site is never written.
+
+**Practical impact:** a new screen showing a phone or email adds an import, not a template literal. Both sides of the mailto `@` are percent-encoded; phones are sanitized to digits plus an optional leading `+`, with a trailing extension stripped. Bad stored data lands the user in the messaging app with a visibly wrong recipient rather than blocking the action — deliberate, so the operator can correct it by hand.
+
+**Who decided and when:** Builder, 2026-08-09, on the `@code-review` finding (CQ-07) and its confirmation pass.
+
+**What this closes off:** per-screen href formatting. A screen that wants a prefilled subject or body adds a parameter to the shared builder, where it can be encoded once, rather than composing its own URL.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -368,3 +382,4 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 | 19 | Production date separate from delivery promise | Adds `production_date`/`same_day_delivery`/`production_sort_index`; calendar never writes `requested_delivery_date`; weekends-only business-day math, no holidays; calendar popup read-only; page never scrolls, card scales to keep 4 visible; `@dnd-kit` added under CONSTRAINT-03 | Builder | 2026-07-26 |
 | 20 | Dev and prod share one Supabase project | Never run `db:wipe`/`db:seed`; no automated write-flow testing until a dev environment exists | Builder | 2026-07-28 |
 | 21 | Order addresses = text snapshots; `customer_addresses` = saved list | `orders.delivery_address` never becomes an FK; saved-address writes are `ON CONFLICT` upserts against `UNIQUE (customer_id, address)`; `default_delivery_address` deprecated — no app code touches it, drop deferred | Builder | 2026-07-28 |
+| 22 | `sms:`/`mailto:` hrefs come from `lib/contact-links.ts` | No component builds a contact href inline; `isPresent`/`isReachable` gate rendering, never truthiness; both sides of the mailto `@` encoded | Builder | 2026-08-09 |
