@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import OrderStatusActions from '@/components/orders/OrderStatusActions'
+import ContactMenu from './ContactMenu'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 
 // The writable half of `ProductionCardDialog`: the two flag pills and the
@@ -103,13 +104,22 @@ export function TogglePillRow({
 }
 
 /**
- * The Orders tab's status block, reused verbatim — Mark as Complete + Cancel
- * Order on a scheduled PO, Revert to Scheduled on the other three. Forking it
- * would mean two state machines to keep in step.
+ * The Orders tab's status block — Mark as Complete + Cancel Order on a
+ * scheduled PO, Revert to Scheduled on the other three. Shared rather than
+ * forked: two copies would mean two state machines to keep in step.
  *
- * `onDialogOpenChange` is how the popup learns that a confirmation dialog is
- * mounted inside it, so it can stand down its own Escape handler while the
- * confirm owns the key.
+ * The calendar adds one thing the Orders tab does not have: a Contact menu,
+ * passed as the block's `leadingAction` so it sits on the same row as the
+ * status buttons instead of forming a second, competing action strip. It goes
+ * here rather than in the block itself because reaching the customer is a
+ * calendar concern — the Orders tab already shows contact details in full, so
+ * a menu there would be a shortcut to something already on screen.
+ *
+ * `onDialogOpenChange` is how the popup learns that a nested surface — the
+ * status block's confirmation dialog, or this Contact menu — is mounted inside
+ * it, so it can stand down its own Escape handler while that surface owns the
+ * key. `disabled={false}`: the menu is read-only, so unlike the pills it stays
+ * usable while a mutation is in flight.
  */
 export function StatusSection({
   row,
@@ -128,6 +138,13 @@ export function StatusSection({
         currentStatus={row.status}
         onStatusChange={onStatusChange}
         onDialogOpenChange={onDialogOpenChange}
+        leadingAction={
+          <ContactMenu
+            contacts={row.contacts}
+            disabled={false}
+            onOpenChange={onDialogOpenChange}
+          />
+        }
       />
     </section>
   )

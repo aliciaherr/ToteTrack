@@ -51,6 +51,7 @@ const sampleRow: CalendarOrderRow = {
   production_date: null,
   requested_delivery_date: '2026-06-01',
   production_sort_index: null,
+  contacts: [],
 }
 
 beforeEach(() => {
@@ -74,8 +75,11 @@ describe('getCalendarOrders', () => {
 
     // The COALESCE + ISO-day-of-week fallback was removed in the CONSTRAINT-19
     // revision. Reintroducing it here would resurrect the two-implementations
-    // divergence risk the change exists to delete.
-    expect(text, 'no COALESCE fallback').not.toMatch(/coalesce/i)
+    // divergence risk the change exists to delete. Scoped to the placement
+    // columns: the contacts aggregate is COALESCE-wrapped for its own reasons
+    // and has nothing to do with which day a card lands on.
+    expect(text, 'no COALESCE fallback on the placement columns')
+      .not.toMatch(/coalesce\s*\(\s*o?\.?(production_date|requested_delivery_date)/i)
     expect(text, 'no day-of-week arithmetic').not.toMatch(/isodow/i)
     expect(text).not.toMatch(/requested_delivery_date\s*-\s*\d/i)
   })
@@ -87,7 +91,9 @@ describe('getCalendarOrders', () => {
 
     // FI-02: wrapping the column in an expression made orders_production_date_idx
     // unusable and forced a sequential scan. A bare column comparison restores it.
-    const whereClause = text.slice(text.toLowerCase().indexOf('where'))
+    // `lastIndexOf` because the contacts aggregate carries its own correlated
+    // WHERE inside the select list, ahead of the real one.
+    const whereClause = text.slice(text.toLowerCase().lastIndexOf('where'))
     expect(whereClause).not.toMatch(/\w+\s*\(\s*o\.production_date/i)
   })
 
@@ -134,6 +140,39 @@ describe('getCalendarOrders', () => {
     }
     expect(text).toMatch(/left\s+join\s+customers\s+c\s+on\s+c\.id\s*=\s*o\.customer_id/i)
     expect(text).toMatch(/c\.company_name\s+AS\s+customer_name/i)
+  })
+
+  it('embeds the customer contacts as a json aggregate aliased contacts', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
+    const { sql: text } = compileLastCall()
+
+    expect(text).toMatch(/json_agg\s*\(/i)
+    expect(text).toMatch(/from\s+customer_contacts\s+cc/i)
+    expect(text).toMatch(/cc\.customer_id\s*=\s*o\.customer_id/i)
+    expect(text, 'the popup Contact menu reads row.contacts').toMatch(/\)\s+AS\s+contacts/i)
+  })
+
+  it('coalesces the contacts aggregate to an empty array, never null', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
+    const { sql: text } = compileLastCall()
+
+    // `json_agg` over zero rows returns NULL, not `[]`. Without the COALESCE a
+    // customer with no contacts would hand the client `null` and every consumer
+    // would need its own guard — the empty-array guarantee lives here instead.
+    expect(text).toMatch(/coalesce\s*\(\s*\(\s*select\s+json_agg/i)
+    expect(text).toMatch(/'\[\]'::json\s*\)\s+AS\s+contacts/i)
+  })
+
+  it('orders contacts primary-first, then oldest-created', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCalendarOrders({ from: '2026-06-01', to: '2026-06-05' })
+    const { sql: text } = compileLastCall()
+
+    // Same ordering as `customerContactsQuery` — the contact a user expects to
+    // see first must not depend on which screen they opened.
+    expect(text).toMatch(/order\s+by\s+cc\.is_primary\s+DESC\s*,\s*cc\.created_at\s+ASC/i)
   })
 
   it('orders by production_date, then sort index NULLS LAST, then po_number', async () => {
@@ -224,6 +263,19 @@ describe('getUnscheduledOrders', () => {
   it('returns the driver rows unchanged', async () => {
     mockExecute.mockResolvedValueOnce([sampleRow])
     expect(await getUnscheduledOrders()).toEqual([sampleRow])
+  })
+
+  it('carries the same contacts projection as the range query', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getUnscheduledOrders()
+    const { sql: text } = compileLastCall()
+
+    // Both queries share CALENDAR_SELECT_LIST so a card dragged out of the
+    // unscheduled dropdown into a day column keeps every field it had. If this
+    // fails, the projections have drifted.
+    expect(text).toMatch(/coalesce\s*\(\s*\(\s*select\s+json_agg/i)
+    expect(text).toMatch(/order\s+by\s+cc\.is_primary\s+DESC\s*,\s*cc\.created_at\s+ASC/i)
+    expect(text).toMatch(/'\[\]'::json\s*\)\s+AS\s+contacts/i)
   })
 
   it('throws DatabaseError with cause when the underlying query fails', async () => {

@@ -68,6 +68,7 @@ function makeRow(overrides: Partial<CalendarOrderRow> = {}): CalendarOrderRow {
     production_date: null,
     requested_delivery_date: null,
     production_sort_index: null,
+    contacts: [],
     ...overrides,
   }
 }

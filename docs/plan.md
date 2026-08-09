@@ -2513,3 +2513,24 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 **Status:** [x] Done 2026-08-02 — `has_scheduled_order` via `bool_or` in both `order_stats` CTEs; `WHEN os.has_scheduled_order THEN NULL` leads the overdue CASE; `IS NOT TRUE` guard in Need-to-Contact WHERE (NULL-safe for no-order customers). 3 new SQL-contract tests (878 suite-wide), `tsc` clean.
 
 ---
+
+## Task 75: Calendar card popup — Contact button with nested contact picker
+
+**Feature (stub — approved in-session 2026-08-09):** the production-card popup gains a `Contact` dropdown sitting first in the status button row, so all three actions (Contact + Mark as Complete + Cancel Order) read on one line. The menu opens the device's Messages or Mail app with the recipient prefilled — `sms:` / `mailto:` hrefs, recipient only, no prefilled body (templated messages deferred).
+
+**Data:** `CalendarOrderRow` gains `contacts: CalendarContact[]`, embedded on the row via a `json_agg` correlated subquery in the shared `CALENDAR_SELECT_LIST` (primary-first, `COALESCE` to `[]`). Embedded rather than fetched on click **because this app has no client-side data-fetching pattern at all** — every client component is props-in, mutate-then-`router.refresh()`. Inventing the first fetch path for 1–3 contact rows was not worth the loading/error surface. Read-path only, no schema change.
+
+**Menu shape:** one contact → the two channel items directly, no picker. Two or more → a single-open accordion of contact names, each revealing Message/Email indented beneath (an inline accordion rather than a Windows-style side flyout: the popup panel is `overflow-y-auto` and clips both axes, so a true flyout would need a portal, which would break the project's only focus trap). A channel with no stored value renders disabled, never a dead link. The trigger greys out when **no contact has a usable channel** — a contact holding neither email nor phone is the same dead end as no contact at all.
+
+**Acceptance criteria:**
+- [x] Three buttons on one line in the popup at iPad-landscape width; 44px touch targets held
+- [x] 0 usable contacts greys the trigger; 1 contact skips the picker; 2+ nest one level
+- [x] Missing phone or email renders that item disabled, not a dead `<a>`
+- [x] Free-text phones sanitize to a dialable `sms:` href; extensions dropped
+- [x] Escape closes the menu only — the popup closes on the next press (existing `useNestedDialog` channel)
+- [x] Orders tab renders unchanged (`leadingAction` slot is optional and unset there)
+- [x] Suite green, `tsc` clean
+
+**Status:** [x] Done 2026-08-09 — `contacts` embedded via `json_agg` in `CALENDAR_SELECT_LIST`; `contactLinks.ts` + `ContactMenu`/`ContactMenuParts` (CQ-02 split); `leadingAction` slot on the shared `OrderStatusActions`. 34 new tests (912 suite-wide), `tsc` clean. One-line fit and the nested picker verified by the builder in the local dev server. `sms:` is inert on desktop Chrome — iPad only, not a defect.
+
+**Depends on:** Feature 11 (calendar), Task 58 (card popup)

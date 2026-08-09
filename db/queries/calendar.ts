@@ -7,6 +7,14 @@ import { CALENDAR_WEEKS_BUFFER, UNSCHEDULED_DROPDOWN_VISIBLE } from './calendar.
 
 export { CALENDAR_WEEKS_BUFFER, UNSCHEDULED_DROPDOWN_VISIBLE }
 
+/** One contact row for a calendar order's customer, primary-first. */
+export interface CalendarContact {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+}
+
 export interface CalendarOrderRow {
   id: string
   po_number: string
@@ -39,6 +47,13 @@ export interface CalendarOrderRow {
   production_date: string | null
   requested_delivery_date: string | null
   production_sort_index: number | null
+  // Embedded on the row rather than fetched when the popup opens because this
+  // app has no client-side data-fetching pattern to reach for — every client
+  // component is props-in, mutate-then-`router.refresh()`. A customer has 1–3
+  // contacts, so inventing the first fetch path in the codebase to save a few
+  // hundred bytes per card is a bad trade. The card popup's Contact menu is the
+  // only consumer; cards themselves never show contacts.
+  contacts: CalendarContact[]
 }
 
 export interface CalendarRange {
@@ -74,7 +89,15 @@ const CALENDAR_SELECT_LIST = sql`
   o.same_day_delivery,
   o.production_date,
   o.requested_delivery_date,
-  o.production_sort_index
+  o.production_sort_index,
+  COALESCE((
+    SELECT json_agg(
+             json_build_object('id', cc.id, 'name', cc.name, 'email', cc.email, 'phone', cc.phone)
+             ORDER BY cc.is_primary DESC, cc.created_at ASC
+           )
+    FROM customer_contacts cc
+    WHERE cc.customer_id = o.customer_id
+  ), '[]'::json) AS contacts
 `
 
 // `cancelled` is the only status the calendar hides. `completed` and

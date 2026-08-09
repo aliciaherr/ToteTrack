@@ -17,6 +17,12 @@ interface OrderStatusActionsProps {
    * a dialog that also listens for Escape (see `useNestedDialog`).
    */
   onDialogOpenChange?: (open: boolean) => void
+  /**
+   * Rendered first in the button row, ahead of the status buttons. The calendar
+   * popup passes its Contact menu; the Orders tab passes nothing, and with it
+   * undefined the row renders exactly as it did before the prop existed.
+   */
+  leadingAction?: React.ReactNode
 }
 
 function ErrorAlert({ message }: { message: string }) {
@@ -48,7 +54,7 @@ function StatusButton({
       variant={variant}
       onClick={onClick}
       disabled={disabled}
-      className="min-h-[44px]"
+      className="min-h-[44px] shrink-0 whitespace-nowrap px-3"
     >
       {children}
     </Button>
@@ -64,6 +70,12 @@ function StatusButton({
  *
  * Both forward and undo paths surface a confirmation dialog before the
  * server action fires. All mutation state lives in `useStatusActions`.
+ *
+ * Both branches lay out identically: one `flex-nowrap` row that starts with
+ * `leadingAction`. `nowrap` because the widest case — Contact + Mark as
+ * Complete + Cancel Order — has to hold one line inside the calendar popup's
+ * ~400px usable width, and a wrapped third button there reads as a separate
+ * section rather than a peer of the other two.
  */
 export default function OrderStatusActions({
   orderId,
@@ -71,6 +83,7 @@ export default function OrderStatusActions({
   currentStatus,
   onStatusChange,
   onDialogOpenChange,
+  leadingAction,
 }: OrderStatusActionsProps) {
   const {
     errorMessage,
@@ -88,7 +101,8 @@ export default function OrderStatusActions({
     return (
       <div className="space-y-2">
         {errorMessage && <ErrorAlert message={errorMessage} />}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-nowrap items-center gap-2">
+          {leadingAction}
           <StatusButton onClick={markComplete} disabled={disabled}>
             Mark as Complete
           </StatusButton>
@@ -113,9 +127,12 @@ export default function OrderStatusActions({
   return (
     <div className="space-y-2">
       {errorMessage && <ErrorAlert message={errorMessage} />}
-      <StatusButton variant="outline" onClick={() => openRevert(true)} disabled={disabled}>
-        Revert to Scheduled
-      </StatusButton>
+      <div className="flex flex-nowrap items-center gap-2">
+        {leadingAction}
+        <StatusButton variant="outline" onClick={() => openRevert(true)} disabled={disabled}>
+          Revert to Scheduled
+        </StatusButton>
+      </div>
       <RevertOrderDialog
         open={revertOpen}
         poNumber={poNumber}
