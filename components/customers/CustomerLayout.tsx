@@ -112,7 +112,7 @@ export default function CustomerLayout({
   }
 
   return (
-    <div className="h-[calc(100vh-0.75rem)] lg:grid lg:grid-cols-[minmax(320px,35%)_1fr] lg:grid-rows-[minmax(0,1fr)]">
+    <div className="h-[calc(100svh-0.75rem)] lg:grid lg:grid-cols-[minmax(320px,35%)_1fr] lg:grid-rows-[minmax(0,1fr)]">
       <CustomerList
         customers={customers}
         selectedId={selectedId}

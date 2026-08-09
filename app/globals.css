@@ -76,9 +76,13 @@
 
   /* ── Production calendar card metrics (Feature 11, CONSTRAINT-19) ──────────
      The calendar's design target is 4 whole cards visible without scrolling at
-     any viewport height, so the card scales and the count does not. 25vh minus
+     any viewport height, so the card scales and the count does not. 25svh minus
      70px of fixed chrome per card, floored at 80px (below which the mix line
      stops being readable on a shop floor) and capped at 104px.
+
+     `svh` (not `vh`) for the same reason the route layouts use it: on iOS
+     `100vh` is the viewport with the browser chrome hidden, so sizing cards
+     against it overshoots by the tab-bar height while the tab bar is showing.
 
      Every other card metric is a fraction of --card-h so the four rows plus
      both padding edges always sum to exactly --card-h at any size:
@@ -86,7 +90,7 @@
      The name and mix rows each hold 2 lines, so their line-height is half the
      row height. Change a row fraction and the others must be rebalanced to
      keep the sum at 1.00, or cards stop being uniform. */
-  --card-h: clamp(80px, calc(25vh - 70px), 104px);
+  --card-h: clamp(80px, calc(25svh - 70px), 104px);
   --card-pad: calc(var(--card-h) * 0.05);
   --card-row-po: calc(var(--card-h) * 0.21);
   --card-row-name: calc(var(--card-h) * 0.25);
@@ -192,6 +196,12 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* Every authenticated route is sized to exactly one small viewport, so the
+       page itself has nothing to scroll. Without this, iOS still rubber-bands
+       the whole document on a downward drag, which reads as "there is more
+       below" on a screen where there never is. Inner scrollers (the week strip,
+       the day columns, the detail panes) are unaffected. */
+    overscroll-behavior: none;
   }
   html {
     @apply font-sans;

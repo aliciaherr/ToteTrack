@@ -102,8 +102,12 @@ export default function CalendarLayout({
     // 0.75rem is the `pt-3` AppShell puts above every authenticated route;
     // subtracting it is what makes the screen exactly one viewport tall so the
     // page itself never scrolls (CONSTRAINT-19). Same idiom as OrderLayout.
+    // `svh`, not `vh`: on iOS `100vh` is the *large* viewport (browser chrome
+    // hidden), so with the tab bar showing the page is toolbar-height too tall
+    // and needs one nudge of scroll before it settles. `svh` is the viewport
+    // with the chrome visible, which is the state the screen actually opens in.
     <div
-      className="h-[calc(100vh-0.75rem)] overflow-hidden flex flex-col bg-app-bg"
+      className="h-[calc(100svh-0.75rem)] overflow-hidden flex flex-col bg-app-bg"
       onClick={armMode.cancel}
     >
       <CalendarDndContext rows={draggableRows} onPlace={place} onUnschedule={unschedule}>

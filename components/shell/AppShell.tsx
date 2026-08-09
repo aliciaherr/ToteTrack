@@ -26,7 +26,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), [])
 
   return (
-    <div className="min-h-screen bg-app-bg">
+    <div className="min-h-svh bg-app-bg">
       <PillHamburger onClick={openDrawer} />
       <NavDrawer isOpen={isDrawerOpen} onClose={closeDrawer} />
       <DrawerStateProvider isOpen={isDrawerOpen}>

@@ -37,7 +37,7 @@ export default function InvoiceLayout({
   const closeLedger = useCallback(() => setIsLedgerOpen(false), [])
 
   return (
-    <div className="h-[calc(100vh-0.75rem)] lg:grid lg:grid-cols-[minmax(360px,42%)_1fr]">
+    <div className="h-[calc(100svh-0.75rem)] lg:grid lg:grid-cols-[minmax(360px,42%)_1fr]">
       <section
         aria-label="Generate invoice"
         className="bg-card border-r border-border overflow-y-auto"

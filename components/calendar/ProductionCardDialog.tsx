@@ -120,7 +120,7 @@ export default function ProductionCardDialog({
           <motion.div
             ref={panelRef}
             data-testid="production-card-dialog"
-            className="bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto calendar-scroll"
+            className="bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4 max-h-[90svh] overflow-y-auto calendar-scroll"
             variants={shouldReduceMotion ? undefined : modalVariants.panel}
             initial="hidden"
             animate="visible"
