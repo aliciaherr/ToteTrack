@@ -357,6 +357,22 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ---
 
+### CONSTRAINT-23 — Viewport heights are `svh`, never `vh` or `h-screen`
+
+**Decision:** 2026-08-09. Any height sized against the viewport uses `svh` — `min-h-svh`, `h-[calc(100svh-…)]`, `max-h-[90svh]`, `25svh` in CSS. `vh` units, `h-screen` and `min-h-screen` are banned in this codebase.
+
+**Why this is a constraint and not a preference:** on iOS Safari and Chrome, `100vh` is the *large* viewport — the height the page would have with the browser chrome hidden. Every authenticated route was sized against it, so on the iPad each screen opened toolbar-height too tall and needed one nudge of scroll before it settled into the no-scroll layout CONSTRAINT-19 requires. The failure is invisible on desktop and unreachable from jsdom: the suite was fully green with every screen broken on the primary device. One `min-h-screen` on a future shell or page reintroduces it silently, because a `100vh` floor anywhere in the ancestor chain keeps the document scrollable no matter what the routes below it do.
+
+**Practical impact:** a new full-height screen writes `min-h-svh`. `overscroll-behavior: none` on `body` (globals.css) is part of the same fix — with nothing to scroll, iOS still rubber-bands the document, which reads as "there is more below" on a screen where there never is. Inner scrollers are unaffected.
+
+**`svh` and not `dvh`, deliberately:** `dvh` tracks the toolbar as it hides and shows, re-laying out the grid mid-gesture. `svh` is a fixed number that never overflows. The accepted cost is toolbar-height of dead space if the bar does collapse.
+
+**Who decided and when:** Builder, 2026-08-09, on the iPad scroll report; fix `d3314d7`, device-verified the same day.
+
+**What this closes off:** `h-screen`/`min-h-screen`, the Tailwind idiom most examples reach for first. Nothing enforces this yet — it is a documented rule, not a lint check.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -383,3 +399,4 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 | 20 | Dev and prod share one Supabase project | Never run `db:wipe`/`db:seed`; no automated write-flow testing until a dev environment exists | Builder | 2026-07-28 |
 | 21 | Order addresses = text snapshots; `customer_addresses` = saved list | `orders.delivery_address` never becomes an FK; saved-address writes are `ON CONFLICT` upserts against `UNIQUE (customer_id, address)`; `default_delivery_address` deprecated — no app code touches it, drop deferred | Builder | 2026-07-28 |
 | 22 | `sms:`/`mailto:` hrefs come from `lib/contact-links.ts` | No component builds a contact href inline; `isPresent`/`isReachable` gate rendering, never truthiness; both sides of the mailto `@` encoded | Builder | 2026-08-09 |
+| 23 | Viewport heights are `svh`, never `vh`/`h-screen` | `100vh` is iOS's chrome-hidden viewport, so `vh` opens every screen a toolbar too tall; `min-h-svh` / `h-[calc(100svh-…)]`; `overscroll-behavior: none` on `body`; `svh` not `dvh` to avoid mid-scroll relayout | Builder | 2026-08-09 |
