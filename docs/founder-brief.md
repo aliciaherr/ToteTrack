@@ -359,7 +359,8 @@ Going back would mean reintroducing derived positions, and with them both the dr
 
 Two defects were found and fixed while building it, both silent:
 - The **Customers screen has been building email links unsafely since it was written.** If a contact's email field ever held stray text after the address, the mail app would read it as instructions — a draft could open with an extra recipient CC'd, looking completely normal on the way out. Both screens now share one guarded builder. Nothing suggests this ever happened to you; the field is yours to type into. It simply can't now.
-- A phone written as **"Text 555-0100"** produced a dead Message link. The code looked for extensions (`x204`) and the `x` in "Text" swallowed the number. Now only a real trailing extension is stripped.
+- A phone written as **"Text 555-0100"** produced a dead Message link. The code looked for extensions (`x204`) and the `x` in "Text" swallowed the number. The extension marker is now only recognised when it does not sit inside a word, so "Text", "fax" and names like "Alex" keep their number.
+- Extensions themselves are now dropped along with anything written after them, so **"555-010-2030 ext 12 (Dana)"** texts `555-010-2030` rather than folding the `12` on and dialling a number that belongs to someone else. The trade-off is deliberate: when the extension is written *before* the number the whole field is dropped and you get an empty message draft. An empty draft is obviously wrong and you can fix it on the spot; a wrong number that looks right is not.
 
 **Check before approving:**
 - On desktop, the Message option does nothing — `sms:` is a phone/tablet handler. Verified working on the iPad, which is the device this is for.

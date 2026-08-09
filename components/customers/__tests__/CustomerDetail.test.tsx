@@ -159,6 +159,47 @@ describe('CustomerDetail', () => {
     expect(screen.getByText(/no saved addresses yet/i)).toBeInTheDocument()
   })
 
+  // `CustomerContactCard` renders only through `CustomerDetail`, so its contact
+  // hrefs are covered here rather than in a card-only file. These three are the
+  // regression guards for the mailto injection Task 75 closed on this very
+  // screen: reverting either href to raw interpolation, or either guard to
+  // truthiness, has to fail. Before them, both reverts left the suite green.
+  function renderWithContact(contact: Partial<CustomerDetailType['contacts'][number]>) {
+    render(
+      <CustomerDetail
+        detail={{ ...baseDetail, contacts: [{ ...baseDetail.contacts[0], ...contact }] }}
+        orders={[]}
+        window="1M"
+        volumeOverview={emptyVolume}
+        onEdit={vi.fn()}
+      />,
+    )
+  }
+
+  it('builds the Text href from the sanitized phone rather than the raw column', () => {
+    renderWithContact({ phone: '(555) 010-2030 ext 12 (Dana)' })
+    expect(screen.getByRole('link', { name: 'Text Jane Doe' })).toHaveAttribute(
+      'href',
+      'sms:5550102030',
+    )
+  })
+
+  it('percent-encodes a smuggled CC in the Email href instead of passing it live', () => {
+    renderWithContact({ email: 'jane@acme.example?cc=rival@competitor.test' })
+    const link = screen.getByRole('link', { name: 'Email Jane Doe' })
+    expect(link).toHaveAttribute('href', 'mailto:jane%40acme.example%3Fcc%3Drival@competitor.test')
+    expect(link.getAttribute('href')).not.toContain('?cc=')
+  })
+
+  it('renders no contact buttons and no contact lines for whitespace-only channels', () => {
+    renderWithContact({ email: '   ', phone: '  ' })
+    expect(screen.queryByRole('link', { name: /^Text / })).toBeNull()
+    expect(screen.queryByRole('link', { name: /^Email / })).toBeNull()
+    // The display lines are gated on the same check as the buttons, so a blank
+    // column must not render a visibly empty row with nothing beside it.
+    expect(screen.queryByText(/^\s+$/)).toBeNull()
+  })
+
   it('shows the "Contact Recommended" overdue banner when overdue_days > 0', () => {
     const overdueDetail = { ...baseDetail, overdue_days: 3 }
     render(

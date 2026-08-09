@@ -83,6 +83,12 @@ function ChannelItem({
 /**
  * Both channels for one contact, Message before Email — texting a driver gets a
  * reply faster than mailing them, and this menu is used from the shop floor.
+ *
+ * @param contact The contact whose phone and email become the two rows; either
+ * column may be absent, which renders that row disabled.
+ * @param indented True when these rows sit under a contact header in the picker,
+ * false when this contact is the order's only one and the rows are top level.
+ * @param onChoose Called when either channel is picked; closes the menu.
  */
 export function ChannelItems({
   contact,

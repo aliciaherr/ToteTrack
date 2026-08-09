@@ -48,11 +48,35 @@ describe('smsHref', () => {
     expect(smsHref('555-010-2030x99')).toBe('sms:5550102030')
   })
 
+  it('drops an extension that has a note trailing it rather than folding its digits in', () => {
+    // Regression: a `\s*$` right anchor made the strip fire only when the
+    // extension was the literal end of the field, so anything after it — a name,
+    // an instruction — kept the extension digits and produced a plausible wrong
+    // number. `sms:555010203012` texts a stranger; that is the failure mode this
+    // whole function exists to avoid.
+    expect(smsHref('555-010-2030 ext 12 (Dana)')).toBe('sms:5550102030')
+    expect(smsHref('555-010-2030 ext 12 - ask for Dana')).toBe('sms:5550102030')
+    expect(smsHref('555-010-2030 extension 12')).toBe('sms:5550102030')
+    // Two markers: the first one ends the number, the second is inside the note.
+    expect(smsHref('555-0100 x2 x3')).toBe('sms:5550100')
+  })
+
+  it('yields an empty target rather than a wrong number when the marker leads the field', () => {
+    // Error case, and a deliberate over-strip: everything past the marker goes,
+    // including the number itself. An empty composer is visibly wrong and
+    // correctable; `sms:125550102030` is not.
+    expect(smsHref('ext 12 555-010-2030')).toBe('sms:')
+  })
+
   it('keeps the number when an x sits inside a word rather than marking an extension', () => {
     // Regression: an unanchored `x.*$` matched the `x` in "Text" and "fax" and
     // returned a bare `sms:` for a number that was right there in the field.
     expect(smsHref('Text 555-0100')).toBe('sms:5550100')
     expect(smsHref('fax: 555-0100')).toBe('sms:5550100')
+    // Names ending in `x` are the same hazard and the left guard is what stops
+    // them — worth pinning, since the trailing `.*$` would otherwise eat the
+    // whole field from the `x` in "Alex" onward.
+    expect(smsHref('Alex 555-010-2030')).toBe('sms:5550102030')
   })
 
   it('yields an empty target for a phone with nothing dialable in it', () => {

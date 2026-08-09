@@ -9,27 +9,37 @@
 // from either side of the boundary and testable without a renderer.
 
 /**
- * A trailing extension, plus the whitespace in front of it, plus the character
- * before that — which the replacement puts back via `$1`.
+ * An extension marker and everything after it, plus the whitespace in front of
+ * the marker, plus the character before that — which the replacement puts back
+ * via `$1`.
  *
- * Every part of this is load-bearing. The marker must be preceded by a
- * non-letter (or start of string) and *followed* by digits at end of string,
- * because the bare `x` is a legitimate marker in this dataset and `x` also
- * appears mid-word: an unanchored `x.*$` ate the number in `"Text 555-0100"`
- * and `"fax: 555-0100"`, silently emitting `sms:` for a perfectly dialable
- * phone.
+ * The left guard is the load-bearing half. The marker must be preceded by a
+ * non-letter (or start of string), because the bare `x` is a legitimate marker
+ * in this dataset and `x` also appears mid-word: without the guard, `x.*$` ate
+ * the number in `"Text 555-0100"` and `"fax: 555-0100"` (and in `Alex`, `Max`,
+ * `Rex`), silently emitting `sms:` for a perfectly dialable phone.
  *
- * Rejected `\b` as the left anchor: there is no word boundary between a digit
+ * Rejected `\b` as that left anchor: there is no word boundary between a digit
  * and an `x`, so `"5550100x204"` would keep its extension and dial a number
  * that does not exist — the exact failure `sanitizePhone` exists to prevent.
  * Rejected a `(?<![a-z])` lookbehind, which expresses this directly: Safari
  * only gained lookbehind in 16.4, and an unsupported regex *literal* is a parse
  * error that takes the whole bundle down rather than degrading.
  *
- * `ext` is listed first so the alternation consumes the whole token rather than
- * stopping at the `x` inside it.
+ * Rejected the `\s*$` right anchor that used to sit here — it was worse than
+ * the bug it replaced. Requiring the extension to be the literal end of the
+ * string meant anything trailing it kept the whole thing: `"555-010-2030 ext 12
+ * (Dana)"` dialled `5550102030` + `12`. A bare `sms:` is visibly broken and
+ * harmless; a plausible-looking wrong number silently texts a stranger. `.*$`
+ * instead — past a marker, the rest of the field is a note *about* the
+ * extension, never more of the number, so `"555-0100 x2 x3"` collapses to
+ * `5550100` on the first marker.
+ *
+ * `ext` is listed ahead of `x` so the alternation consumes the whole token
+ * rather than stopping at the `x` inside it; `extension` nests inside `ext` for
+ * the spelled-out form, which real fields do use.
  */
-const EXTENSION_SUFFIX = /(^|[^a-z])\s*(?:ext\.?|x)[\s.:#-]*\d+\s*$/i
+const EXTENSION_SUFFIX = /(^|[^a-z])\s*(?:ext(?:ension)?\.?|x)[\s.:#-]*\d+.*$/i
 
 /** Everything that is not a digit. */
 const NON_DIGIT = /\D/g
@@ -53,9 +63,25 @@ export function isPresent(value: string | null | undefined): value is string {
  * Strips a free-text phone down to something a handset can dial: digits, with a
  * single leading `+` preserved for international numbers.
  *
- * The extension is dropped **before** the digits are kept, not after — an
- * extension is dialled by a human after the call connects, so folding its digits
- * into the number produces a number that does not exist.
+ * The extension — and everything after it — is dropped **before** the digits are
+ * kept, not after. An extension is dialled by a human once the call connects, so
+ * folding its digits in produces a longer number that is either unroutable or,
+ * worse, someone else's.
+ *
+ * That asymmetry is the whole design: this errs toward dropping too much. When
+ * the marker leads the field (`"ext 12 555-010-2030"`) the number goes with it
+ * and the result is a bare `sms:` — an empty composer the operator can see is
+ * wrong and fill in by hand. The failure this refuses to make is the quiet one,
+ * a well-formed number belonging to the wrong person.
+ *
+ * Accepted limits, all pre-existing, all failing loudly-enough to spot in the
+ * composer rather than silently:
+ * - `#` on its own is not treated as a marker, so `"555-010-2030 #12"` folds the
+ *   `12` in. Recognising it would break every field written as `"#555-0100"`.
+ * - A label ahead of the number kills international detection: the
+ *   `startsWith('+')` test runs on the merely-trimmed string, so
+ *   `"Mobile: +44 20 …"` loses its `+` and dials as domestic.
+ * - Two numbers in one field concatenate into one unusable string.
  */
 function sanitizePhone(phone: string): string {
   const withoutExtension = phone.replace(EXTENSION_SUFFIX, '$1')

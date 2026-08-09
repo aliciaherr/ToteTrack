@@ -18,7 +18,16 @@ function ErrorAlert({ message }: { message: string }) {
   )
 }
 
-/** One status button. 44px tall, whatever the branch — the touch-target floor. */
+/**
+ * One status button. 44px tall, whatever the branch — the touch-target floor.
+ *
+ * @param variant Button styling; omitted for the default (primary) action.
+ * @param onClick Fired on press — opens the branch's confirmation dialog rather
+ * than mutating directly.
+ * @param disabled True while a mutation is in flight, so the row cannot be
+ * double-submitted.
+ * @param children The button label.
+ */
 export function StatusButton({
   variant,
   onClick,

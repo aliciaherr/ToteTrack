@@ -2531,6 +2531,6 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 - [x] Orders tab renders unchanged (`leadingAction` slot is optional and unset there)
 - [x] Suite green, `tsc` clean
 
-**Status:** [x] Done 2026-08-09 — `contacts` embedded via `json_agg` in `CALENDAR_SELECT_LIST`; `contactLinks.ts` + `ContactMenu`/`ContactMenuParts` (CQ-02 split); `leadingAction` slot on the shared `OrderStatusActions`. 34 new tests (912 suite-wide), `tsc` clean. One-line fit and the nested picker verified by the builder in the local dev server. `sms:` is inert on desktop Chrome — iPad only, not a defect.
+**Status:** [x] Done 2026-08-09 — `contacts` embedded via `json_agg` in `CALENDAR_SELECT_LIST`; `lib/contact-links.ts` + `ContactMenu`/`ContactMenuParts` (CQ-02 split); `leadingAction` slot on the shared `OrderStatusActions`. 34 new tests (912 suite-wide), `tsc` clean. One-line fit and the nested picker verified by the builder in the local dev server. `sms:` is inert on desktop Chrome — iPad only, not a defect.
 
 **Depends on:** Feature 11 (calendar), Task 58 (card popup)

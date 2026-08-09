@@ -25,22 +25,42 @@ const ACTION_BTN_CLASS =
  * `isPresent` (not truthiness) is what stops a whitespace-only field from
  * rendering a button that goes nowhere.
  *
- * The props object *is* the channel shape `isReachable` wants, so it is passed
- * whole rather than rebuilt.
+ * The accessible name is the contact's *name*, not the stored channel. Echoing
+ * the column (`Text ${phone}`) announced one number while the href navigated to
+ * a different, sanitized one — a screen-reader user heard `555-010-2030 ext 12`
+ * and dialled `5550102030`. Announcing the sanitized value instead would be
+ * truthful but useless: a bare digit run tells nobody who is being texted, and
+ * it still reads as a claim about a target the OS may rewrite again. The name
+ * cannot disagree with the href because it is not a claim about the href, and it
+ * is the thing the operator is actually choosing between when a customer has
+ * several contacts.
+ *
+ * `channels` *is* the shape `isReachable` wants, so it is passed whole rather
+ * than rebuilt.
+ *
+ * @param name The contact's name — the accessible label for both buttons.
+ * @param channels The two stored contact columns, either of which may be absent.
  */
-function ContactActions(channels: { email: string | null; phone: string | null }) {
+function ContactActions({
+  name,
+  ...channels
+}: {
+  name: string
+  email: string | null
+  phone: string | null
+}) {
   if (!isReachable(channels)) return null
   const { email, phone } = channels
   return (
     <div className="flex items-center gap-2 shrink-0">
       {isPresent(phone) ? (
-        <a href={smsHref(phone)} className={ACTION_BTN_CLASS} aria-label={`Text ${phone}`}>
+        <a href={smsHref(phone)} className={ACTION_BTN_CLASS} aria-label={`Text ${name}`}>
           <MessageSquare className="h-4 w-4" aria-hidden="true" />
           Text
         </a>
       ) : null}
       {isPresent(email) ? (
-        <a href={mailtoHref(email)} className={ACTION_BTN_CLASS} aria-label={`Email ${email}`}>
+        <a href={mailtoHref(email)} className={ACTION_BTN_CLASS} aria-label={`Email ${name}`}>
           <Mail className="h-4 w-4" aria-hidden="true" />
           Email
         </a>
@@ -57,12 +77,15 @@ function ContactLine({ contact }: { contact: CustomerContactRow }) {
           {contact.name}
           {contact.role ? <span className="text-secondary font-normal"> — {contact.role}</span> : null}
         </div>
+        {/* `isPresent`, matching the buttons: a whitespace-only column is "not
+            on file", and truthiness here rendered a visibly blank line with no
+            button beside it and nothing explaining why. */}
         <div className="mt-0.5 flex flex-col gap-0.5 text-sm text-secondary">
-          {contact.email ? <span className="truncate">{contact.email}</span> : null}
-          {contact.phone ? <span>{contact.phone}</span> : null}
+          {isPresent(contact.email) ? <span className="truncate">{contact.email}</span> : null}
+          {isPresent(contact.phone) ? <span>{contact.phone}</span> : null}
         </div>
       </div>
-      <ContactActions email={contact.email} phone={contact.phone} />
+      <ContactActions name={contact.name} email={contact.email} phone={contact.phone} />
     </div>
   )
 }

@@ -189,6 +189,7 @@ components/
     LeadLayout.tsx          ← 'use client' — two-panel state
     LeadList.tsx            ← 'use client'
     LeadDetail.tsx          ← 'use client' — Text + Email + Edit + Convert action buttons
+                               (Text/Email hrefs built by `lib/contact-links.ts`, never inline)
     LeadForm.tsx            ← 'use client'
   invoices/
     InvoiceLayout.tsx       ← 'use client' — two-panel state (drawer-based ledger below lg)
