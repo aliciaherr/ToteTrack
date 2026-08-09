@@ -54,10 +54,19 @@ export function telHref(phone: string): string {
 /**
  * A `mailto:` href for an email address.
  *
- * Only the local part is percent-encoded: `+`, spaces and quotes are legal there
- * and would otherwise be read as mailto syntax, while the domain is already
- * restricted to characters that need no escaping — and encoding it would break
- * the `@` split that mail clients rely on.
+ * Both sides of the `@` are percent-encoded; only the separator itself is left
+ * literal, because mail clients split on it. Encoding the domain matters as much
+ * as the local part: `?`, `&` and `=` after the address are read by the mail app
+ * as *instructions* — `?cc=`, `?subject=`, `?body=` — and the column is a
+ * hand-typed free-text field with nothing validating that it holds an address at
+ * all. Left raw, a pasted `john@acme.com?cc=someone` would open a draft with a
+ * silent CC that looks entirely normal on the way out.
+ *
+ * Encoded, that same value degrades into one visibly malformed recipient rather
+ * than a quietly wrong one. The draft still opens — the point is to land in the
+ * mail app, where a bad recipient can be corrected by hand — it just carries no
+ * instructions the stored data smuggled in. A well-formed address is unchanged:
+ * `encodeURIComponent` leaves letters, digits, dots and hyphens alone.
  *
  * @param email The stored address; surrounding whitespace is trimmed.
  */
@@ -68,7 +77,7 @@ export function mailtoHref(email: string): string {
 
   const local = trimmed.slice(0, separator)
   const domain = trimmed.slice(separator + 1)
-  return `mailto:${encodeURIComponent(local)}@${domain}`
+  return `mailto:${encodeURIComponent(local)}@${encodeURIComponent(domain)}`
 }
 
 /**

@@ -58,9 +58,32 @@ describe('mailtoHref', () => {
     )
   })
 
-  it('percent-encodes the local part but leaves the domain alone', () => {
+  it('percent-encodes the local part', () => {
     expect(mailtoHref('dana+orders@acme-industrial.test')).toBe(
       'mailto:dana%2Borders@acme-industrial.test',
+    )
+  })
+
+  it('leaves a well-formed domain untouched', () => {
+    // Letters, digits, dots and hyphens survive `encodeURIComponent`, so
+    // encoding the domain costs nothing on real addresses.
+    expect(mailtoHref('dana@acme-industrial.test')).toBe('mailto:dana@acme-industrial.test')
+  })
+
+  it('encodes mailto instructions smuggled in after the domain', () => {
+    // Error case: the email column is hand-typed free text. Left raw, this would
+    // open a draft with a silent CC that reads as entirely normal.
+    expect(mailtoHref('dana@acme.test?subject=Invoice&body=hi')).toBe(
+      'mailto:dana@acme.test%3Fsubject%3DInvoice%26body%3Dhi',
+    )
+  })
+
+  it('neutralises a smuggled CC even though the extra @ moves the split', () => {
+    // `lastIndexOf('@')` lands inside the injected address, so the split is
+    // nonsense — but every `?`, `=` and `&` is still encoded on both sides, which
+    // is what actually matters. One unusable recipient, no hidden CC.
+    expect(mailtoHref('dana@acme.test?cc=rival@competitor.test')).toBe(
+      'mailto:dana%40acme.test%3Fcc%3Drival@competitor.test',
     )
   })
 
