@@ -1,9 +1,18 @@
-'use server'
-
 /**
  * Private helpers for convertLeadToCustomer. Extracted to keep leads.ts under
  * the 300-line CQ-02 service cap — same pattern as customers.sql.ts.
  * Not part of the public actions API; only imported by leads.ts.
+ *
+ * **No `'use server'` — deliberately, and it must stay that way (SEC-08).**
+ * The directive is what turns an exported async function into a publicly
+ * callable endpoint, and every export here is an unguarded helper: none calls
+ * `assertAuthenticated()`, because the guard lives once at the real entry point
+ * (`convertLeadToCustomer` in leads.ts). With the directive on, `ilike`-backed
+ * `findDuplicateCustomer` would answer `'%'` for anyone who can reach the
+ * deployment — a customer-name enumeration oracle needing no ID and no login.
+ * Without it, this is an ordinary module that leads.ts imports and calls
+ * directly, which is all it ever needed to be. Same pattern as
+ * `orders.internal.ts` and `orders.addresses.ts`.
  */
 
 import { eq, ilike } from 'drizzle-orm'
