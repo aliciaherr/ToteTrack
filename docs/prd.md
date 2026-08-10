@@ -848,3 +848,58 @@ As the salesperson, I want each customer's addresses saved and selectable so I p
 
 ### Success Metric
 No address is ever typed twice for the same customer.
+
+---
+
+## Feature 15: Pickups
+
+### Problem Statement
+Collecting empty totes back from customers is real scheduled work with no record in the app. The existing `orders.pickup_only` flag is a different concept — it means the customer collects their order instead of us delivering it — so the word "pickup" currently points at the wrong thing.
+
+### User Story
+As the salesperson, I want to create and schedule tote pickups the way I create orders, so collections appear on the same calendar as production.
+
+### User Flow
+1. **Create:** Pickups tab "+ New Pickup", the calendar day column's "+ → Add Pickup", or the dashboard FAB → customer, 275/330 counts, optional date, optional address, notes.
+2. **Schedule:** set the date on the form, or drag the card on the calendar.
+3. **Complete:** the calendar card popup, or the Pickups tab detail panel → Mark Complete / Cancel.
+
+### Business Logic
+- New `pickups` table — separate entity, not a flag on `orders`. Customer, `qty_275`/`qty_330`, `status` (`scheduled | completed | cancelled`), nullable `pickup_date`, `sort_index`, optional `address`, `notes`.
+- **No price, no number, no document, never invoiced.** Pickups appear on no revenue, invoice or dashboard surface.
+- Counts are 275/330 only — a returned empty has no reconditioned/rebottled/new distinction.
+- `pickup_date` is a single date and *is* the calendar placement, unlike orders where the delivery promise and the production date are separate. Dragging a pickup card rewrites it.
+- Null `pickup_date` = unscheduled; those pickups appear in the calendar's unscheduled callout and each day's "+" list.
+- Mark Complete is a status flip only — it does not record how many totes actually came back.
+- Address is optional; when given it is a text snapshot and is added to the customer's saved-address list (CONSTRAINT-21).
+- `orders.pickup_only` is renamed `customer_collects`. Same behavior, honest name.
+- Customer hard-delete now requires zero pickups as well as zero orders (CONSTRAINT-13).
+
+### Calendar Behavior
+- Two independent visibility toggles: **Orders on, Pickups off** by default; each visit resets to that.
+- Pickups render as a second, separately-ordered list below the orders list in each day column.
+- Pickup cards are amber-surfaced with plain dark text (`12 × 275, 4 × 330`) — deliberately not the green/blue size-and-type color language, so the two card kinds are never confused.
+- Drag and long-press-to-arm work within a group only. An order can never become a pickup.
+- Completed pickups are greyed and locked; cancelled ones are hidden — same treatment as built orders.
+
+### Acceptance Criteria
+- [ ] A pickup can be created, edited, scheduled, completed and cancelled without touching an order
+- [ ] Pickups appear on no invoice, revenue or dashboard-widget surface
+- [ ] Calendar toggles default to Orders-on / Pickups-off and reset on every visit
+- [ ] A card cannot be dragged or armed from one group into the other
+- [ ] Renaming `pickup_only` changes no behavior
+- [ ] Browser-verified on the iPad — two lists in one column at the real card height
+
+### Edge Cases
+- **Both toggles off** → the column shows an empty-state message rather than a blank grid.
+- **Pickup with no date** → unscheduled callout and every day's "+" list, same as an undated order.
+- **Customer with pickups but no orders** → hard-delete is refused with a message, not an FK error.
+
+### Out of Scope
+- Tote-balance accounting (how many totes a customer holds) — pickups are scheduling only
+- Linking a pickup to the order whose totes are being collected
+- Actual-vs-requested counts on completion
+- Pickup numbers, pricing, invoicing, document upload
+
+### Success Metric
+Collections stop living on paper — every scheduled pickup is on the calendar.

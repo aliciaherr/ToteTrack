@@ -391,6 +391,24 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ---
 
+### CONSTRAINT-25 — Pickups are a separate entity; the calendar hosts two independent lists
+
+**Decision:** 2026-08-10. Tote collections live in their own `pickups` table, never as a flag or a status on `orders`. They carry no price, no number, no document and no invoice link, and appear on no revenue or dashboard surface. `orders.pickup_only` is renamed `customer_collects` — it always meant "the customer collects their order", never "we collect empties".
+
+**Why a table and not a discriminator column:** a shared table would make `price` nullable and put a silent obligation on every existing query — invoices, revenue, dashboard widgets, customer history — to filter pickups out. One missed `WHERE` mixes unpriced rows into money. Dev *is* prod here (CONSTRAINT-20), so that failure lands on live data with no sandbox to catch it. A separate table pays an explicit duplication cost on the calendar instead of an implicit correctness risk everywhere else.
+
+**Practical impact on the calendar:** each day column holds two independently-ordered lists — orders above, pickups below. Every drag payload carries a `group` discriminator, droppable ids are composed (`pickups:${dateKey}`), collision detection is pre-filtered by group, and long-press arm mode resolves insertion indices within a group only. A card can never move between groups. Two visibility toggles default to **Orders on, Pickups off** and reset every visit — nothing in this app persists client state, and two booleans are not the reason to start.
+
+**Pickup cards are amber-surfaced with plain dark text.** They do not use the green-275 / blue-330 size-and-type color language, because a pickup has no type dimension and the two card kinds must never be misread for each other at card font size.
+
+**Dates:** a pickup has one date, and it *is* the calendar placement — dragging rewrites it. This is deliberately unlike CONSTRAINT-19, where the delivery promise and the production date are separate and the calendar never touches the promise. Null means unscheduled.
+
+**Who decided and when:** Builder, 2026-08-10, in the pickups brainstorm; planned as Tasks 76–81.
+
+**What this closes off:** tote-balance accounting (delivered minus collected), linking a pickup to the order whose totes are coming back, and actual-vs-requested counts on completion. All three need columns this table does not have; adding them later is a migration, not a refactor. Reopening the shared-table question means auditing every existing order query for a missing filter.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -419,3 +437,4 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 | 22 | `sms:`/`mailto:` hrefs come from `lib/contact-links.ts` | No component builds a contact href inline; `isPresent`/`isReachable` gate rendering, never truthiness; both sides of the mailto `@` encoded | Builder | 2026-08-09 |
 | 23 | Viewport heights are `svh`, never `vh`/`h-screen` | `100vh` is iOS's chrome-hidden viewport, so `vh` opens every screen a toolbar too tall; `min-h-svh` / `h-[calc(100svh-…)]`; `overscroll-behavior: none` on `body`; `svh` not `dvh` to avoid mid-scroll relayout | Builder | 2026-08-09 |
 | 24 | `'use server'` marks intended public endpoints only | Helper modules never carry the directive — it is the publication mechanism, and there is no private scope inside such a file; the check is export-level (every exported async fn, guard-counted, reconciled against the build manifest's action IDs), never a file-list diff; baseline 9 modules / 25 exports / 25 action IDs | Builder | 2026-08-09 |
+| 25 | Pickups are a separate table, never a flag on `orders` | No price/number/invoice; absent from all revenue + dashboard surfaces; `pickup_only` renamed `customer_collects`; calendar day columns hold two independently-ordered lists with a `group` discriminator on every drag payload; no cross-group moves; toggles default Orders-on/Pickups-off and reset each visit; amber cards, plain text; `pickup_date` is the placement and drag rewrites it | Builder | 2026-08-10 |

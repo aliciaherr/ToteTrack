@@ -2534,3 +2534,206 @@ Tasks 49–60 all `[x]`. Test suite 482 → **685**.
 **Status:** [x] Done 2026-08-09 — `contacts` embedded via `json_agg` in `CALENDAR_SELECT_LIST`; `lib/contact-links.ts` + `ContactMenu`/`ContactMenuParts` (CQ-02 split); `leadingAction` slot on the shared `OrderStatusActions`. 34 new tests (912 suite-wide), `tsc` clean. One-line fit and the nested picker verified by the builder in the local dev server. `sms:` is inert on desktop Chrome — iPad only, not a defect.
 
 **Depends on:** Feature 11 (calendar), Task 58 (card popup)
+
+---
+
+# Feature 15: Pickups (Tasks 76–81)
+
+Spec: `docs/prd.md` → Feature 15. Binding: CONSTRAINT-25 (separate entity, two calendar lists), CONSTRAINT-21 (address snapshots), CONSTRAINT-20 (dev = prod — every migration is run by hand in the Supabase SQL editor).
+
+---
+
+## Task 76: Rename `orders.pickup_only` to `customer_collects`
+
+Mechanical rename, no behavior change. Isolated so the naming ambiguity is gone before any pickups code lands. `pickup_only` always meant *the customer collects their order instead of us delivering it* — the opposite direction from a pickup.
+
+**Files:**
+- `db/migrations/0014_rename_pickup_only.sql` — create
+- `db/migrations/__tests__/0014.test.ts` — create
+- `db/schema/orders.ts`, `db/seed.ts`, `db/queries/orders.ts` (`OrderDetail` field + SELECT list) — modify
+- `lib/actions/orders.validation.ts` (zod field + `requireDeliveryAddressWhenNotPickup` → `requireDeliveryAddressWhenNotCollected`), `orders.internal.ts`, `orders.addresses.ts`, `orders.ts` — modify
+- `components/orders/orderFormSchema.ts`, `OrderFormFields.tsx`, `OrderLogisticsFields.tsx`, `AddressSelect.tsx`, `OrderDetail.tsx`, `OrderDetailParts.tsx` (label `"Pickup Only"` → `"Customer Collects"`) — modify
+- Tests: `lib/actions/__tests__/orders.test.ts`, `db/queries/__tests__/orders.test.ts`, `components/orders/__tests__/OrderForm.test.tsx` (incl. the `/pickup only/i` matchers), `OrderDetail.test.tsx` — modify
+- Docs: `docs/data-model.md`, `docs/api-spec.md` (`pickupOnly` → `customerCollects`) — modify
+
+**Migration `0014_rename_pickup_only.sql`:** a single `ALTER TABLE "orders" RENAME COLUMN "pickup_only" TO "customer_collects";`
+
+**Acceptance criteria:**
+- [ ] Zero occurrences of `pickup_only` / `pickupOnly` outside `db/migrations/` and the drizzle `meta/` snapshot
+- [ ] The order form checkbox reads "Customer Collects"; the delivery address still hides when it is ticked
+- [ ] Suite green, `tsc` clean
+
+**Tests required:**
+- `0014 migration` → `test: renames the column and touches nothing else`
+- `OrderForm` → `test: ticking Customer Collects hides the address field` (renamed from the pickup-only case)
+
+**Sequencing:** the SQL runs against live prod. Between running it and Vercel finishing the deploy, order create/edit errors. Run it during a quiet window and push immediately.
+
+**Status:** [ ] Not started
+
+**Depends on:** None
+
+---
+
+## Task 77: `pickups` table, queries and actions
+
+**Files:**
+- `db/migrations/0015_pickups.sql`, `db/migrations/__tests__/0015.test.ts` — create
+- `db/schema/pickups.ts` — create; `db/schema/enums.ts` (add `pickupStatusEnum`), `db/schema/index.ts` (barrel line) — modify
+- `db/queries/pickups.ts` — create
+- `lib/actions/pickups.ts` (`'use server'`), `lib/actions/pickups.validation.ts` (no directive — CONSTRAINT-24) — create
+- `lib/errors.ts` (add `PickupNotFoundError`) — modify
+- `lib/actions/customers.ts` (`deleteCustomer` zero-pickups check) — modify
+- `db/queries/__tests__/pickups.test.ts`, `lib/actions/__tests__/pickups.test.ts` — create
+- `docs/data-model.md` (pickups table + the `deleteCustomer` rule change) — modify
+
+**Migration `0015_pickups.sql`:**
+- `CREATE TYPE "pickup_status" AS ENUM ('scheduled', 'completed', 'cancelled');`
+- `CREATE TABLE "pickups"` with: `id` uuid PK default `gen_random_uuid()`; `customer_id` uuid NOT NULL REFERENCES `customers(id)` ON DELETE RESTRICT; `status` pickup_status NOT NULL DEFAULT 'scheduled'; `qty_275` / `qty_330` integer NOT NULL DEFAULT 0; `pickup_date` date (nullable); `sort_index` integer (nullable); `address` text (nullable); `notes` text (nullable); `created_at` / `updated_at` timestamptz NOT NULL DEFAULT now()
+- Indexes `pickups_customer_id_idx`, `pickups_status_idx`, `pickups_pickup_date_idx`
+- `ALTER TABLE "pickups" ENABLE ROW LEVEL SECURITY;` plus the standard `authenticated_access` policy (`FOR ALL TO authenticated USING (true) WITH CHECK (true)`), matching `0012_customer_addresses.sql`
+
+**Functions to implement:**
+- `getPickups(filters?: GetPickupsFilters): Promise<{ rows: PickupTableRow[] }>` — status + customer-name search; scheduled first ascending by date, everything else after descending, mirroring `ORDER_CLAUSE` in `db/queries/orders.ts`
+- `getPickupDetail(id: string): Promise<PickupDetail>` — throws `PickupNotFoundError`
+- `createPickup(input): Promise<{ id: string } | { error: string }>`
+- `updatePickup(id: string, input): Promise<{ success: true } | { error: string }>`
+- `updatePickupStatus(id: string, target: 'completed' | 'cancelled' | 'scheduled'): Promise<{ success: true } | { error: string }>`
+
+**Acceptance criteria:**
+- [ ] SEC-01/02: `assertAuthenticated()` inside the try in every exported action; zod `safeParse` before it; `UUID_RE` on every id param
+- [ ] CONSTRAINT-24: `pickups.validation.ts` carries no `'use server'`
+- [ ] At least one of `qty_275` / `qty_330` must be greater than 0; `QUANTITY_MAX` enforced
+- [ ] `pickup_date` optional — absent means unscheduled
+- [ ] Address optional; when present it is snapshotted on the pickup **and** upserted into `customer_addresses` through the existing `recordDeliveryAddressUsage` path (CONSTRAINT-21)
+- [ ] `deleteCustomer` refuses a customer holding pickups with a readable message, not a raw FK error (CONSTRAINT-13)
+- [ ] Writes revalidate `/pickups`, `/calendar`, `/customers` — never `/dashboard` (no widget shows pickups)
+- [ ] EH-01: `console.error` with operation, ids and cause, then `GENERIC_FAILURE_MESSAGE` to the client
+
+**Tests required:**
+- `getPickups` → `test: status and search clauses compile into the expected SQL` / `test: a driver rejection throws DatabaseError`
+- `createPickup` → `test: writes the expected row` / `test: unauthenticated returns the generic failure`
+- `updatePickupStatus` → `test: completes a scheduled pickup` / `test: an invalid uuid is rejected before any query`
+- `deleteCustomer` → `test: refuses when the customer has pickups`
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 76
+
+---
+
+## Task 78: Pickups tab
+
+Mirrors the Orders vertical: a server page reading URL params, a client two-panel layout, `DetailDrawer` on the right.
+
+**Files:**
+- `app/(app)/pickups/page.tsx` — create
+- `components/pickups/PickupLayout.tsx`, `PickupTable.tsx`, `PickupRow.tsx`, `PickupStatusTabs.tsx`, `PickupStatusBadge.tsx`, `PickupDetail.tsx`, `PickupForm.tsx`, `PickupFormFields.tsx`, `usePickupForm.ts`, `pickupFormSchema.ts` — create
+- `components/shell/NavDrawer.tsx` (`NAV_ITEMS`, entry after Orders) — modify
+- `components/dashboard/QuickAddFab.tsx` (4th option → `/pickups?new=1`) — modify
+- Tests: `components/pickups/__tests__/PickupTable.test.tsx`, `PickupLayout.test.tsx`, `PickupForm.test.tsx` — create; `components/shell/__tests__/NavDrawer.test.tsx` (`EXPECTED_NAV_ORDER` and the "Calendar between Orders and Leads" case), `components/dashboard/__tests__/QuickAddFab.test.tsx` (count / order / href assertions) — modify
+
+**Acceptance criteria:**
+- [ ] Columns `Customer | 275 | 330 | Status | Date`; an em dash for a zero count and for a null date
+- [ ] Status tabs All / Scheduled / Completed / Cancelled with their **own** framer `layoutId`, not the orders tabs' or `order-history-underline`
+- [ ] Search debounced 250ms, applied server-side via URL params, matching customer name only
+- [ ] `?new=1` opens the create form through `parseInitialMode`; `?customerId=` pre-selects and locks the customer
+- [ ] No delete anywhere — cancel is the only removal
+- [ ] SEC-02: status and uuid params validated at the page boundary
+- [ ] Touch targets at least 44px; the page never scrolls (CONSTRAINT-19 / 23 — `min-h-svh`, never `vh`)
+
+**Tests required:**
+- `PickupTable` → `test: renders rows and builds the expected filter href` / `test: the empty state distinguishes no-results from no-pickups`
+- `PickupForm` → `test: submitting creates a pickup` / `test: a server error renders in the alert region`
+- `NavDrawer` → `test: Pickups sits between Orders and Calendar`
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 77
+
+---
+
+## Task 79: Pickup History on the customer detail panel
+
+**Files:**
+- `db/queries/pickups.ts` (add `getCustomerPickups(customerId, window)`) — modify
+- `components/customers/PickupHistory.tsx` — create
+- `app/(app)/customers/page.tsx` (add to the `Promise.all` in `loadCustomerDetail`, to `DetailResult` and to `EMPTY_DETAIL_RESULT`), `components/customers/CustomerLayout.tsx`, `CustomerDetail.tsx` (render below `OrderHistory`) — modify
+- `components/customers/__tests__/PickupHistory.test.tsx` — create; `CustomerDetail.test.tsx` — modify
+
+**Acceptance criteria:**
+- [ ] The section sits below Order History with the same card chrome and window tabs
+- [ ] It uses its **own** `?pwindow=` param and its own `layoutId`, so it neither drives nor fights Order History's tabs
+- [ ] Volume Overview is untouched — it stays purchase volume only
+- [ ] Rows link to `/pickups?id=…`
+
+**Tests required:**
+- `PickupHistory` → `test: renders rows for the selected window` / `test: empty state when the customer has none`
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 78
+
+---
+
+## Task 80: Pickups on the calendar — rendering, toggles, popup
+
+Read and status-write only. Dates are still set from the Pickups tab, so the app is coherent at the end of this task; dragging arrives in Task 81.
+
+**Files:**
+- `db/queries/pickups.calendar.ts` — create: `getCalendarPickups(range)` and `getUnscheduledPickups()` over a shared projection including the `contacts` `json_agg` subquery, filtering `status <> 'cancelled'`, ordered by `pickup_date` then `sort_index ASC NULLS LAST`
+- `components/calendar/PickupCard.tsx`, `PickupCardDialog.tsx`, `pickupVisibility.tsx` (context module with an inert default, following the `cardSelection.tsx` idiom) — create
+- `app/(app)/calendar/page.tsx`, `CalendarLayout.tsx`, `calendarLayoutHooks.ts`, `WeekStrip.tsx`, `DayColumn.tsx`, `DayColumnParts.tsx`, `UnscheduledCallout.tsx` — modify
+- `app/globals.css` — modify only if the two-list height split needs new metrics
+- Tests: `components/calendar/__tests__/PickupCard.test.tsx`, `PickupCardDialog.test.tsx`, `pickupVisibility.test.tsx` — create; `CalendarLayout.test.tsx` — modify
+
+**Acceptance criteria:**
+- [ ] Two independent toggles in the calendar header; **Orders on, Pickups off** by default; the state resets on every visit — nothing is persisted (CONSTRAINT-25)
+- [ ] Pickups render as a second list below the orders list in each day column, each list independently ordered
+- [ ] Both toggles off shows an empty-state message, not a blank grid
+- [ ] The pickup card is amber-surfaced with plain dark text (`12 × 275, 4 × 330`), **not** the green/blue combo language, and keeps `height: var(--card-h)` so the four-card math holds
+- [ ] Completed pickups are greyed and locked (`BUILT_SURFACE_CLASS`); cancelled ones are hidden
+- [ ] The popup offers the Contact menu (reusing `ContactMenu` unchanged) plus Mark Complete, Cancel, and Remove from calendar (which clears `pickup_date`)
+- [ ] The page still never scrolls; each list scrolls inside its column (CONSTRAINT-19)
+- [ ] **iPad-verified** — two lists at real card height on the device, not in jsdom
+
+**Tests required:**
+- `PickupCard` → `test: renders the 275/330 counts and holds var(--card-h)` / `test: a completed pickup renders the built surface`
+- `pickupVisibility` → `test: defaults to orders-on and pickups-off`
+- `CalendarLayout` → `test: toggling pickups on renders pickup cards in the right column`
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 77 (Task 78 is not required, though it ships first in practice)
+
+---
+
+## Task 81: Pickup drag, drop and arm mode
+
+The highest-risk task in the feature. Every drag and tap payload gains a `group` discriminator, and nothing may cross groups.
+
+**Files:**
+- `components/calendar/calendarDnd.ts` — add `group: 'order' | 'pickup'` to `CardDragData` and `ColumnDropData`, validate it in `readDropData`, reject cross-group drops in `resolveDropTarget`, pre-filter collision detection by group, and handle the group in `resolveUnscheduleTarget`
+- `CalendarDndContext.tsx` (a tagged-union `activeRow` so the overlay renders the right card), `SortableProductionCard.tsx` plus a `SortablePickupCard.tsx`, `DayColumn.tsx` (a second `useDroppable`, id `pickups:${dateKey}`), `DayColumnParts.tsx` (a second `SortableContext`, id `${group}:${dateKey}`) — modify
+- `armPlacement.ts` (`ArmedCard`, all three `TapTarget` shapes, `insertionIndex`, and `resolveColumnTap`'s `cardCount - 1`), `armMode.tsx` (dispatch by group), `useProductionPlacement.ts` or a parallel `usePickupPlacement.ts` — modify
+- `lib/actions/pickups.calendar.ts` — create: `setPickupPlacement`, `clearPickupPlacement`
+- `AddOrderMenu.tsx` (becomes Add Purchase Order / Add Pickup plus the undated-pickup list), `NewOrderDrawer.tsx` or a sibling pickup drawer, `UnscheduledCallout.tsx` — modify
+- Tests: `CalendarDnd.test.tsx`, `armPlacement.test.ts`, `armMode.test.tsx`, `UnscheduledCallout.test.tsx`, `CalendarLayout.test.tsx` — modify; `lib/actions/__tests__/pickups.calendar.test.ts` — create
+
+**Acceptance criteria:**
+- [ ] An order card cannot be dropped into the pickup list or the reverse — and the drag **preview** never opens a slot the drop will refuse
+- [ ] Reordering within a group writes that group's `sort_index` only
+- [ ] Dragging a pickup onto a day writes `pickup_date`; dragging it to the unscheduled callout clears it
+- [ ] Long-press arm mode obeys the same group rule, including the same-column `index - 1` correction
+- [ ] Each day's "+" offers Add Purchase Order and Add Pickup, and lists undated rows of both kinds, labelled
+- [ ] Placement writes revalidate `/calendar` and `/pickups`
+- [ ] **iPad-verified** — long-press arm, cross-week place and unschedule, all for pickups, on the device
+
+**Tests required:**
+- `resolveDropTarget` → `test: rejects a cross-group drop` / `test: a same-group same-position drop is a no-op`
+- `resolveTapAction` → `test: an armed pickup ignores an order column tap`
+- `setPickupPlacement` → `test: writes the date and sort index` / `test: rejects an unknown pickup id`
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 80
