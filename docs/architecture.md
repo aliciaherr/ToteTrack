@@ -270,6 +270,7 @@ lib/
     calendar.validation.ts ← Zod schemas + SORT_INDEX_MAX (Platform-Native Rule sibling)
     dates.validation.ts ← the shared no-weekend `productionDateSchema` + ISO_DATE_RE. Extracted in Feature 12 so `createOrder` and the calendar actions enforce the invariant from ONE rule; a direct re-export between `orders.validation.ts` and `calendar.validation.ts` would have closed an import cycle and left ISO_DATE_RE in the TDZ
     leads.ts         ← createLead, updateLead, addLeadNote, setNextAction, convertLeadToCustomer
+    leads.convert.ts ← loadLeadForConversion, findDuplicateCustomer, runConversionTransaction — helpers for convertLeadToCustomer, extracted at the 300-line cap (no 'use server' — none of them guards, the guard lives once at the leads.ts entry point, so the directive would publish three unauthenticated endpoints; SEC-08 / CONSTRAINT-24). It carried the directive until 2026-08-09; see FB-24
     invoices.ts      ← createInvoice (v3; markInvoicePaid removed)
     invoices.constants.ts ← INVOICE_EXISTS_CODE sentinel (Platform-Native Rule sibling)
     support.ts       ← createTicket, uploadTicketAttachment

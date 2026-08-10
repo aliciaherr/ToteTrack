@@ -373,6 +373,24 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ---
 
+### CONSTRAINT-24 — `'use server'` marks intended public endpoints only; helper modules never carry it
+
+**Decision:** 2026-08-09. A file gets `'use server'` if and only if every async function it exports is meant to be callable from the browser and guards itself with `assertAuthenticated()`. Helper modules — validation, constants, internal query/transaction pieces — never carry the directive, no matter which folder they live in or how obviously "internal" their name and header make them look.
+
+**Why this is a constraint and not a preference:** the directive *is* the publication mechanism. There is no module-private scope inside a `'use server'` file, so a helper colocated there is a second public endpoint, and a comment saying "private, not part of the public actions API" is decoration with no runtime effect. `lib/actions/leads.convert.ts` carried exactly that header, and the directive, and three exports that called `assertAuthenticated()` zero times — against 23/23 guarded exports across every other action module. One of them, `findDuplicateCustomer`, runs `ilike` on its argument: `'%'` returns a customer, and prefix-refining enumerates the list. This repo is public, so endpoint addresses are derivable from source rather than guessable.
+
+**Why it was never live, and why that is not reassurance:** Next only mints an action ID for a `'use server'` export reachable from the client graph. Nothing client-side imported that file, so the build manifest held 25 IDs and none were these three. The protection was a property of the import graph — invisible, unenforced, asserted by no test, and one client-side import from disappearing.
+
+**Practical impact — the check that actually satisfies this is export-level, not file-level:** enumerate every exported async function in every module whose first line is `'use server'`, count `assertAuthenticated()` calls against that number, and reconcile the total against the action-ID count in `.next/server/server-reference-manifest.json`. Comparing the *list of files* against last time passes while a file inside it exports three unguarded functions — that is precisely how the 2026-08-02 audit missed this (see FI-11).
+
+**Current baseline (2026-08-09, commit `3b27ed7`):** 9 directive-bearing modules, 25 exports, 23 guarded + `signIn`/`signOut` unguarded by design, reconciling exactly against 25 manifest action IDs.
+
+**Who decided and when:** Builder, 2026-08-09, on `@security` finding M-01; fix `3b27ed7`, verified against a fresh build.
+
+**What this closes off:** nothing — helpers stay directly importable from their server-side callers, which is all they ever needed. Nothing enforces this automatically; like CONSTRAINT-22 and 23 it is a documented rule, and the realistic way it reopens is someone adding the directive back for consistency with the file's neighbours. The comment now at the top of `leads.convert.ts` exists for that reader.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -400,3 +418,4 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 | 21 | Order addresses = text snapshots; `customer_addresses` = saved list | `orders.delivery_address` never becomes an FK; saved-address writes are `ON CONFLICT` upserts against `UNIQUE (customer_id, address)`; `default_delivery_address` deprecated — no app code touches it, drop deferred | Builder | 2026-07-28 |
 | 22 | `sms:`/`mailto:` hrefs come from `lib/contact-links.ts` | No component builds a contact href inline; `isPresent`/`isReachable` gate rendering, never truthiness; both sides of the mailto `@` encoded | Builder | 2026-08-09 |
 | 23 | Viewport heights are `svh`, never `vh`/`h-screen` | `100vh` is iOS's chrome-hidden viewport, so `vh` opens every screen a toolbar too tall; `min-h-svh` / `h-[calc(100svh-…)]`; `overscroll-behavior: none` on `body`; `svh` not `dvh` to avoid mid-scroll relayout | Builder | 2026-08-09 |
+| 24 | `'use server'` marks intended public endpoints only | Helper modules never carry the directive — it is the publication mechanism, and there is no private scope inside such a file; the check is export-level (every exported async fn, guard-counted, reconciled against the build manifest's action IDs), never a file-list diff; baseline 9 modules / 25 exports / 25 action IDs | Builder | 2026-08-09 |

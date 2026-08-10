@@ -391,3 +391,32 @@ Every screen now asks a different question — "how much room is there *with* th
 - **No automated test can catch this class of bug.** The test suite runs in a fake browser with no toolbar to mismeasure — all 936 tests passed while every screen was wrong on the real device. This was found by you, on the iPad, and that is the only way it could have been found.
 
 **What this closes off:** The most common way of writing "full screen height" in this stack (`h-screen`) is now banned in this codebase, because it is the exact construction that caused this. Nothing enforces that automatically yet — it is a written rule, so a future screen can still reintroduce the bug silently.
+
+---
+
+## FB-24 — A File That Called Itself Private Was One Import From Being Public
+
+**Date:** 2026-08-09
+**Architecture reference:** `docs/architecture.md` → `lib/actions/` tree, `leads.convert.ts`. Rule recorded as CONSTRAINT-24 in `docs/constraints.md`.
+**Tasks:** none — security fix pass, commit `3b27ed7`.
+
+**Decided:** One line was deleted from a helper file, and a second file's entry was moved from the "ships to production" list to the "only used while building" list.
+
+**Means for your product:** Two separate things, both structural. Neither was leaking anything today — I want to be exact about that, because the first one is easy to over-read.
+
+**The first is about how this stack publishes code.** In Next.js, writing `'use server'` at the top of a file is not a label — it is the act of publishing. Every function that file exports becomes an address on the public internet that anyone can call. `leads.convert.ts` had that line at the top and, three lines below it, a comment reading *"Private helpers. Not part of the public actions API."* Both statements were in the same file and only one of them was true.
+
+Underneath sat three functions that skip the "is this person logged in?" check — deliberately, because the real entry point above them does that check once. Every other action file in the app guards every function it exposes: 23 out of 23. These three were the exception, and they were the ones marked as published.
+
+They were never actually reachable. Next only wires up a published function when something on the browser side asks for it, and nothing did — the file is only used by other server code. But that is luck with a good explanation, not a safeguard. It held because of *who happened to import the file*, which is invisible, tested by nothing, and one ordinary refactor from changing. Had it changed, one of those three functions answers the question "is this company a customer of yours?" for anyone who asks, and asking it repeatedly with different guesses walks out your whole customer list. Your code is public on GitHub, so nobody would have had to guess where to knock.
+
+The fix was deleting the `'use server'` line. Nothing else — the file works exactly as before, because the real entry point above it was always doing the guarding.
+
+**The second is about what gets installed when your site deploys.** `shadcn` is the tool that *generates* interface components — you run it while building, and it writes files into the project. It was listed as something your live site needs, so every deploy installed it along with everything it depends on: a web server, a code-rewriting engine, and more. None of it is used by a single line of your app. Moving it to the "build-time only" list took the production security warnings from 15 down to 4, and removed a path where a compromised piece of that toolchain could run during a deploy — the one moment your database and admin keys are in reach.
+
+**Check before approving:**
+- **Nothing about the app changed.** Same screens, same behaviour, same components. Type-checking clean, all 936 tests passing, production build fine, and I probed the live site after deploying: the login page loads and all four internal pages still bounce a logged-out visitor to login.
+- **The lead-conversion feature is the one to eyeball** if you want to confirm by hand — convert a lead to a customer and check the customer and their contact details appear as usual. It has 8 tests covering it that pass, so this is belt-and-braces.
+- **The rule now written down (CONSTRAINT-24) has no automatic enforcement**, same as the last two constraints. The realistic way this comes back is someone adding `'use server'` to that file to match its neighbours. There is now a comment at the top of the file addressed to exactly that person.
+
+**What this closes off:** Nothing in the app. What it closes off is a *style of checking*: the previous security pass looked at whether the same set of files was present and concluded nothing had changed. That was true and useless — the problem was inside one of those files, in what it exported. Future passes have to count the exported functions and reconcile them against what the build actually publishes. That is slower and it is the only version of the check that works.
