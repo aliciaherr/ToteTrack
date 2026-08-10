@@ -89,7 +89,7 @@ const VALID_CREATE = {
   unit_price_330_recon: null,
   unit_price_330_rebot: null,
   unit_price_330_new: null,
-  pickup_only: false,
+  customer_collects: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
   backhaul: false,
@@ -112,7 +112,7 @@ const VALID_UPDATE = {
   unit_price_330_recon: null,
   unit_price_330_rebot: null,
   unit_price_330_new: null,
-  pickup_only: false,
+  customer_collects: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
   backhaul: false,
@@ -238,7 +238,7 @@ beforeEach(() => {
   lastAddressInsertValues = null
   lastAddressConflictSet = null
   // Default DB behavior for the Feature 14 address bookkeeping that runs
-  // after every non-pickup order insert: lookups find nothing, writes
+  // after every we-deliver order insert: lookups find nothing, writes
   // resolve (both the plain .returning() chain and the upsert's
   // .onConflictDoUpdate() chain). Tests asserting address behavior stack
   // ...Once stubs on top; pre-Feature-14 tests just fall through to these
@@ -276,7 +276,7 @@ describe('createOrder', () => {
       qty_330_rebot: 0,
       qty_330_new: 0,
       price: '250.00',
-      pickup_only: false,
+      customer_collects: false,
       delivery_address: '123 Main Street',
     })
   })
@@ -288,28 +288,28 @@ describe('createOrder', () => {
     expect(result).toEqual({ error: 'PO number already exists.' })
   })
 
-  it('rejects when delivery_address is missing and pickup_only is false', async () => {
+  it('rejects when delivery_address is missing and customer_collects is false', async () => {
     const result = await createOrder({
       ...VALID_CREATE,
-      pickup_only: false,
+      customer_collects: false,
       delivery_address: '',
     })
     expect(result).toEqual({
-      error: 'Delivery address is required when not pickup-only.',
+      error: 'Delivery address is required unless the customer collects.',
     })
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('accepts a missing delivery_address when pickup_only is true and stores null', async () => {
+  it('accepts a missing delivery_address when customer_collects is true and stores null', async () => {
     stubInsertReturning(ORDER_ID)
     const result = await createOrder({
       ...VALID_CREATE,
-      pickup_only: true,
+      customer_collects: true,
       delivery_address: '',
     })
     expect(result).toEqual({ id: ORDER_ID })
     expect(lastInsertValues).toMatchObject({
-      pickup_only: true,
+      customer_collects: true,
       delivery_address: null,
     })
   })
@@ -605,13 +605,13 @@ describe('createOrder', () => {
     expect(lastAddressConflictSet).toMatchObject({ last_used_at: expect.any(Date) })
   })
 
-  it('writes nothing to the address book when the order is pickup-only', async () => {
-    // Blank-address non-pickup input is impossible (schema rejects it), so
-    // pickup-only IS the no-address-writes path.
+  it('writes nothing to the address book when the customer collects the order', async () => {
+    // A blank address with customer_collects false is impossible (schema
+    // rejects it), so customer-collects IS the no-address-writes path.
     stubInsertReturning(ORDER_ID)
     const result = await createOrder({
       ...VALID_CREATE,
-      pickup_only: true,
+      customer_collects: true,
       delivery_address: '',
     })
     expect(result).toEqual({ id: ORDER_ID })

@@ -71,8 +71,8 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `customer_id` | uuid | FK → customers.id, onDelete: restrict | Cannot delete customer with orders |
 | `status` | po_status | NOT NULL, default 'scheduled' | See PO state machine in prd.md |
 | `price` | numeric(10,2) | NOT NULL | Derived total = Σ(qty × unit price); backfilled 2026-07-25 (legacy `price` was per-unit) |
-| `pickup_only` | boolean | NOT NULL, default false | |
-| `delivery_address` | text | nullable | Required when pickup_only = false (app-level) |
+| `customer_collects` | boolean | NOT NULL, default false | true = the customer collects their order instead of us delivering it. Renamed from the former pickup-only flag in migration 0014 |
+| `delivery_address` | text | nullable | Required when customer_collects = false (app-level) |
 | `requested_delivery_date` | date | nullable | Made optional in migration 0006 |
 | `backhaul` | boolean | NOT NULL, default false | Pins to top of Pending Orders widget |
 | `document_url` | text | nullable | Supabase Storage path (not a URL) |

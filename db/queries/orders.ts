@@ -51,7 +51,7 @@ export interface OrderDetail {
   unit_price_330_recon: string | null
   unit_price_330_rebot: string | null
   unit_price_330_new: string | null
-  pickup_only: boolean
+  customer_collects: boolean
   delivery_address: string | null
   requested_delivery_date: string | null
   backhaul: boolean
@@ -176,7 +176,7 @@ function buildOrderDetailQuery(orderId: string): SQL {
       o.unit_price_330_recon::text AS unit_price_330_recon,
       o.unit_price_330_rebot::text AS unit_price_330_rebot,
       o.unit_price_330_new::text AS unit_price_330_new,
-      o.pickup_only,
+      o.customer_collects,
       o.delivery_address,
       o.requested_delivery_date,
       o.backhaul,

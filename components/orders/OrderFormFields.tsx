@@ -99,7 +99,7 @@ function CustomerDropdown({
  * motion — builder-requested after iPad verification), container size + type,
  * quantity, price, requested delivery date. Container + quantity + price
  * grids live in `OrderContainerFields`; remaining logistics fields
- * (pickup-only, backhaul, notes) live in `OrderLogisticsFields`. Splitting
+ * (customer-collects, backhaul, notes) live in `OrderLogisticsFields`. Splitting
  * keeps each file under CONSTRAINT-14's 80-line JSX cap.
  */
 export default function OrderFormFields({
@@ -117,10 +117,10 @@ export default function OrderFormFields({
   const watchedCustomerId = watch('customer_id')
   const selectedAddresses =
     customers.find((customer) => customer.id === watchedCustomerId)?.addresses ?? []
-  // Same conditional the old logistics-section placement had: pickup-only
+  // Same conditional the old logistics-section placement had: customer-collects
   // orders carry no address, so the picker unmounts entirely (values persist
   // in form state, exactly as before).
-  const isPickup = watch('pickup_only')
+  const customerCollects = watch('customer_collects')
   return (
     <>
       <FieldRow label="PO Number" htmlFor="po_number" error={errors.po_number?.message}>
@@ -139,7 +139,7 @@ export default function OrderFormFields({
         error={errors.customer_id?.message}
       />
 
-      {!isPickup && (
+      {!customerCollects && (
         <AddressSelect
           addresses={selectedAddresses}
           register={register}

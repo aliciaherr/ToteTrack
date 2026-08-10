@@ -21,7 +21,7 @@ export const orders = pgTable('orders', {
   unit_price_330_recon: numeric('unit_price_330_recon', { precision: 10, scale: 2 }),
   unit_price_330_rebot: numeric('unit_price_330_rebot', { precision: 10, scale: 2 }),
   unit_price_330_new: numeric('unit_price_330_new', { precision: 10, scale: 2 }),
-  pickup_only: boolean('pickup_only').notNull().default(false),
+  customer_collects: boolean('customer_collects').notNull().default(false),
   delivery_address: text('delivery_address'),
   requested_delivery_date: date('requested_delivery_date'),
   production_date: date('production_date'),

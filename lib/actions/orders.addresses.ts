@@ -16,7 +16,7 @@ import { nullIfBlank } from './orders.validation'
  */
 export interface DeliveryAddressUsage {
   customer_id: string
-  pickup_only: boolean
+  customer_collects: boolean
   delivery_address?: string | null
   delivery_address_id?: string | null
 }
@@ -54,7 +54,7 @@ export async function addressBelongsToCustomer(
  *   inserted with `last_used_at = now()`, an exact-text match gets its
  *   `last_used_at` bumped instead — usage always bumps, so `last_used_at`
  *   is set on both sides of the conflict
- * - pickup-only or blank address → no writes at all
+ * - customer collects, or blank address → no writes at all
  *
  * Returns true when the address book was written, so the caller can
  * revalidate `/customers`. Failures are contained here — the order row is
@@ -69,7 +69,7 @@ export async function recordDeliveryAddressUsage(
   orderId: string,
 ): Promise<boolean> {
   try {
-    if (usage.pickup_only) return false
+    if (usage.customer_collects) return false
     if (usage.delivery_address_id) {
       await db
         .update(customerAddresses)

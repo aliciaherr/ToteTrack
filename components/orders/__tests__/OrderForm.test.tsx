@@ -77,7 +77,7 @@ const sampleDetail: OrderDetail = {
   unit_price_330_rebot: null,
   unit_price_330_new: '60.00',
   price: '600.00',
-  pickup_only: false,
+  customer_collects: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-01',
   backhaul: true,
@@ -194,7 +194,7 @@ describe('OrderForm', () => {
     ).toBeTruthy()
   })
 
-  it('hides the delivery address field when pickup_only is toggled on', () => {
+  it('ticking Customer Collects hides the address field', () => {
     render(
       <OrderForm
         mode="create"
@@ -205,11 +205,11 @@ describe('OrderForm', () => {
       />,
     )
     expect(screen.getByLabelText(/^Delivery Address$/i)).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText(/pickup only/i))
+    fireEvent.click(screen.getByLabelText(/customer collects/i))
     expect(screen.queryByLabelText(/^Delivery Address$/i)).toBeNull()
   })
 
-  it('hides the saved-address dropdown too when pickup_only is toggled on (Feature 14 regression)', () => {
+  it('hides the saved-address dropdown too when customer_collects is toggled on (Feature 14 regression)', () => {
     render(
       <OrderForm
         mode="create"
@@ -221,7 +221,7 @@ describe('OrderForm', () => {
     )
     // Locked customer with saved addresses → the picker is the dropdown variant.
     expect(screen.getByLabelText(/^Delivery Address$/i)).toHaveDisplayValue('500 MRU Boulevard')
-    fireEvent.click(screen.getByLabelText(/pickup only/i))
+    fireEvent.click(screen.getByLabelText(/customer collects/i))
     expect(screen.queryByLabelText(/^Delivery Address$/i)).toBeNull()
   })
 
@@ -341,7 +341,7 @@ describe('OrderForm', () => {
       unit_price_330_recon: null,
       unit_price_330_rebot: null,
       unit_price_330_new: 40,
-      pickup_only: false,
+      customer_collects: false,
       delivery_address: '456 Oak Ave',
       // Typed fresh (no saved addresses) → no saved-address id rides along.
       delivery_address_id: null,

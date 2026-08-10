@@ -81,8 +81,8 @@ function buildOrderWriteBase(data: ValidatedCreate | ValidatedUpdate) {
     price: computeOrderPrice(data),
     // qty-0 cells normalized to null; qty>0 cells kept as numeric strings.
     ...normalizeUnitPrices(data),
-    pickup_only: data.pickup_only,
-    delivery_address: data.pickup_only ? null : nullIfBlank(data.delivery_address),
+    customer_collects: data.customer_collects,
+    delivery_address: data.customer_collects ? null : nullIfBlank(data.delivery_address),
     requested_delivery_date: nullIfBlank(data.requested_delivery_date),
     backhaul: data.backhaul,
     notes: nullIfBlank(data.notes),

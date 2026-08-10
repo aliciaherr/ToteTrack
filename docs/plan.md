@@ -2559,9 +2559,9 @@ Mechanical rename, no behavior change. Isolated so the naming ambiguity is gone 
 **Migration `0014_rename_pickup_only.sql`:** a single `ALTER TABLE "orders" RENAME COLUMN "pickup_only" TO "customer_collects";`
 
 **Acceptance criteria:**
-- [ ] Zero occurrences of `pickup_only` / `pickupOnly` outside `db/migrations/` and the drizzle `meta/` snapshot
-- [ ] The order form checkbox reads "Customer Collects"; the delivery address still hides when it is ticked
-- [ ] Suite green, `tsc` clean
+- [x] Zero occurrences of `pickup_only` / `pickupOnly` outside `db/migrations/` and the drizzle `meta/` snapshot — scoped to code; the surviving hits in `prd.md`, `constraints.md` and `plan.md` are deliberate narrative about the rename itself
+- [x] The order form checkbox reads "Customer Collects"; the delivery address still hides when it is ticked
+- [x] Suite green, `tsc` clean
 
 **Tests required:**
 - `0014 migration` → `test: renames the column and touches nothing else`
@@ -2569,7 +2569,7 @@ Mechanical rename, no behavior change. Isolated so the naming ambiguity is gone 
 
 **Sequencing:** the SQL runs against live prod. Between running it and Vercel finishing the deploy, order create/edit errors. Run it during a quiet window and push immediately.
 
-**Status:** [ ] Not started
+**Status:** [x] Complete — 2026-08-10. Code + tests + docs renamed, suite green (938 tests, 85 files), `tsc` clean. **The SQL has NOT been run against prod yet** — `db/migrations/0014_rename_pickup_only.sql` is hand-run in the Supabase SQL editor by the builder, then push immediately.
 
 **Depends on:** None
 

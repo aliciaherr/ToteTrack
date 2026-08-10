@@ -65,7 +65,7 @@ function isUniqueViolation(cause: unknown): boolean {
 /**
  * Creates a new purchase order. Validates input server-side via Zod (PO#
  * uniqueness + length, sum of the 6 quantity cells > 0, price > 0,
- * delivery address required when not pickup-only); rejects duplicate
+ * delivery address required unless the customer collects); rejects duplicate
  * `po_number` via Postgres unique-violation (23505) with a user-facing
  * message. Returns the new order id on success.
  * Feature 14: an optional `delivery_address_id` is ownership-checked against
@@ -89,8 +89,9 @@ export async function createOrder(
 
     // SEC-03: a submitted saved-address id must belong to the submitted
     // customer, checked BEFORE the order insert so a forged id fails the
-    // whole create. Skipped on pickup-only — no address is used at all.
-    if (!parsed.data.pickup_only && parsed.data.delivery_address_id) {
+    // whole create. Skipped when the customer collects — no address is used
+    // at all.
+    if (!parsed.data.customer_collects && parsed.data.delivery_address_id) {
       const owned = await addressBelongsToCustomer(
         parsed.data.delivery_address_id,
         parsed.data.customer_id,
@@ -131,7 +132,7 @@ export async function createOrder(
  * are intentionally NOT editable here — use `updateOrderStatus`. Edit lock:
  * when status is `invoiced` or `cancelled`, qty + price changes are rejected
  * with `PO_LOCKED_MESSAGE`. Other field edits (notes, address, delivery
- * date, backhaul, pickup_only) are still allowed on locked POs. The
+ * date, backhaul, customer_collects) are still allowed on locked POs. The
  * salesperson must use the revert flow (FB-08 — `revertOrderToScheduled`)
  * to bring the PO back to `scheduled` before adjusting quantities or price.
  * @param id UUID of the order to update.

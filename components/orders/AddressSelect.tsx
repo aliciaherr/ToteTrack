@@ -117,9 +117,9 @@ export default function AddressSelect({
   // the error channel keep working.
   const registered = register('delivery_address', {
     validate: (value) =>
-      watch('pickup_only') || value.trim().length > 0
+      watch('customer_collects') || value.trim().length > 0
         ? true
-        : 'Delivery address is required when not pickup-only.',
+        : 'Delivery address is required unless the customer collects.',
   })
 
   if (state.isCustom) {

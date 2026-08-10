@@ -289,7 +289,7 @@ async function seedOrders(customerSeeds: SeededCustomer[]): Promise<SeededOrder[
       const daysAgo = Math.floor((TODAY.getTime() - deliveryDate.getTime()) / (24 * 3600 * 1000))
       const status = statusForAge(daysAgo)
       const { qty, price } = buildPoQtyAndPrice()
-      const pickupOnly = maybe(0.15)
+      const customerCollects = maybe(0.15)
 
       const [row] = await db.insert(orders).values({
         po_number: `PO-${String(poCounter).padStart(4, '0')}`,
@@ -297,8 +297,8 @@ async function seedOrders(customerSeeds: SeededCustomer[]): Promise<SeededOrder[
         status,
         ...qty,
         price: money(price),
-        pickup_only: pickupOnly,
-        delivery_address: pickupOnly ? null : pickRandom(ADDRESSES),
+        customer_collects: customerCollects,
+        delivery_address: customerCollects ? null : pickRandom(ADDRESSES),
         requested_delivery_date: isoDate(deliveryDate),
         backhaul: maybe(0.12),
         notes: maybe(0.25) ? pickRandom(ORDER_NOTES) : null,

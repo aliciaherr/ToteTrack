@@ -142,7 +142,7 @@ const sampleOrderDetail = {
   qty_330_rebot: 0,
   qty_330_new: 0,
   price: '300.00',
-  pickup_only: false,
+  customer_collects: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-10',
   backhaul: true,

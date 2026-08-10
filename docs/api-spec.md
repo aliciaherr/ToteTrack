@@ -290,7 +290,7 @@ type CreateOrderInput = {
   containerType: 'rebottled' | 'reconditioned' | 'brand_new'
   quantity: number               // integer, min 1
   price: number                  // min 0.01
-  pickupOnly?: boolean           // default false
+  customerCollects?: boolean     // default false
   deliveryAddress?: string | null
   requestedDeliveryDate: Date
   backhaul?: boolean             // default false
@@ -298,7 +298,7 @@ type CreateOrderInput = {
   notes?: string
 }
 ```
-**Errors:** `{ error: "PO number already exists." }` | `{ error: "Delivery address is required unless pickup-only." }` | `{ error: "Quantity must be at least 1." }` | `{ error: "Price must be greater than $0." }`
+**Errors:** `{ error: "PO number already exists." }` | `{ error: "Delivery address is required unless the customer collects." }` | `{ error: "Quantity must be at least 1." }` | `{ error: "Price must be greater than $0." }`
 
 ---
 

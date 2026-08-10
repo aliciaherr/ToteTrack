@@ -42,7 +42,7 @@ export interface OrderFormValues {
   unit_price_330_recon: string | null
   unit_price_330_rebot: string | null
   unit_price_330_new: string | null
-  pickup_only: boolean
+  customer_collects: boolean
   delivery_address: string
   /**
    * `customer_addresses` row id when the salesperson picked a saved address
@@ -79,7 +79,7 @@ export const EMPTY_FORM_VALUES: OrderFormValues = {
   unit_price_330_recon: null,
   unit_price_330_rebot: null,
   unit_price_330_new: null,
-  pickup_only: false,
+  customer_collects: false,
   delivery_address: '',
   delivery_address_id: null,
   requested_delivery_date: todayIsoDate(),
@@ -120,7 +120,7 @@ export function detailToFormValues(
     unit_price_330_recon: detail.unit_price_330_recon,
     unit_price_330_rebot: detail.unit_price_330_rebot,
     unit_price_330_new: detail.unit_price_330_new,
-    pickup_only: detail.pickup_only,
+    customer_collects: detail.customer_collects,
     delivery_address: detail.delivery_address ?? '',
     // The stored address is a point-in-time snapshot, not a reference — it
     // starts with no saved-address id, so resubmitting an unchanged edit never
@@ -224,7 +224,7 @@ export function formValuesToCreateInput(
     po_number: values.po_number.trim(),
     customer_id: values.customer_id,
     ...formValuesToQtyUnitPrices(values),
-    pickup_only: values.pickup_only,
+    customer_collects: values.customer_collects,
     delivery_address: nullIfBlank(values.delivery_address),
     delivery_address_id: values.delivery_address_id,
     requested_delivery_date: values.requested_delivery_date,
@@ -248,7 +248,7 @@ export function formValuesToUpdateInput(values: OrderFormValues): UpdateOrderInp
     po_number: values.po_number.trim(),
     customer_id: values.customer_id,
     ...formValuesToQtyUnitPrices(values),
-    pickup_only: values.pickup_only,
+    customer_collects: values.customer_collects,
     delivery_address: nullIfBlank(values.delivery_address),
     requested_delivery_date: values.requested_delivery_date,
     backhaul: values.backhaul,

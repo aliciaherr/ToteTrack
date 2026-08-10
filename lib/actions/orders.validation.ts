@@ -93,7 +93,7 @@ const orderBaseSchema = z.object({
   unit_price_330_recon: unitPriceSchema,
   unit_price_330_rebot: unitPriceSchema,
   unit_price_330_new: unitPriceSchema,
-  pickup_only: z.boolean(),
+  customer_collects: z.boolean(),
   delivery_address: z.string().max(DELIVERY_ADDRESS_MAX).nullable().optional(),
   // Optional. Form may submit empty string ("") when the salesperson hasn't
   // committed to a delivery date yet — normalize to null before persisting.
@@ -109,17 +109,17 @@ const orderBaseSchema = z.object({
   notes: z.string().max(NOTES_MAX).nullable().optional(),
 })
 
-function requireDeliveryAddressWhenNotPickup(
-  data: { pickup_only: boolean; delivery_address?: string | null },
+function requireDeliveryAddressWhenNotCollected(
+  data: { customer_collects: boolean; delivery_address?: string | null },
   ctx: z.RefinementCtx,
 ) {
-  if (!data.pickup_only) {
+  if (!data.customer_collects) {
     const trimmed = (data.delivery_address ?? '').trim()
     if (!trimmed) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['delivery_address'],
-        message: 'Delivery address is required when not pickup-only.',
+        message: 'Delivery address is required unless the customer collects.',
       })
     }
   }
@@ -237,9 +237,9 @@ export const createOrderInputSchema = orderBaseSchema
     // Feature 14: id of the saved `customer_addresses` row the salesperson
     // picked from the address dropdown, so `createOrder` can bump its
     // `last_used_at`. Null/absent when the address was typed fresh ("+ Add
-    // new address") or the order is pickup-only. Ownership — the row must
-    // belong to `customer_id` — is verified in the action BEFORE the order
-    // insert (SEC-03); the schema only guards the shape.
+    // new address") or the customer collects the order themselves. Ownership
+    // — the row must belong to `customer_id` — is verified in the action
+    // BEFORE the order insert (SEC-03); the schema only guards the shape.
     delivery_address_id: z
       .string()
       .regex(UUID_RE, 'Invalid delivery address id.')
@@ -253,7 +253,7 @@ export const createOrderInputSchema = orderBaseSchema
     // Shares the calendar's no-weekend rule via `productionDateSchema`.
     production_date: productionDateSchema.optional(),
   })
-  .superRefine(requireDeliveryAddressWhenNotPickup)
+  .superRefine(requireDeliveryAddressWhenNotCollected)
   .superRefine(requireAtLeastOneQty)
   .superRefine(requireUnitPriceCoupling)
   .superRefine(requireTotalWithinMax)
@@ -264,7 +264,7 @@ export const createOrderInputSchema = orderBaseSchema
 // ignores it (not whitelisted here) and the .update().set(...) call in the
 // action never references it, so the column stays unchanged.
 export const updateOrderInputSchema = orderBaseSchema
-  .superRefine(requireDeliveryAddressWhenNotPickup)
+  .superRefine(requireDeliveryAddressWhenNotCollected)
   .superRefine(requireAtLeastOneQty)
   .superRefine(requireUnitPriceCoupling)
   .superRefine(requireTotalWithinMax)

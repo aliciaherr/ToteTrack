@@ -107,7 +107,7 @@ function StatusActionsSlot({ detail }: { detail: OrderDetailType }) {
 /**
  * Right-panel order detail view. Renders the PO header, status actions,
  * PO document slot, the 2×3 quantity grid, prominent total price, the
- * remaining metadata, delivery address (hidden when pickup_only), and
+ * remaining metadata, delivery address (hidden when customer_collects), and
  * notes. Returns the empty state when `detail` is null.
  */
 export default function OrderDetail({ detail, onEdit }: OrderDetailProps) {
@@ -121,7 +121,7 @@ export default function OrderDetail({ detail, onEdit }: OrderDetailProps) {
       <QuantitiesBlock detail={detail} />
       <TotalPriceBlock price={detail.price} />
       <DetailMetaGrid detail={detail} />
-      {!detail.pickup_only && (
+      {!detail.customer_collects && (
         <DeliveryAddressBlock address={detail.delivery_address} />
       )}
       <NotesBlock notes={detail.notes} />

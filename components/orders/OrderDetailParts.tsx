@@ -89,7 +89,7 @@ export function DetailMetaGrid({ detail }: { detail: OrderDetailType }) {
       <FieldRow label="Backhaul">
         {detail.backhaul ? <BackhaulTag /> : 'No'}
       </FieldRow>
-      <FieldRow label="Pickup Only">{detail.pickup_only ? 'Yes' : 'No'}</FieldRow>
+      <FieldRow label="Customer Collects">{detail.customer_collects ? 'Yes' : 'No'}</FieldRow>
     </section>
   )
 }

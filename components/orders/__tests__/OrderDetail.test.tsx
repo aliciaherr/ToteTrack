@@ -70,7 +70,7 @@ const baseDetail: OrderDetailType = {
   unit_price_330_recon: null,
   unit_price_330_rebot: '28.57',
   unit_price_330_new: null,
-  pickup_only: false,
+  customer_collects: false,
   delivery_address: '123 Main Street',
   requested_delivery_date: '2026-05-10',
   backhaul: true,
@@ -97,17 +97,17 @@ describe('OrderDetail', () => {
     expect(screen.getByText(/deliver before noon/i)).toBeInTheDocument()
   })
 
-  it('hides the delivery address section when pickup_only is true', () => {
-    const pickupDetail: OrderDetailType = {
+  it('hides the delivery address section when customer_collects is true', () => {
+    const collectsDetail: OrderDetailType = {
       ...baseDetail,
-      pickup_only: true,
+      customer_collects: true,
       delivery_address: null,
     }
-    render(<OrderDetail detail={pickupDetail} />)
+    render(<OrderDetail detail={collectsDetail} />)
     expect(screen.queryByRole('region', { name: /delivery address/i })).toBeNull()
   })
 
-  it('renders the delivery address section when pickup_only is false', () => {
+  it('renders the delivery address section when customer_collects is false', () => {
     render(<OrderDetail detail={baseDetail} />)
     const addressSection = screen.getByRole('region', { name: /delivery address/i })
     expect(addressSection).toBeInTheDocument()
@@ -161,7 +161,7 @@ describe('OrderDetail', () => {
     render(<OrderDetail detail={noBackhaul} />)
     const metaSection = screen.getByRole('region', { name: /order details/i })
     expect(within(metaSection).queryByLabelText(/backhaul/i)).not.toBeInTheDocument()
-    // Backhaul row + Pickup Only row both render "No" when both flags are false
+    // Backhaul row + Customer Collects row both render "No" when both flags are false
     expect(within(metaSection).getAllByText('No').length).toBe(2)
   })
 

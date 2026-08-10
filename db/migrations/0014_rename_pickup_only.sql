@@ -1,0 +1,21 @@
+-- Rename `orders.pickup_only` to `orders.customer_collects` — Feature 15 (Pickups).
+--
+-- Mechanical rename, zero behavior change. The flag always meant "the customer
+-- collects their order instead of us delivering it" — the opposite direction
+-- from a tote pickup. Feature 15 introduces a real `pickups` table for
+-- collecting empty totes back from customers, so the word "pickup" has to stop
+-- pointing at the wrong thing before that code lands.
+--
+-- No data changes: RENAME COLUMN preserves the column's type, NOT NULL, default
+-- and every stored value. Indexes, constraints and RLS follow the column
+-- automatically. Nothing is added, dropped or retyped.
+--
+-- Deploy together with the code that reads `customer_collects` — the old and new
+-- names cannot both exist, so this migration and its matching deploy are one
+-- step.
+--
+-- Applied by hand via the Supabase SQL Editor — this repo has no CLI migration
+-- runner. NOT re-runnable by design: a second run fails because `pickup_only`
+-- no longer exists.
+
+ALTER TABLE "orders" RENAME COLUMN "pickup_only" TO "customer_collects";
