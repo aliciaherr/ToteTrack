@@ -7,6 +7,7 @@ import {
 } from '../armPlacement'
 import { UNSCHEDULED_ORIGIN } from '../calendarDnd'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 const MONDAY = '2026-07-27'
 const TUESDAY = '2026-07-28'
@@ -42,22 +43,44 @@ function makeRow(overrides: Partial<CalendarOrderRow> = {}): CalendarOrderRow {
   }
 }
 
+function makePickup(overrides: Partial<CalendarPickupRow> = {}): CalendarPickupRow {
+  return {
+    id: 'pickup-1',
+    customer_id: '33333333-3333-3333-3333-333333333333',
+    customer_name: 'Northside Bottling',
+    status: 'scheduled',
+    qty_275: 12,
+    qty_330: 4,
+    pickup_date: MONDAY,
+    sort_index: 0,
+    address: null,
+    notes: null,
+    contacts: [],
+    ...overrides,
+  }
+}
+
 function armedAt(dateKey: string, index: number): ArmedCard {
-  return { row: makeRow(), dateKey, index }
+  return { group: 'order', row: makeRow(), dateKey, index }
+}
+
+function armedPickupAt(dateKey: string, index: number): ArmedCard {
+  return { group: 'pickup', row: makePickup(), dateKey, index }
 }
 
 describe('resolveTapAction — card taps', () => {
   it('places at the tapped card’s position in another column', () => {
     const action = resolveTapAction(armedAt(MONDAY, 0), {
       type: 'card',
-      orderId: 'order-2',
+      group: 'order',
+      cardId: 'order-2',
       dateKey: TUESDAY,
       index: 2,
     })
 
     expect(action).toEqual({
       kind: 'place',
-      target: { orderId: 'order-1', dateKey: TUESDAY, index: 2 },
+      target: { group: 'order', cardId: 'order-1', dateKey: TUESDAY, index: 2 },
     })
   })
 
@@ -66,28 +89,30 @@ describe('resolveTapAction — card taps', () => {
     // in C's slot, which is insertion index 2 once the armed card lifts out.
     const action = resolveTapAction(armedAt(MONDAY, 1), {
       type: 'card',
-      orderId: 'order-c',
+      group: 'order',
+      cardId: 'order-c',
       dateKey: MONDAY,
       index: 3,
     })
 
     expect(action).toEqual({
       kind: 'place',
-      target: { orderId: 'order-1', dateKey: MONDAY, index: 2 },
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 2 },
     })
   })
 
   it('uses the tapped index verbatim when moving up within a column', () => {
     const action = resolveTapAction(armedAt(MONDAY, 3), {
       type: 'card',
-      orderId: 'order-a',
+      group: 'order',
+      cardId: 'order-a',
       dateKey: MONDAY,
       index: 1,
     })
 
     expect(action).toEqual({
       kind: 'place',
-      target: { orderId: 'order-1', dateKey: MONDAY, index: 1 },
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 1 },
     })
   })
 
@@ -95,7 +120,8 @@ describe('resolveTapAction — card taps', () => {
     // Tapping the card directly below the armed one is a visual no-op.
     const action = resolveTapAction(armedAt(MONDAY, 1), {
       type: 'card',
-      orderId: 'order-b',
+      group: 'order',
+      cardId: 'order-b',
       dateKey: MONDAY,
       index: 2,
     })
@@ -106,7 +132,8 @@ describe('resolveTapAction — card taps', () => {
   it('cancels when the armed card itself is tapped', () => {
     const action = resolveTapAction(armedAt(MONDAY, 1), {
       type: 'card',
-      orderId: 'order-1',
+      group: 'order',
+      cardId: 'order-1',
       dateKey: MONDAY,
       index: 1,
     })
@@ -117,12 +144,16 @@ describe('resolveTapAction — card taps', () => {
   it('treats a tap on a dropdown card as a tap on the callout', () => {
     const action = resolveTapAction(armedAt(MONDAY, 0), {
       type: 'card',
-      orderId: 'order-9',
+      group: 'order',
+      cardId: 'order-9',
       dateKey: UNSCHEDULED_ORIGIN,
       index: 0,
     })
 
-    expect(action).toEqual({ kind: 'unschedule', orderId: 'order-1' })
+    expect(action).toEqual({
+      kind: 'unschedule',
+      target: { group: 'order', cardId: 'order-1' },
+    })
   })
 })
 
@@ -130,13 +161,14 @@ describe('resolveTapAction — column and callout taps', () => {
   it('appends to another column at its card count', () => {
     const action = resolveTapAction(armedAt(MONDAY, 0), {
       type: 'column',
+      group: 'order',
       dateKey: TUESDAY,
       cardCount: 3,
     })
 
     expect(action).toEqual({
       kind: 'place',
-      target: { orderId: 'order-1', dateKey: TUESDAY, index: 3 },
+      target: { group: 'order', cardId: 'order-1', dateKey: TUESDAY, index: 3 },
     })
   })
 
@@ -144,19 +176,21 @@ describe('resolveTapAction — column and callout taps', () => {
     // [armed, B, C] → tap empty space → [B, C, armed]: insertion index 2.
     const action = resolveTapAction(armedAt(MONDAY, 0), {
       type: 'column',
+      group: 'order',
       dateKey: MONDAY,
       cardCount: 3,
     })
 
     expect(action).toEqual({
       kind: 'place',
-      target: { orderId: 'order-1', dateKey: MONDAY, index: 2 },
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 2 },
     })
   })
 
   it('cancels without writing when the card is already last in its column', () => {
     const action = resolveTapAction(armedAt(MONDAY, 2), {
       type: 'column',
+      group: 'order',
       dateKey: MONDAY,
       cardCount: 3,
     })
@@ -165,15 +199,109 @@ describe('resolveTapAction — column and callout taps', () => {
   })
 
   it('unschedules a placed card tapped onto the callout', () => {
-    const action = resolveTapAction(armedAt(MONDAY, 0), { type: 'callout' })
+    const action = resolveTapAction(armedAt(MONDAY, 0), { type: 'callout', group: 'order' })
 
-    expect(action).toEqual({ kind: 'unschedule', orderId: 'order-1' })
+    expect(action).toEqual({
+      kind: 'unschedule',
+      target: { group: 'order', cardId: 'order-1' },
+    })
   })
 
   it('cancels without writing when an unscheduled card is tapped onto the callout', () => {
-    const action = resolveTapAction(armedAt(UNSCHEDULED_ORIGIN, 0), { type: 'callout' })
+    const action = resolveTapAction(armedAt(UNSCHEDULED_ORIGIN, 0), {
+      type: 'callout',
+      group: 'order',
+    })
 
     expect(action).toEqual({ kind: 'cancel' })
+  })
+})
+
+describe('resolveTapAction — the group rule (CONSTRAINT-25)', () => {
+  it('an armed pickup ignores an order column tap', () => {
+    const action = resolveTapAction(armedPickupAt(MONDAY, 0), {
+      type: 'column',
+      group: 'order',
+      dateKey: TUESDAY,
+      cardCount: 3,
+    })
+
+    expect(action).toEqual({ kind: 'cancel' })
+  })
+
+  it('an armed order ignores a pickup column tap', () => {
+    const action = resolveTapAction(armedAt(MONDAY, 0), {
+      type: 'column',
+      group: 'pickup',
+      dateKey: TUESDAY,
+      cardCount: 3,
+    })
+
+    expect(action).toEqual({ kind: 'cancel' })
+  })
+
+  it('an armed pickup ignores a tap on an order card', () => {
+    const action = resolveTapAction(armedPickupAt(MONDAY, 0), {
+      type: 'card',
+      group: 'order',
+      cardId: 'order-2',
+      dateKey: TUESDAY,
+      index: 1,
+    })
+
+    expect(action).toEqual({ kind: 'cancel' })
+  })
+
+  it('an armed pickup ignores the orders callout', () => {
+    const action = resolveTapAction(armedPickupAt(MONDAY, 0), {
+      type: 'callout',
+      group: 'order',
+    })
+
+    expect(action).toEqual({ kind: 'cancel' })
+  })
+
+  it('places a pickup on its own group’s column, carrying the pickup group through', () => {
+    const action = resolveTapAction(armedPickupAt(MONDAY, 0), {
+      type: 'column',
+      group: 'pickup',
+      dateKey: TUESDAY,
+      cardCount: 2,
+    })
+
+    expect(action).toEqual({
+      kind: 'place',
+      target: { group: 'pickup', cardId: 'pickup-1', dateKey: TUESDAY, index: 2 },
+    })
+  })
+
+  it('applies the same-column index − 1 correction to pickups too', () => {
+    // [A, armed, B, C] in the pickups list — tapping C (rendered index 3) must
+    // resolve to insertion index 2, exactly as it does for orders.
+    const action = resolveTapAction(armedPickupAt(MONDAY, 1), {
+      type: 'card',
+      group: 'pickup',
+      cardId: 'pickup-c',
+      dateKey: MONDAY,
+      index: 3,
+    })
+
+    expect(action).toEqual({
+      kind: 'place',
+      target: { group: 'pickup', cardId: 'pickup-1', dateKey: MONDAY, index: 2 },
+    })
+  })
+
+  it('unschedules an armed pickup tapped onto the pickups callout', () => {
+    const action = resolveTapAction(armedPickupAt(MONDAY, 0), {
+      type: 'callout',
+      group: 'pickup',
+    })
+
+    expect(action).toEqual({
+      kind: 'unschedule',
+      target: { group: 'pickup', cardId: 'pickup-1' },
+    })
   })
 })
 

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getDay, parseISO } from 'date-fns'
 import { forwardRef } from 'react'
@@ -7,6 +7,11 @@ const mockUseReducedMotion = vi.hoisted(() => vi.fn().mockReturnValue(false))
 const mockSetProductionPlacement = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mockToast = vi.hoisted(() => vi.fn())
+const mockUpdatePickup = vi.hoisted(() => vi.fn())
+const mockUpdatePickupStatus = vi.hoisted(() => vi.fn())
+const mockCreatePickup = vi.hoisted(() => vi.fn())
+const mockSetPickupPlacement = vi.hoisted(() => vi.fn())
+const mockClearPickupPlacement = vi.hoisted(() => vi.fn())
 
 // The dialog added by Task 58 pulls `motion` + `AnimatePresence` into this
 // tree, so the mock has to cover them too. Same shape as NavDrawer.test.tsx.
@@ -41,6 +46,22 @@ vi.mock('@/lib/actions/orders', () => ({
 
 vi.mock('@/lib/actions/orders.revert', () => ({
   revertOrderToScheduled: vi.fn(),
+}))
+
+// The pickup popup's status block and the new-pickup form both reach
+// `lib/actions/pickups`, another `'use server'` module that imports the
+// postgres driver.
+vi.mock('@/lib/actions/pickups', () => ({
+  createPickup: mockCreatePickup,
+  updatePickup: mockUpdatePickup,
+  updatePickupStatus: mockUpdatePickupStatus,
+}))
+
+// Task 81's pickup placement module. `Remove from calendar`, the pickup half of
+// every drag and the day menu's pickup picks all land here.
+vi.mock('@/lib/actions/pickups.calendar', () => ({
+  setPickupPlacement: mockSetPickupPlacement,
+  clearPickupPlacement: mockClearPickupPlacement,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -81,11 +102,47 @@ vi.mock('@/components/orders/OrderForm', () => ({
   ),
 }))
 
+// `PickupForm` is stubbed for the same two reasons `OrderForm` is: it reaches
+// the `'use server'` pickups module, and it renders a `motion.form` the
+// framer-motion mock above does not provide. The props it exposes are the ones
+// Task 81 has to get right — create mode, and the day the clicked column
+// pre-fills into the visible date field.
+vi.mock('@/components/pickups/PickupForm', () => ({
+  default: ({
+    mode,
+    initialPickupDate,
+    lockedCustomerId,
+    onSaved,
+  }: {
+    mode: 'create' | 'edit'
+    initialPickupDate?: string | null
+    lockedCustomerId: string | null
+    onSaved: () => void
+  }) => (
+    <div
+      data-testid="pickup-form"
+      data-mode={mode}
+      data-pickup-date={initialPickupDate ?? ''}
+      data-locked-customer-id={lockedCustomerId ?? ''}
+    >
+      <button type="button" onClick={onSaved}>
+        save-pickup
+      </button>
+    </div>
+  ),
+}))
+
 import CalendarLayout from '../CalendarLayout'
-import { buildWeekGroups, formatWeekRange, groupRowsByDay } from '../calendarWeeks'
+import {
+  buildWeekGroups,
+  formatWeekRange,
+  groupPickupsByDay,
+  groupRowsByDay,
+} from '../calendarWeeks'
 import { InvalidDateError } from '@/lib/errors'
 import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 // 2026-07-27 is a Monday; 2026-07-26 the Sunday before it.
 const ANCHOR_MONDAY = '2026-07-27'
@@ -130,11 +187,30 @@ function makeRow(overrides: Partial<CalendarOrderRow> = {}): CalendarOrderRow {
   }
 }
 
+function makePickup(overrides: Partial<CalendarPickupRow> = {}): CalendarPickupRow {
+  return {
+    id: 'pickup-1',
+    customer_id: '33333333-3333-3333-3333-333333333333',
+    customer_name: 'Northside Bottling',
+    status: 'scheduled',
+    qty_275: 12,
+    qty_330: 4,
+    pickup_date: ANCHOR_MONDAY,
+    sort_index: null,
+    address: null,
+    notes: null,
+    contacts: [],
+    ...overrides,
+  }
+}
+
 function renderLayout(props: Partial<Parameters<typeof CalendarLayout>[0]> = {}) {
   return render(
     <CalendarLayout
       rows={[]}
       unscheduled={[]}
+      pickups={[]}
+      unscheduledPickups={[]}
       weekStart={ANCHOR_MONDAY}
       customers={[]}
       {...props}
@@ -142,10 +218,15 @@ function renderLayout(props: Partial<Parameters<typeof CalendarLayout>[0]> = {})
   )
 }
 
+/** Flips one of the two header group toggles. */
+function toggleGroup(name: 'Orders' | 'Pickups') {
+  fireEvent.click(screen.getByRole('switch', { name }))
+}
+
 /** Opens one day column's `+ Add order` menu and returns it. */
 function openDayMenu(dateKey: string): HTMLElement {
   const column = document.querySelector(`[data-date="${dateKey}"]`) as HTMLElement
-  fireEvent.click(within(column).getByText('+ Add order'))
+  fireEvent.click(within(column).getByText('+ Add'))
   return within(column).getByTestId('add-order-menu')
 }
 
@@ -160,6 +241,12 @@ function scrolledWeekSelectors(): string[] {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseReducedMotion.mockReturnValue(false)
+  // Every placement mock resolves by default. `useCalendarMutation` reads
+  // `'error' in result`, so a mock left returning undefined throws a TypeError
+  // out of a fire-and-forget handler rather than failing the assertion.
+  mockSetProductionPlacement.mockResolvedValue({ success: true })
+  mockSetPickupPlacement.mockResolvedValue({ success: true })
+  mockClearPickupPlacement.mockResolvedValue({ success: true })
   // jsdom implements neither; both are called by `scrollWeekIntoView`.
   scrollToSpy = vi.fn()
   Element.prototype.scrollTo = scrollToSpy as unknown as Element['scrollTo']
@@ -243,6 +330,34 @@ describe('groupRowsByDay', () => {
     ])
 
     expect(grouped.get(ANCHOR_MONDAY)?.map((row) => row.id)).toEqual(['a', 'z'])
+  })
+})
+
+describe('groupPickupsByDay', () => {
+  it('buckets pickups by pickup_date', () => {
+    const grouped = groupPickupsByDay([
+      makePickup({ id: 'a', pickup_date: ANCHOR_MONDAY }),
+      makePickup({ id: 'b', pickup_date: ANCHOR_FRIDAY }),
+    ])
+
+    expect(grouped.get(ANCHOR_MONDAY)).toHaveLength(1)
+    expect(grouped.get(ANCHOR_FRIDAY)).toHaveLength(1)
+  })
+
+  it('drops undated pickups rather than inventing a column for them', () => {
+    expect(groupPickupsByDay([makePickup({ pickup_date: null })]).size).toBe(0)
+  })
+
+  it('preserves the order the query returned instead of re-sorting', () => {
+    // The ORDER BY in `getCalendarPickups` is the single source of column
+    // order — a client-side comparator could only disagree with it.
+    const grouped = groupPickupsByDay([
+      makePickup({ id: 'c', sort_index: null }),
+      makePickup({ id: 'a', sort_index: 0 }),
+      makePickup({ id: 'b', sort_index: 1 }),
+    ])
+
+    expect(grouped.get(ANCHOR_MONDAY)?.map((pickup) => pickup.id)).toEqual(['c', 'a', 'b'])
   })
 })
 
@@ -332,12 +447,14 @@ describe('CalendarLayout', () => {
     expect(within(fridayColumn).queryByText('Nothing scheduled.')).not.toBeInTheDocument()
   })
 
-  it('gives every day column an + Add order action', () => {
+  it('gives every day column an + Add action', () => {
+    // The label lost the word "order" in Task 81: the menu now creates a PO
+    // *or* a pickup, so naming one of them would misdescribe half of it.
     renderLayout()
 
     const columns = screen.getAllByTestId('day-column')
     for (const column of columns) {
-      expect(within(column).getByText('+ Add order')).toBeInTheDocument()
+      expect(within(column).getByText('+ Add')).toBeInTheDocument()
     }
   })
 
@@ -379,6 +496,8 @@ describe('CalendarLayout', () => {
       <CalendarLayout
         rows={[makeRow({ backhaul: true })]}
         unscheduled={[]}
+        pickups={[]}
+        unscheduledPickups={[]}
         weekStart={ANCHOR_MONDAY}
         customers={[]}
       />,
@@ -398,32 +517,162 @@ describe('CalendarLayout', () => {
     // What a cancel looks like from the client: the row is gone from the next
     // server payload, so there is nothing left for the popup to show.
     rerender(
-      <CalendarLayout rows={[]} unscheduled={[]} weekStart={ANCHOR_MONDAY} customers={[]} />,
+      <CalendarLayout
+        rows={[]}
+        unscheduled={[]}
+        pickups={[]}
+        unscheduledPickups={[]}
+        weekStart={ANCHOR_MONDAY}
+        customers={[]}
+      />,
     )
 
     expect(screen.queryByTestId('production-card-dialog')).not.toBeInTheDocument()
   })
 })
 
+describe('CalendarLayout — the two group toggles', () => {
+  it('opens with orders on and pickups off, every visit', () => {
+    renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
+
+    expect(screen.getByRole('switch', { name: 'Orders' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('switch', { name: 'Pickups' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
+    expect(screen.getByText('PO-1000')).toBeInTheDocument()
+    expect(screen.queryByTestId('pickup-card')).not.toBeInTheDocument()
+  })
+
+  it('toggling pickups on renders pickup cards in the right column', () => {
+    renderLayout({ pickups: [makePickup({ pickup_date: ANCHOR_FRIDAY })] })
+
+    toggleGroup('Pickups')
+
+    const fridayColumn = document.querySelector(`[data-date="${ANCHOR_FRIDAY}"]`) as HTMLElement
+    expect(within(fridayColumn).getByTestId('pickup-card')).toBeInTheDocument()
+    expect(within(fridayColumn).getByText('12 × 275, 4 × 330')).toBeInTheDocument()
+
+    const mondayColumn = document.querySelector(`[data-date="${ANCHOR_MONDAY}"]`) as HTMLElement
+    expect(within(mondayColumn).queryByTestId('pickup-card')).not.toBeInTheDocument()
+    expect(within(mondayColumn).getByTestId('column-pickups-empty')).toBeInTheDocument()
+  })
+
+  it('keeps the two lists independent — orders stay put when pickups appear', () => {
+    renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
+
+    toggleGroup('Pickups')
+
+    const mondayColumn = document.querySelector(`[data-date="${ANCHOR_MONDAY}"]`) as HTMLElement
+    expect(within(mondayColumn).getByText('PO-1000')).toBeInTheDocument()
+    expect(within(mondayColumn).getByTestId('pickup-card')).toBeInTheDocument()
+  })
+
+  it('shows an explicit message rather than a blank grid when both are off', () => {
+    renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
+
+    toggleGroup('Orders')
+
+    expect(screen.getAllByTestId('column-lists-hidden').length).toBeGreaterThan(0)
+    expect(screen.queryByText('PO-1000')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pickup-card')).not.toBeInTheDocument()
+  })
+
+  it('surfaces undated pickups only while pickups are on', () => {
+    renderLayout({ unscheduledPickups: [makePickup({ pickup_date: null })] })
+
+    expect(screen.queryByRole('button', { name: /pickups need a date/i })).not.toBeInTheDocument()
+
+    toggleGroup('Pickups')
+
+    expect(screen.getByRole('button', { name: /pickups need a date/i })).toHaveTextContent('1')
+  })
+
+  it('opens the pickup popup from a card and closes it again', () => {
+    renderLayout({ pickups: [makePickup()] })
+    toggleGroup('Pickups')
+
+    fireEvent.click(screen.getByTestId('pickup-card'))
+
+    const dialog = screen.getByTestId('pickup-card-dialog')
+    expect(within(dialog).getByText('Northside Bottling')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByTestId('pickup-card-dialog')).not.toBeInTheDocument()
+  })
+
+  it('removes a pickup from the calendar through clearPickupPlacement', async () => {
+    mockClearPickupPlacement.mockResolvedValueOnce({ success: true })
+    renderLayout({ pickups: [makePickup({ address: '9 Dock Rd', notes: 'gate code 4821' })] })
+    toggleGroup('Pickups')
+    fireEvent.click(screen.getByTestId('pickup-card'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from calendar' }))
+
+    await waitFor(() => expect(mockClearPickupPlacement).toHaveBeenCalledWith('pickup-1'))
+    // Task 81 supersedes Task 80's shortcut (INFO-05): the id alone goes over
+    // the wire and the action nulls `pickup_date` *and* `sort_index`, instead
+    // of resending the whole editable row last-write-wins with a stale index.
+    expect(mockUpdatePickup).not.toHaveBeenCalled()
+  })
+})
+
 describe('CalendarLayout — Add Purchase Order from a day column', () => {
-  it('lists Add Purchase Order above the unscheduled orders, behind a divider', () => {
+  it('lists both create actions above the undated rows, behind a divider', () => {
     renderLayout({ unscheduled: [makeRow({ id: 'u1', production_date: null })] })
 
     const menu = openDayMenu(ANCHOR_MONDAY)
     const items = within(menu).getAllByRole('menuitem')
 
     expect(items[0]).toHaveTextContent('Add Purchase Order')
-    expect(items[1]).toHaveTextContent('PO-1000')
+    expect(items[1]).toHaveTextContent('Add Pickup')
+    expect(items[2]).toHaveTextContent('PO-1000')
     expect(within(menu).getByRole('separator')).toBeInTheDocument()
   })
 
-  it('keeps the empty state for the list below it when nothing is unscheduled', () => {
+  it('lists undated rows of both kinds, each under its own label', () => {
+    renderLayout({
+      unscheduled: [makeRow({ id: 'u1', production_date: null })],
+      unscheduledPickups: [makePickup({ id: 'up1', pickup_date: null })],
+    })
+
+    const menu = openDayMenu(ANCHOR_MONDAY)
+
+    const orders = within(menu).getByRole('group', { name: 'Undated orders' })
+    const pickups = within(menu).getByRole('group', { name: 'Undated pickups' })
+    expect(within(orders).getByRole('menuitem', { name: /PO-1000/ })).toBeInTheDocument()
+    expect(
+      within(pickups).getByRole('menuitem', { name: /Northside Bottling/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('places the chosen undated pickup on the clicked day, at the end of that list', () => {
+    renderLayout({
+      pickups: [makePickup({ id: 'placed', pickup_date: ANCHOR_FRIDAY })],
+      unscheduledPickups: [makePickup({ id: 'up1', pickup_date: null })],
+    })
+
+    const menu = openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /Northside Bottling/ }))
+
+    // Index 1 — the count of *pickups* already on Friday, never the two lists
+    // combined (CONSTRAINT-25).
+    expect(mockSetPickupPlacement).toHaveBeenCalledWith('up1', {
+      group: 'pickup',
+      pickupDate: ANCHOR_FRIDAY,
+      sortIndex: 1,
+    })
+    expect(mockSetProductionPlacement).not.toHaveBeenCalled()
+  })
+
+  it('keeps the empty state for the lists below when nothing is undated', () => {
     renderLayout({ unscheduled: [] })
 
     const menu = openDayMenu(ANCHOR_MONDAY)
 
-    expect(within(menu).getByText('Nothing to add — every order has a date.')).toBeInTheDocument()
-    expect(within(menu).getAllByRole('menuitem')).toHaveLength(1)
+    expect(within(menu).getByText('Nothing to add — everything has a date.')).toBeInTheDocument()
+    // Both create actions survive an empty undated set.
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(2)
   })
 
   it('keeps the drawer shut until a day asks for it', () => {
@@ -478,6 +727,34 @@ describe('CalendarLayout — Add Purchase Order from a day column', () => {
 
     expect(screen.queryByTestId('order-form')).not.toBeInTheDocument()
     expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('opens the pickup form pinned to the clicked column, from the same menu', () => {
+    renderLayout()
+
+    openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Pickup' }))
+
+    const form = screen.getByTestId('pickup-form')
+    expect(form.getAttribute('data-mode')).toBe('create')
+    // Pre-filled into the *visible* date field, unlike the order drawer's
+    // hidden build-day override: a pickup's date is its placement, so the
+    // salesperson can see and change it before saving (CONSTRAINT-25).
+    expect(form.getAttribute('data-pickup-date')).toBe(ANCHOR_FRIDAY)
+    expect(screen.queryByTestId('add-order-menu')).not.toBeInTheDocument()
+    // The two drawers are independent — opening one must not open the other.
+    expect(screen.queryByTestId('order-form')).not.toBeInTheDocument()
+  })
+
+  it('closes the pickup drawer and refetches once the pickup is saved', () => {
+    renderLayout()
+    openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add Pickup' }))
+
+    fireEvent.click(screen.getByText('save-pickup'))
+
+    expect(screen.queryByTestId('pickup-form')).not.toBeInTheDocument()
+    expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('keeps the drawer a fixed overlay at every width so the page cannot scroll', () => {

@@ -28,12 +28,18 @@ const MONDAY_TO_FRIDAY_OFFSET = 4
  * (`startOfBusinessWeek`) — someone opening the calendar on Sunday is planning
  * the week ahead, not reviewing the one that just ended.
  *
- * @param value Raw `?week=` query param, if present.
+ * A repeated `?week=a&week=b` arrives as an **array**, which is why the
+ * parameter is typed for one: the shape check is `typeof value === 'string'`
+ * before any string method is reached, so an array falls through to the
+ * fallback rather than throwing at request time (SEC-02, finding T78-L01).
+ *
+ * @param value Raw `?week=` query param, if present — a string, or an array
+ * when the param was repeated in the URL.
  * @param today Reference date for the fallback. Injected so callers — and
  * tests — control "now" rather than depending on the system clock.
  */
-export function parseCalendarWeek(value: string | undefined, today: Date): Date {
-  if (!value || !ISO_DATE_RE.test(value)) return startOfBusinessWeek(today)
+export function parseCalendarWeek(value: string | string[] | undefined, today: Date): Date {
+  if (typeof value !== 'string' || !ISO_DATE_RE.test(value)) return startOfBusinessWeek(today)
   const parsed = parseISO(value)
   return startOfBusinessWeek(isValid(parsed) ? parsed : today)
 }

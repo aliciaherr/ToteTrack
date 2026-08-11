@@ -27,6 +27,7 @@ vi.mock('@/lib/hooks/useToast', () => ({
 }))
 
 import UnscheduledCallout from '../UnscheduledCallout'
+import UnscheduledPickupsCallout from '../UnscheduledPickupsCallout'
 import AddOrderMenu from '../AddOrderMenu'
 import { ArmModeProvider, type ArmModeValue } from '../armMode'
 import { type ArmedCard } from '../armPlacement'
@@ -35,10 +36,13 @@ import {
   resolveUnscheduleTarget,
   UNSCHEDULED_DROPPABLE_ID,
   UNSCHEDULED_ORIGIN,
+  UNSCHEDULED_PICKUPS_DROPPABLE_ID,
   type CardDragData,
+  type CardGroup,
 } from '../calendarDnd'
 import { UNSCHEDULED_DROPDOWN_VISIBLE } from '@/db/queries/calendar.constants'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 const MONDAY = '2026-07-27'
 
@@ -87,17 +91,47 @@ function renderCallout(rows: CalendarOrderRow[]) {
   )
 }
 
-const CARD_AT = (dateKey: string, index: number): CardDragData => ({
+function makePickup(overrides: Partial<CalendarPickupRow> = {}): CalendarPickupRow {
+  return {
+    id: 'pickup-1',
+    customer_id: '33333333-3333-3333-3333-333333333333',
+    customer_name: 'Northside Bottling',
+    status: 'scheduled',
+    qty_275: 12,
+    qty_330: 4,
+    pickup_date: null,
+    sort_index: null,
+    address: null,
+    notes: null,
+    contacts: [],
+    ...overrides,
+  }
+}
+
+function makePickups(count: number): CalendarPickupRow[] {
+  return Array.from({ length: count }, (_, index) =>
+    makePickup({ id: `pickup-${index}`, customer_name: `Customer ${index}` }),
+  )
+}
+
+const CARD_AT = (dateKey: string, index: number, group: CardGroup = 'order'): CardDragData => ({
   type: 'card',
+  group,
   dateKey,
   index,
 })
 
 /** Minimal `DragEndEvent` — only the fields the resolver reads. */
-function dropOnCallout(activeData: CardDragData): DragEndEvent {
+function dropOnCallout(
+  activeData: CardDragData,
+  calloutGroup: CardGroup = 'order',
+  activeId = 'order-1',
+): DragEndEvent {
+  const droppableId =
+    calloutGroup === 'pickup' ? UNSCHEDULED_PICKUPS_DROPPABLE_ID : UNSCHEDULED_DROPPABLE_ID
   return {
-    active: { id: 'order-1', data: { current: activeData } },
-    over: { id: UNSCHEDULED_DROPPABLE_ID, data: { current: { type: 'callout' } } },
+    active: { id: activeId, data: { current: activeData } },
+    over: { id: droppableId, data: { current: { type: 'callout', group: calloutGroup } } },
   } as unknown as DragEndEvent
 }
 
@@ -111,7 +145,10 @@ beforeEach(() => {
 
 describe('resolveUnscheduleTarget', () => {
   it('resolves a placed card dropped on the callout to that order', () => {
-    expect(resolveUnscheduleTarget(dropOnCallout(CARD_AT(MONDAY, 0)))).toBe('order-1')
+    expect(resolveUnscheduleTarget(dropOnCallout(CARD_AT(MONDAY, 0)))).toEqual({
+      group: 'order',
+      cardId: 'order-1',
+    })
   })
 
   it('returns null for a card that was already unscheduled', () => {
@@ -122,7 +159,10 @@ describe('resolveUnscheduleTarget', () => {
   it('returns null when the drop was not on the callout', () => {
     const event = {
       active: { id: 'order-1', data: { current: CARD_AT(MONDAY, 0) } },
-      over: { id: MONDAY, data: { current: { type: 'column', dateKey: MONDAY, cardCount: 0 } } },
+      over: {
+        id: MONDAY,
+        data: { current: { type: 'column', group: 'order', dateKey: MONDAY, cardCount: 0 } },
+      },
     } as unknown as DragEndEvent
 
     expect(resolveUnscheduleTarget(event)).toBeNull()
@@ -133,6 +173,26 @@ describe('resolveUnscheduleTarget', () => {
       active: { id: 'order-1', data: { current: CARD_AT(MONDAY, 0) } },
       over: null,
     } as unknown as DragEndEvent
+
+    expect(resolveUnscheduleTarget(event)).toBeNull()
+  })
+
+  it('resolves a placed pickup dropped on the pickups callout to that pickup', () => {
+    const event = dropOnCallout(CARD_AT(MONDAY, 0, 'pickup'), 'pickup', 'pickup-1')
+
+    expect(resolveUnscheduleTarget(event)).toEqual({ group: 'pickup', cardId: 'pickup-1' })
+  })
+
+  it('refuses to unschedule an order across onto the pickups callout', () => {
+    // The two pills sit side by side in one header; without the group check a
+    // mis-aimed drop would clear a date on the wrong table (CONSTRAINT-25).
+    const event = dropOnCallout(CARD_AT(MONDAY, 0, 'order'), 'pickup')
+
+    expect(resolveUnscheduleTarget(event)).toBeNull()
+  })
+
+  it('refuses to unschedule a pickup across onto the orders callout', () => {
+    const event = dropOnCallout(CARD_AT(MONDAY, 0, 'pickup'), 'order', 'pickup-1')
 
     expect(resolveUnscheduleTarget(event)).toBeNull()
   })
@@ -235,65 +295,86 @@ describe('unschedule mutation', () => {
 })
 
 describe('AddOrderMenu', () => {
-  it('lists exactly the same set as the callout', () => {
-    const rows = makeRows(3)
-    render(
+  function renderMenu(props: Partial<React.ComponentProps<typeof AddOrderMenu>> = {}) {
+    return render(
       <AddOrderMenu
         date={new Date(2026, 6, 27)}
-        rows={rows}
+        rows={[]}
+        pickups={[]}
         onPick={vi.fn()}
+        onPickPickup={vi.fn()}
         onClose={vi.fn()}
+        {...props}
       />,
     )
+  }
 
-    // The menu leads with the Task 64 "create a new PO here" action; the
-    // unscheduled set is everything after it.
-    const [action, ...items] = screen.getAllByRole('menuitem')
-    expect(action).toHaveTextContent('Add Purchase Order')
+  it('leads with both create actions, then the undated sets', () => {
+    const rows = makeRows(3)
+    renderMenu({ rows })
+
+    const [createOrder, createPickup, ...items] = screen.getAllByRole('menuitem')
+    expect(createOrder).toHaveTextContent('Add Purchase Order')
+    expect(createPickup).toHaveTextContent('Add Pickup')
     expect(items).toHaveLength(3)
     expect(items.map((item) => item.textContent)).toEqual(
       expect.arrayContaining(rows.map((row) => expect.stringContaining(row.po_number))),
     )
   })
 
+  it('lists undated rows of both kinds, each under its own label', () => {
+    renderMenu({ rows: makeRows(2), pickups: makePickups(2) })
+
+    const orderGroup = screen.getByRole('group', { name: 'Undated orders' })
+    const pickupGroup = screen.getByRole('group', { name: 'Undated pickups' })
+
+    expect(within(orderGroup).getAllByRole('menuitem')).toHaveLength(2)
+    expect(within(pickupGroup).getAllByRole('menuitem')).toHaveLength(2)
+    // A pickup has no PO number, so its row leads with the customer instead.
+    expect(within(pickupGroup).getByRole('menuitem', { name: /Customer 0/ })).toBeInTheDocument()
+  })
+
   it('hands the chosen order id to onPick', () => {
     const onPick = vi.fn()
-    render(
-      <AddOrderMenu
-        date={new Date(2026, 6, 27)}
-        rows={makeRows(2)}
-        onPick={onPick}
-        onClose={vi.fn()}
-      />,
-    )
+    renderMenu({ rows: makeRows(2), onPick })
 
     fireEvent.click(screen.getByRole('menuitem', { name: /PO-1001/ }))
     expect(onPick).toHaveBeenCalledWith('order-1')
   })
 
-  it('says so when there is nothing to add', () => {
-    render(
-      <AddOrderMenu date={new Date(2026, 6, 27)} rows={[]} onPick={vi.fn()} onClose={vi.fn()} />,
-    )
+  it('hands the chosen pickup id to its own handler, never to onPick', () => {
+    const onPick = vi.fn()
+    const onPickPickup = vi.fn()
+    renderMenu({ rows: makeRows(1), pickups: makePickups(2), onPick, onPickPickup })
 
-    expect(screen.getByText(/every order has a date/i)).toBeInTheDocument()
-    // Only the new-PO action survives an empty unscheduled set — creating an
-    // order on this day stays possible when there is nothing left to date.
+    fireEvent.click(screen.getByRole('menuitem', { name: /Customer 1/ }))
+
+    expect(onPickPickup).toHaveBeenCalledWith('pickup-1')
+    expect(onPick).not.toHaveBeenCalled()
+  })
+
+  it('draws only the group that has rows', () => {
+    renderMenu({ pickups: makePickups(1) })
+
+    expect(screen.queryByRole('group', { name: 'Undated orders' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Undated pickups' })).toBeInTheDocument()
+  })
+
+  it('says so when there is nothing to add', () => {
+    renderMenu()
+
+    expect(screen.getByText(/everything has a date/i)).toBeInTheDocument()
+    // Both create actions survive an empty undated set — creating a row on this
+    // day stays possible when there is nothing left to date.
     const items = screen.getAllByRole('menuitem')
-    expect(items).toHaveLength(1)
+    expect(items).toHaveLength(2)
     expect(items[0]).toHaveTextContent('Add Purchase Order')
+    expect(items[1]).toHaveTextContent('Add Pickup')
   })
 
   it('closes on Escape', () => {
     const onClose = vi.fn()
-    render(
-      <AddOrderMenu
-        date={new Date(2026, 6, 27)}
-        rows={makeRows(1)}
-        onPick={vi.fn()}
-        onClose={onClose}
-      />,
-    )
+    renderMenu({ rows: makeRows(1), onClose })
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalled()
@@ -366,11 +447,13 @@ describe('AddOrderMenu', () => {
   })
 })
 
-describe('UnscheduledCallout while a card is armed (Task 68)', () => {
-  function armModeValue(armed: ArmedCard | null): ArmModeValue {
-    return { armed, flyingId: null, arm: vi.fn(), cancel: vi.fn(), tap: vi.fn() }
-  }
+function armModeValue(armed: ArmedCard | null): ArmModeValue {
+  return { armed, flyingId: null, arm: vi.fn(), cancel: vi.fn(), tap: vi.fn() }
+}
 
+const ARMED_ORDER: ArmedCard = { group: 'order', row: makeRow(), dateKey: MONDAY, index: 0 }
+
+describe('UnscheduledCallout while a card is armed (Task 68)', () => {
   function renderArmedCallout(value: ArmModeValue, rows: CalendarOrderRow[]) {
     return render(
       <DndContext>
@@ -382,12 +465,12 @@ describe('UnscheduledCallout while a card is armed (Task 68)', () => {
   }
 
   it('a tap on the pill routes to the callout target instead of toggling the dropdown', () => {
-    const value = armModeValue({ row: makeRow(), dateKey: MONDAY, index: 0 })
+    const value = armModeValue(ARMED_ORDER)
     renderArmedCallout(value, [makeRow({ id: 'order-9', po_number: 'PO-1009' })])
 
     fireEvent.click(screen.getByRole('button', { name: /need a production date/ }))
 
-    expect(value.tap).toHaveBeenCalledWith({ type: 'callout' })
+    expect(value.tap).toHaveBeenCalledWith({ type: 'callout', group: 'order' })
     expect(screen.queryByTestId('unscheduled-dropdown')).not.toBeInTheDocument()
   })
 
@@ -399,5 +482,85 @@ describe('UnscheduledCallout while a card is armed (Task 68)', () => {
 
     expect(value.tap).not.toHaveBeenCalled()
     expect(screen.getByTestId('unscheduled-dropdown')).toBeInTheDocument()
+  })
+})
+
+describe('UnscheduledPickupsCallout', () => {
+  function renderPickupsCallout(
+    pickups: CalendarPickupRow[],
+    value: ArmModeValue = armModeValue(null),
+  ) {
+    return render(
+      <DndContext>
+        <ArmModeProvider value={value}>
+          <UnscheduledPickupsCallout pickups={pickups} onSelect={vi.fn()} />
+        </ArmModeProvider>
+      </DndContext>,
+    )
+  }
+
+  it('renders nothing when every pickup already has a date', () => {
+    // No all-clear message, unlike the orders callout — the header has no
+    // horizontal room to spare at iPad landscape width (CONSTRAINT-19).
+    renderPickupsCallout([])
+
+    expect(screen.queryByRole('button', { name: /pickups need a date/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('unscheduled-pickups-dropdown')).not.toBeInTheDocument()
+  })
+
+  it('shows the undated count behind a 44px trigger', () => {
+    renderPickupsCallout(makePickups(3))
+
+    const pill = screen.getByRole('button', { name: /pickups need a date/i })
+    expect(pill).toHaveTextContent('3')
+    expect(pill.className).toContain('min-h-[44px]')
+  })
+
+  it('opens a dropdown of draggable pickup cards', () => {
+    renderPickupsCallout(makePickups(2))
+
+    fireEvent.click(screen.getByRole('button', { name: /pickups need a date/i }))
+
+    const dropdown = screen.getByTestId('unscheduled-pickups-dropdown')
+    const cards = within(dropdown).getAllByTestId('pickup-card')
+    expect(cards).toHaveLength(2)
+    // Draggable straight out onto a day column — the gesture Task 81 adds.
+    expect(cards[0]).toHaveAttribute('data-draggable', 'true')
+    expect(cards[0].parentElement).toHaveAttribute('aria-roledescription')
+  })
+
+  it(`sizes the dropdown to ${UNSCHEDULED_DROPDOWN_VISIBLE} cards, then scrolls`, () => {
+    renderPickupsCallout(makePickups(6))
+    fireEvent.click(screen.getByRole('button', { name: /pickups need a date/i }))
+
+    const dropdown = screen.getByTestId('unscheduled-pickups-dropdown')
+    expect(dropdown.style.maxHeight).toContain(`var(--card-h) * ${UNSCHEDULED_DROPDOWN_VISIBLE}`)
+    expect(dropdown.className).toContain('overflow-y-auto')
+  })
+
+  it('a tap while a pickup is armed routes to the pickups callout target', () => {
+    const value = armModeValue({
+      group: 'pickup',
+      row: makePickup({ pickup_date: MONDAY }),
+      dateKey: MONDAY,
+      index: 0,
+    })
+    renderPickupsCallout(makePickups(1), value)
+
+    fireEvent.click(screen.getByRole('button', { name: /pickups need a date/i }))
+
+    expect(value.tap).toHaveBeenCalledWith({ type: 'callout', group: 'pickup' })
+    expect(screen.queryByTestId('unscheduled-pickups-dropdown')).not.toBeInTheDocument()
+  })
+
+  it('a tap while an ORDER is armed still reports the pickup group, which cancels', () => {
+    // The pill never lies about which group it is. `resolveTapAction` turns the
+    // mismatch into `cancel`, so an armed order cannot be cleared from here.
+    const value = armModeValue(ARMED_ORDER)
+    renderPickupsCallout(makePickups(1), value)
+
+    fireEvent.click(screen.getByRole('button', { name: /pickups need a date/i }))
+
+    expect(value.tap).toHaveBeenCalledWith({ type: 'callout', group: 'pickup' })
   })
 })

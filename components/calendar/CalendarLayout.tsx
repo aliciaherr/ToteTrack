@@ -2,54 +2,36 @@
 
 import { useMemo } from 'react'
 import { useReducedMotion } from 'framer-motion'
-import { Button } from '@/components/ui/button'
+import CalendarBoard from './CalendarBoard'
 import CalendarDndContext from './CalendarDndContext'
-import NewOrderDrawer from './NewOrderDrawer'
-import ProductionCardDialog from './ProductionCardDialog'
-import UnscheduledCallout from './UnscheduledCallout'
-import WeekStrip from './WeekStrip'
+import CalendarOverlays from './CalendarOverlays'
 import { ArmModeProvider, useArmModeState } from './armMode'
 import { CardSelectionProvider } from './cardSelection'
 import { NewOrderDayProvider } from './newOrderDay'
-import { useWeekScroll } from './calendarScroll'
-import { useCalendarActions, useNewOrderDay } from './calendarLayoutHooks'
-import { buildWeekGroups, groupRowsByDay } from './calendarWeeks'
+import { PickupVisibilityProvider } from './pickupVisibility'
+import {
+  useCalendarActions,
+  useCalendarVisibilityState,
+  useNewCardDay,
+  usePickupCalendarActions,
+} from './calendarLayoutHooks'
+import { useGroupedPlacement } from './usePickupPlacement'
+import { groupPickupsByDay, groupRowsByDay } from './calendarWeeks'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 import type { CustomerSelectOption } from '@/db/queries/customers'
 
 interface CalendarLayoutProps {
   rows: CalendarOrderRow[]
   unscheduled: CalendarOrderRow[]
+  /** Placed pickups for the fetched range — the second list in each column. */
+  pickups: CalendarPickupRow[]
+  /** Pickups with no date, for the header's undated callout. */
+  unscheduledPickups: CalendarPickupRow[]
   /** Anchor week's Monday as `yyyy-MM-dd`, from `parseCalendarWeek`. */
   weekStart: string
   /** Active customers for the new-PO form's dropdown. */
   customers: CustomerSelectOption[]
-}
-
-function CalendarHeader({
-  unscheduled,
-  onCurrentWeek,
-}: {
-  unscheduled: CalendarOrderRow[]
-  onCurrentWeek: () => void
-}) {
-  return (
-    <div className="pl-20 pr-4 pt-4 pb-3 border-b border-border bg-card shrink-0 flex items-center justify-between gap-3">
-      <h1 className="text-lg font-semibold text-foreground">Production Calendar</h1>
-      <div className="flex items-center gap-3">
-        <UnscheduledCallout rows={unscheduled} />
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCurrentWeek}
-          className="min-h-[44px]"
-          aria-label="Scroll to the current week"
-        >
-          Current week
-        </Button>
-      </div>
-    </div>
-  )
 }
 
 /**
@@ -69,83 +51,96 @@ function CalendarHeader({
  * click at all, which is what keeps the armed state alive across a scroll to
  * a distant week.
  *
+ * The screen hosts **two** independent card groups (CONSTRAINT-25): orders and
+ * pickups, each with its own query, its own per-day ordering, its own popup and
+ * its own header toggle. Nothing crosses between them.
+ *
+ * The root height is `calc(100svh-0.75rem)`: 0.75rem is the `pt-3` AppShell puts
+ * above every authenticated route, and subtracting it is what makes the screen
+ * exactly one viewport tall. `svh`, not `vh` (CONSTRAINT-23): on iOS `100vh` is
+ * the *large* viewport — browser chrome hidden — so with the tab bar showing the
+ * page would be toolbar-height too tall and need one nudge of scroll before it
+ * settled. `svh` is the viewport in the state the screen actually opens in.
+ *
  * @param rows Placed orders for the fetched range, each carrying its `production_date`.
  * @param unscheduled Orders with no production date — the callout and every `+ Add order` list.
+ * @param pickups Placed pickups for the fetched range, each carrying its `pickup_date`.
+ * @param unscheduledPickups Pickups with no date — the header's undated callout.
  * @param weekStart Anchor week's Monday as `yyyy-MM-dd`.
  * @param customers Active customers for the new-PO form's dropdown.
  */
 export default function CalendarLayout({
   rows,
   unscheduled,
+  pickups,
+  unscheduledPickups,
   weekStart,
   customers,
 }: CalendarLayoutProps) {
   const shouldReduceMotion = Boolean(useReducedMotion())
-  const { stripRef, todayKey, goToCurrentWeek } = useWeekScroll(weekStart, shouldReduceMotion)
-  const weeks = useMemo(() => buildWeekGroups(weekStart), [weekStart])
   const rowsByDay = useMemo(() => groupRowsByDay(rows), [rows])
-  const {
-    place,
-    unschedule,
-    setSameDay,
-    setBackhaul,
-    selectedRow,
-    selectRow,
-    handlePick,
-    draggableRows,
-    closeDialog,
-  } = useCalendarActions(rows, unscheduled, rowsByDay)
-  const { newOrderDay, setNewOrderDay, closeNewOrder } = useNewOrderDay()
-  const armMode = useArmModeState(place, unschedule, shouldReduceMotion)
+  const pickupsByDay = useMemo(() => groupPickupsByDay(pickups), [pickups])
+  const visibility = useCalendarVisibilityState()
+  // One placement instance for the whole screen. Every gesture — drag, armed
+  // tap, day menu, popup — routes through its `group` discriminator, so the
+  // choice of table is made in exactly one place (CONSTRAINT-25).
+  const placement = useGroupedPlacement()
+  const orders = useCalendarActions(rows, unscheduled, rowsByDay, placement)
+  const pickupActions = usePickupCalendarActions(
+    pickups,
+    unscheduledPickups,
+    pickupsByDay,
+    placement,
+  )
+  const { newOrderDay, newPickupDay, starters, closeNewOrder, closeNewPickup } = useNewCardDay()
+  const armMode = useArmModeState(placement.place, placement.unschedule, shouldReduceMotion)
 
   return (
-    // 0.75rem is the `pt-3` AppShell puts above every authenticated route;
-    // subtracting it is what makes the screen exactly one viewport tall so the
-    // page itself never scrolls (CONSTRAINT-19). Same idiom as OrderLayout.
-    // `svh`, not `vh`: on iOS `100vh` is the *large* viewport (browser chrome
-    // hidden), so with the tab bar showing the page is toolbar-height too tall
-    // and needs one nudge of scroll before it settles. `svh` is the viewport
-    // with the chrome visible, which is the state the screen actually opens in.
     <div
       className="h-[calc(100svh-0.75rem)] overflow-hidden flex flex-col bg-app-bg"
       onClick={armMode.cancel}
     >
-      <CalendarDndContext rows={draggableRows} onPlace={place} onUnschedule={unschedule}>
+      <CalendarDndContext
+        rows={orders.draggableRows}
+        pickups={pickupActions.allPickups}
+        onPlace={placement.place}
+        onUnschedule={placement.unschedule}
+      >
         <ArmModeProvider value={armMode}>
-          <CardSelectionProvider value={selectRow}>
-            <NewOrderDayProvider value={setNewOrderDay}>
-              <CalendarHeader unscheduled={unscheduled} onCurrentWeek={goToCurrentWeek} />
-              <div
-                ref={stripRef}
-                data-testid="week-strip-scroll"
-                className="calendar-scroll calendar-scroll-strip flex-1 min-h-0 overflow-x-auto overflow-y-hidden pt-3"
-              >
-                <WeekStrip
-                  weeks={weeks}
+          <CardSelectionProvider value={orders.selectRow}>
+            <PickupVisibilityProvider value={visibility}>
+              <NewOrderDayProvider value={starters}>
+                <CalendarBoard
                   rowsByDay={rowsByDay}
-                  todayKey={todayKey}
+                  pickupsByDay={pickupsByDay}
                   unscheduled={unscheduled}
-                  onPick={handlePick}
+                  unscheduledPickups={unscheduledPickups}
+                  weekStart={weekStart}
+                  shouldReduceMotion={shouldReduceMotion}
+                  onPick={orders.handlePick}
+                  onPickPickup={pickupActions.handlePickPickup}
+                  onSelectPickup={pickupActions.selectPickup}
                 />
-              </div>
-            </NewOrderDayProvider>
+              </NewOrderDayProvider>
+            </PickupVisibilityProvider>
           </CardSelectionProvider>
         </ArmModeProvider>
       </CalendarDndContext>
 
-      <ProductionCardDialog
-        open={selectedRow !== null}
-        row={selectedRow}
-        onClose={closeDialog}
-        onToggleBackhaul={setBackhaul}
-        onToggleSameDay={setSameDay}
-        onRemove={unschedule}
-      />
-
-      <NewOrderDrawer
-        productionDate={newOrderDay}
+      <CalendarOverlays
+        selectedRow={orders.selectedRow}
+        onCloseRow={orders.closeDialog}
+        onToggleBackhaul={placement.setBackhaul}
+        onToggleSameDay={placement.setSameDay}
+        onRemoveRow={placement.unscheduleOrder}
+        selectedPickup={pickupActions.selectedPickup}
+        onClosePickup={pickupActions.closePickupDialog}
+        onRemovePickup={pickupActions.removeFromCalendar}
+        newOrderDay={newOrderDay}
+        newPickupDay={newPickupDay}
+        onCloseNewOrder={closeNewOrder}
+        onCloseNewPickup={closeNewPickup}
         customers={customers}
-        onClose={closeNewOrder}
       />
     </div>
   )

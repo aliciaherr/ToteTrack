@@ -75,17 +75,26 @@ export function totalPickupQuantity(values: PickupFormValues): number {
 /**
  * Seeds `PickupFormValues`. Edit mode: maps the `PickupDetail` row into the
  * form's field shape. Create mode: returns the blank defaults, optionally with
- * the customer pre-selected from a `?customerId=` deep link.
+ * the customer pre-selected from a `?customerId=` deep link and the date
+ * pre-filled from the calendar column whose `+ Add → Add Pickup` was clicked.
  * @param detail Existing pickup detail (edit mode), or null/undefined for a new pickup.
  * @param lockedCustomerId Customer id to pre-select in create mode.
+ * @param initialPickupDate `yyyy-MM-dd` to pre-fill in create mode. Ignored in
+ *   edit mode, where the stored date wins — a drawer opened on an existing
+ *   pickup must never silently move it.
  * @returns A fully-populated value set for `useForm`'s `defaultValues`.
  */
 export function detailToPickupFormValues(
   detail: PickupDetail | null | undefined,
   lockedCustomerId?: string | null,
+  initialPickupDate?: string | null,
 ): PickupFormValues {
   if (!detail) {
-    return { ...EMPTY_PICKUP_FORM_VALUES, customer_id: lockedCustomerId ?? '' }
+    return {
+      ...EMPTY_PICKUP_FORM_VALUES,
+      customer_id: lockedCustomerId ?? '',
+      pickup_date: initialPickupDate ?? '',
+    }
   }
   return {
     customer_id: detail.customer_id,

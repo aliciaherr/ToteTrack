@@ -2,45 +2,63 @@
 
 import { useCallback, useEffect } from 'react'
 import { format } from 'date-fns'
-import { formatProductionMix, productionMixText } from './productionCardFormat'
-import { useStartNewOrder } from './newOrderDay'
+import {
+  CreateAction,
+  UndatedGroup,
+  UndatedOrderRow,
+  UndatedPickupRow,
+} from './AddOrderMenuParts'
+import { useStartNewOrder, useStartNewPickup } from './newOrderDay'
 import { DB_DATE_FORMAT } from '@/lib/dates'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 interface AddOrderMenuProps {
   date: Date
   rows: CalendarOrderRow[]
+  /** Pickups with no date — the second undated list. */
+  pickups: CalendarPickupRow[]
   onPick: (orderId: string) => void
+  /** Receives the chosen pickup's id. */
+  onPickPickup: (pickupId: string) => void
   onClose: () => void
 }
 
 /**
- * The per-day `+ Add order` menu: one action that creates a brand-new PO on
- * this day, then the list of orders that already exist but have no date yet.
+ * The per-day `+ Add` menu: two actions that create a brand-new row on this
+ * day, then the lists of rows that already exist but have no date yet — orders
+ * and pickups, each labelled (CONSTRAINT-25).
  *
- * The list renders exactly the same unscheduled set as `UnscheduledCallout` —
- * both take `getUnscheduledOrders()` — so the two surfaces can never disagree
- * about which orders still need a date (CONSTRAINT-19). It exists because
- * dragging from the callout to a distant week is a long gesture; picking a day
- * and then an order is the keyboard- and touch-friendly path to the same
- * placement.
+ * The lists render exactly the same undated sets as the two header callouts —
+ * all four surfaces take the same two queries — so they can never disagree
+ * about what still needs a date. The menu exists because dragging from a
+ * callout to a distant week is a long gesture; picking a day and then a row is
+ * the keyboard- and touch-friendly path to the same placement.
  *
- * `Add Purchase Order` sits above the list, separated, because it is a
- * different kind of act — it writes a new row rather than dating an existing
- * one — and because it is the only entry that stays useful when the list is
- * empty, which is the steady state once everything has been scheduled.
+ * A group is drawn only when it has rows. Two permanent headings over two
+ * "nothing here" lines would spend most of a 176px column's menu on labels for
+ * empty space; with both sets empty the menu falls back to one message and
+ * keeps its two create actions, which are still useful.
  *
- * Rows are plain buttons rather than `ProductionCard`s: at 176px the column is
- * too narrow for a card-in-a-menu, and the choice here is "which order", for
- * which the PO number and mix are enough.
- *
- * @param date The day a picked order will be placed on, and the new PO's build day.
+ * @param date The day a picked row will be placed on, and the new row's date.
  * @param rows Orders with no production date.
+ * @param pickups Pickups with no date.
  * @param onPick Receives the chosen order's id.
+ * @param onPickPickup Receives the chosen pickup's id.
  * @param onClose Dismisses the menu.
  */
-export default function AddOrderMenu({ date, rows, onPick, onClose }: AddOrderMenuProps) {
+export default function AddOrderMenu({
+  date,
+  rows,
+  pickups,
+  onPick,
+  onPickPickup,
+  onClose,
+}: AddOrderMenuProps) {
   const startNewOrder = useStartNewOrder()
+  const startNewPickup = useStartNewPickup()
+  const dateKey = format(date, DB_DATE_FORMAT)
+  const isEmpty = rows.length === 0 && pickups.length === 0
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -50,52 +68,50 @@ export default function AddOrderMenu({ date, rows, onPick, onClose }: AddOrderMe
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  // Dismiss before opening the drawer: the menu is anchored to a column that
-  // the drawer covers, and leaving it mounted would strand an open menu behind
-  // the form.
+  // Dismiss before opening a drawer: the menu is anchored to a column that the
+  // drawer covers, and leaving it mounted would strand an open menu behind the
+  // form.
   const handleNewOrder = useCallback(() => {
     onClose()
-    startNewOrder(format(date, DB_DATE_FORMAT))
-  }, [onClose, startNewOrder, date])
+    startNewOrder(dateKey)
+  }, [onClose, startNewOrder, dateKey])
+
+  const handleNewPickup = useCallback(() => {
+    onClose()
+    startNewPickup(dateKey)
+  }, [onClose, startNewPickup, dateKey])
 
   return (
     <div
       data-testid="add-order-menu"
       role="menu"
-      aria-label={`Add an order to ${format(date, 'EEEE, MMMM d')}`}
+      aria-label={`Add to ${format(date, 'EEEE, MMMM d')}`}
       className="calendar-scroll absolute bottom-full left-0 right-0 mb-1 z-30 max-h-64 overflow-y-auto rounded-lg bg-card border border-border shadow-lg py-1"
     >
-      <button
-        type="button"
-        role="menuitem"
-        onClick={handleNewOrder}
-        className="w-full text-left px-3 py-2 min-h-[44px] text-sm font-medium text-primary hover:bg-muted focus-visible:outline-none focus-visible:bg-muted"
-      >
-        Add Purchase Order
-      </button>
+      <CreateAction label="Add Purchase Order" onClick={handleNewOrder} />
+      <CreateAction label="Add Pickup" onClick={handleNewPickup} />
       <div role="separator" className="my-1 border-t border-border" />
 
-      {rows.length === 0 ? (
+      {isEmpty && (
         <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-          Nothing to add — every order has a date.
+          Nothing to add — everything has a date.
         </p>
-      ) : (
-        rows.map((row) => (
-          <button
-            key={row.id}
-            type="button"
-            role="menuitem"
-            onClick={() => onPick(row.id)}
-            className="w-full text-left px-3 py-2 min-h-[44px] hover:bg-muted focus-visible:outline-none focus-visible:bg-muted"
-          >
-            <span className="block text-sm font-medium text-foreground truncate">
-              {row.po_number}
-            </span>
-            <span className="block text-xs text-muted-foreground truncate">
-              {row.customer_name ?? 'Unknown customer'} · {productionMixText(formatProductionMix(row))}
-            </span>
-          </button>
-        ))
+      )}
+
+      {rows.length > 0 && (
+        <UndatedGroup label="Undated orders">
+          {rows.map((row) => (
+            <UndatedOrderRow key={row.id} row={row} onPick={onPick} />
+          ))}
+        </UndatedGroup>
+      )}
+
+      {pickups.length > 0 && (
+        <UndatedGroup label="Undated pickups">
+          {pickups.map((pickup) => (
+            <UndatedPickupRow key={pickup.id} pickup={pickup} onPick={onPickPickup} />
+          ))}
+        </UndatedGroup>
       )}
     </div>
   )

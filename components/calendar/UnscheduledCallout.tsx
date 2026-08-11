@@ -17,7 +17,11 @@ interface UnscheduledCalloutProps {
   rows: CalendarOrderRow[]
 }
 
-const DROP_DATA: CalloutDropData = { type: 'callout' }
+// `group` is what stops the pickups pill next door from being a legal
+// destination for an order card (CONSTRAINT-25): the two pills sit side by side
+// in one header, and without it a mis-aimed drop would unschedule across
+// entities.
+const DROP_DATA: CalloutDropData = { type: 'callout', group: 'order' }
 
 // Gap between dropdown cards, in rem, matching the day columns' `space-y-2`.
 const CARD_GAP_REM = 0.5
@@ -142,9 +146,12 @@ export default function UnscheduledCallout({ rows }: UnscheduledCalloutProps) {
   // While a card is armed (Task 68), the pill is a placement target — tapping
   // it unschedules the armed card, the tap counterpart of drag-onto-callout —
   // and must not also toggle the dropdown under the salesperson's finger.
+  // `group: 'order'` is not decoration: an armed *pickup* tapped on this pill
+  // resolves to `cancel` and writes nothing, so the two pills sitting side by
+  // side in one header cannot unschedule across entities (CONSTRAINT-25).
   const toggle = useCallback(() => {
     if (armed !== null) {
-      tap({ type: 'callout' })
+      tap({ type: 'callout', group: 'order' })
       return
     }
     setIsExpanded((current) => !current)

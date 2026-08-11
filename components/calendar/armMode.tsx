@@ -7,7 +7,7 @@ import {
   type ArmedCard,
   type TapTarget,
 } from './armPlacement'
-import type { DropTarget } from './calendarDnd'
+import type { DropTarget, UnscheduleTarget } from './calendarDnd'
 
 export interface ArmModeValue {
   /** The long-pressed card awaiting a destination tap, or null. */
@@ -59,13 +59,19 @@ export function useArmMode(): ArmModeValue {
  * refreshed server data moves it — unless reduced motion is on, in which case
  * the card simply appears in place.
  *
- * @param place The drag path's placement mutation, from `useProductionPlacement`.
+ * **Dispatch is by group and nothing else.** Both callbacks take a target that
+ * carries its own `group`, so this hook never chooses between an order and a
+ * pickup mutation — `useGroupedPlacement` does, from the same discriminator the
+ * drag path uses (CONSTRAINT-25). A cross-group tap never reaches either
+ * callback: `resolveTapAction` has already turned it into `cancel`.
+ *
+ * @param place The drag path's placement mutation, from `useGroupedPlacement`.
  * @param unschedule The drag path's clear mutation, same source.
  * @param shouldReduceMotion Disables the fly animation, not the arm state.
  */
 export function useArmModeState(
   place: (target: DropTarget) => void,
-  unschedule: (orderId: string) => void,
+  unschedule: (target: UnscheduleTarget) => void,
   shouldReduceMotion: boolean,
 ): ArmModeValue {
   const [armed, setArmed] = useState<ArmedCard | null>(null)
@@ -83,10 +89,10 @@ export function useArmModeState(
   const cancel = useCallback(() => setArmed(null), [])
 
   const beginFlight = useCallback(
-    (orderId: string) => {
+    (cardId: string) => {
       if (shouldReduceMotion) return
       if (flyTimerRef.current !== null) clearTimeout(flyTimerRef.current)
-      setFlyingId(orderId)
+      setFlyingId(cardId)
       flyTimerRef.current = setTimeout(() => {
         flyTimerRef.current = null
         setFlyingId(null)
@@ -103,10 +109,10 @@ export function useArmModeState(
       const action = resolveTapAction(armed, target)
       if (action.kind === 'cancel') return
       if (action.kind === 'unschedule') {
-        unschedule(action.orderId)
+        unschedule(action.target)
         return
       }
-      beginFlight(action.target.orderId)
+      beginFlight(action.target.cardId)
       place(action.target)
     },
     [armed, place, unschedule, beginFlight],

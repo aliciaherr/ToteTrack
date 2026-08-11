@@ -18,7 +18,9 @@ type ActionResult = { success: true } | { error: string }
 const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
 
 /**
- * Runs a calendar mutation and reports the outcome, the same way for all three.
+ * Runs a calendar mutation and reports the outcome, the same way for all of
+ * them — orders and pickups alike (`calendarLayoutHooks` reuses it, so both
+ * groups fail identically rather than growing two error conventions).
  *
  * There is no optimistic move (CONSTRAINT-02). Cards are drawn from server
  * data, so a rejected mutation leaves everything exactly where it started with
@@ -31,7 +33,7 @@ const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
  * the column a card renders in identical to the column the database filtered it
  * into (CONSTRAINT-19).
  */
-function useCalendarMutation() {
+export function useCalendarMutation() {
   const router = useRouter()
   const { toast } = useToast()
   const [, startTransition] = useTransition()
@@ -73,8 +75,8 @@ export function useProductionPlacement() {
   const { run } = useCalendarMutation()
 
   const place = useCallback(
-    ({ orderId, dateKey, index }: DropTarget) =>
-      run(() => setProductionPlacement(orderId, { productionDate: dateKey, sortIndex: index })),
+    ({ cardId, dateKey, index }: DropTarget) =>
+      run(() => setProductionPlacement(cardId, { productionDate: dateKey, sortIndex: index })),
     [run],
   )
 

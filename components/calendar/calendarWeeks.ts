@@ -2,6 +2,7 @@ import { addWeeks, format, subWeeks } from 'date-fns'
 import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
 import { DB_DATE_FORMAT, businessWeekDays, parseDbDate } from '@/lib/dates'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 /** `date-fns` token for a day header's weekday abbreviation, e.g. `Mon`. */
 export const WEEKDAY_FORMAT = 'EEE'
@@ -102,6 +103,39 @@ export function groupRowsByDay(rows: CalendarOrderRow[]): Map<string, CalendarOr
 
   for (const bucket of byDay.values()) {
     bucket.sort(byColumnPosition)
+  }
+
+  return byDay
+}
+
+/**
+ * Buckets calendar pickups into their day columns, keyed by `yyyy-MM-dd`.
+ *
+ * Keys come straight from `pickup_date`, which **is** the placement
+ * (CONSTRAINT-25) — there is no second date to fall back on. Pickups with no
+ * date are unscheduled and are dropped; they belong to the callout.
+ *
+ * Deliberately **not** re-sorted here, unlike `groupRowsByDay`. The order comes
+ * from `getCalendarPickups`' ORDER BY (`sort_index ASC NULLS LAST`, then
+ * `created_at`), and a pickup carries no PO number for a client-side comparator
+ * to tiebreak on — so a second ordering implementation could only disagree with
+ * the first. Bucketing preserves the array order it is given.
+ */
+export function groupPickupsByDay(
+  pickups: CalendarPickupRow[],
+): Map<string, CalendarPickupRow[]> {
+  const byDay = new Map<string, CalendarPickupRow[]>()
+
+  for (const pickup of pickups) {
+    const dayKey = pickup.pickup_date
+    if (dayKey === null) continue
+
+    const bucket = byDay.get(dayKey)
+    if (bucket) {
+      bucket.push(pickup)
+    } else {
+      byDay.set(dayKey, [pickup])
+    }
   }
 
   return byDay

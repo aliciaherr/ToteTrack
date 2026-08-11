@@ -18,6 +18,8 @@ interface PickupFormOptions {
   mode: 'create' | 'edit'
   initialDetail?: PickupDetail | null
   lockedCustomerId: string | null
+  /** `yyyy-MM-dd` pre-filled into the date field in create mode. */
+  initialPickupDate?: string | null
   onSaved: () => void
 }
 
@@ -94,7 +96,7 @@ function makeSubmitHandler(deps: SubmitDeps) {
  *   cross-field quantity rule) and whether the form is in edit mode.
  */
 export function usePickupForm(options: PickupFormOptions) {
-  const { mode, initialDetail, lockedCustomerId, onSaved } = options
+  const { mode, initialDetail, lockedCustomerId, initialPickupDate, onSaved } = options
   const { toast } = useToast()
   const [serverError, setServerError] = useState<string | null>(null)
   const [qtyError, setQtyError] = useState<string | null>(null)
@@ -102,7 +104,7 @@ export function usePickupForm(options: PickupFormOptions) {
   const pickupId = initialDetail?.id ?? null
 
   const form = useForm<PickupFormValues>({
-    defaultValues: detailToPickupFormValues(initialDetail, lockedCustomerId),
+    defaultValues: detailToPickupFormValues(initialDetail, lockedCustomerId, initialPickupDate),
     mode: 'onSubmit',
   })
 

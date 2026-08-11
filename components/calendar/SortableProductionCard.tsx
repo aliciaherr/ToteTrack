@@ -2,6 +2,7 @@
 
 import { useSortable } from '@dnd-kit/sortable'
 import { motion } from 'framer-motion'
+import DropPlaceholder from './DropPlaceholder'
 import ProductionCard from './ProductionCard'
 import { isBuiltStatus } from './productionCardStatus'
 import { toTranslate, type CardDragData } from './calendarDnd'
@@ -14,29 +15,6 @@ interface SortableProductionCardProps {
   row: CalendarOrderRow
   dateKey: string
   index: number
-}
-
-/**
- * Where the card will land if released now.
- *
- * The dragged card's own slot is the one the sortable strategy moves to the
- * insertion point, so replacing its contents with an accent outline turns that
- * slot into a live drop indicator that tracks the cursor. The card itself is
- * still visible — `DragOverlay` renders a clone following the pointer — so
- * nothing disappears; the original just stops pretending to be in its old place.
- *
- * Without this the source card sat faded in its original position while the
- * gap opened elsewhere, which is what made drops feel like guesswork.
- */
-function DropPlaceholder() {
-  return (
-    <div
-      data-testid="drop-placeholder"
-      aria-hidden="true"
-      className="rounded-md border-2 border-dashed border-primary bg-primary/5"
-      style={{ height: 'var(--card-h)' }}
-    />
-  )
 }
 
 /**
@@ -71,14 +49,20 @@ function CardFace({ row, isArmed, isFlying }: { row: CalendarOrderRow; isArmed: 
  * sortable to a screen reader. The same `isBuilt` disables arming — a card
  * that cannot be dragged cannot be armed, mirroring the server's block list.
  *
+ * Every payload it emits — drag data, the armed card, the tap target — carries
+ * `group: 'order'` (CONSTRAINT-25). That is what keeps this card out of the
+ * pickups list: collision detection never offers it a pickup slot, and the drop
+ * and tap resolvers refuse one if it somehow arrives.
+ *
  * The wrapper is also the tap target, with two meanings (Task 68):
  * - **Nothing armed:** a click opens the card popup. On mouse/pen, a press
  *   that travels less than `POINTER_ACTIVATION_DISTANCE_PX` never activates
  *   the drag sensor, so the click lands here. On touch, a still-finger
  *   long-press arms the card instead (`useLongPressArm`).
  * - **A card armed:** the click routes to `armMode.tap` — insert at this
- *   card's position, or cancel if this card *is* the armed one — and the
- *   popup stays shut.
+ *   card's position, or cancel if this card *is* the armed one, or cancel
+ *   because the armed card is a pickup and this is not — and the popup stays
+ *   shut.
  */
 export default function SortableProductionCard({
   row,
@@ -88,8 +72,14 @@ export default function SortableProductionCard({
   const isBuilt = isBuiltStatus(row.status)
   const selectCard = useSelectCard()
   const { armed, flyingId, arm, tap } = useArmMode()
-  const pressHandlers = useLongPressArm(() => arm({ row, dateKey, index }), isBuilt)
-  const dragData: CardDragData = { type: 'card', dateKey, index }
+  const pressHandlers = useLongPressArm(
+    () => arm({ group: 'order', row, dateKey, index }),
+    isBuilt,
+  )
+  const dragData: CardDragData = { type: 'card', group: 'order', dateKey, index }
+  // The group is part of the comparison, not decoration: an armed pickup must
+  // never make an order card render its armed ring.
+  const isArmed = armed?.group === 'order' && armed.row.id === row.id
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     // `draggable` and `droppable` are disabled separately on purpose. A bare
@@ -104,7 +94,7 @@ export default function SortableProductionCard({
 
   const handleClick = () => {
     if (armed !== null) {
-      tap({ type: 'card', orderId: row.id, dateKey, index })
+      tap({ type: 'card', group: 'order', cardId: row.id, dateKey, index })
       return
     }
     selectCard(row)
@@ -123,7 +113,7 @@ export default function SortableProductionCard({
       {isDragging ? (
         <DropPlaceholder />
       ) : (
-        <CardFace row={row} isArmed={armed?.row.id === row.id} isFlying={flyingId === row.id} />
+        <CardFace row={row} isArmed={isArmed} isFlying={flyingId === row.id} />
       )}
     </div>
   )

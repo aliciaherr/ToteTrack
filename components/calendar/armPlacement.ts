@@ -1,5 +1,11 @@
-import { UNSCHEDULED_ORIGIN, type DropTarget } from './calendarDnd'
+import {
+  UNSCHEDULED_ORIGIN,
+  type CardGroup,
+  type DropTarget,
+  type UnscheduleTarget,
+} from './calendarDnd'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 /**
  * Still-finger duration before a touch press arms a card. Longer than the old
@@ -26,35 +32,41 @@ export const ARM_MOVE_TOLERANCE_PX = 15
  */
 export const FLY_RESET_MS = 1500
 
-/** The card currently armed by a long-press, with its origin position. */
-export interface ArmedCard {
-  row: CalendarOrderRow
-  /** Column the card sits in, or `UNSCHEDULED_ORIGIN` for the callout dropdown. */
-  dateKey: string
-  /** Rendered position within that column. */
-  index: number
-}
+/**
+ * The card currently armed by a long-press, with its origin position.
+ *
+ * A tagged union rather than one shape with a widened `row`, so the group and
+ * the row type can never disagree: an armed pickup carries a
+ * `CalendarPickupRow` and nothing else (CONSTRAINT-25).
+ */
+export type ArmedCard =
+  | { group: 'order'; row: CalendarOrderRow; dateKey: string; index: number }
+  | { group: 'pickup'; row: CalendarPickupRow; dateKey: string; index: number }
 
 /** A tap on a card while another card is armed. */
 export interface CardTapTarget {
   type: 'card'
-  orderId: string
+  /** The tapped card's list. A tap from the other group never places. */
+  group: CardGroup
+  cardId: string
   dateKey: string
   /** The tapped card's rendered position — pre-removal, unlike a drag's. */
   index: number
 }
 
-/** A tap on a day column's empty space while a card is armed. */
+/** A tap on one of a day column's two list areas while a card is armed. */
 export interface ColumnTapTarget {
   type: 'column'
+  group: CardGroup
   dateKey: string
-  /** Cards currently rendered in the column, including the armed card if it lives there. */
+  /** Cards currently rendered in that list, including the armed card if it lives there. */
   cardCount: number
 }
 
-/** A tap on the unscheduled callout while a card is armed. */
+/** A tap on an unscheduled callout while a card is armed. */
 export interface CalloutTapTarget {
   type: 'callout'
+  group: CardGroup
 }
 
 export type TapTarget = CardTapTarget | ColumnTapTarget | CalloutTapTarget
@@ -62,18 +74,22 @@ export type TapTarget = CardTapTarget | ColumnTapTarget | CalloutTapTarget
 /** What a resolved tap should do. `cancel` disarms without writing. */
 export type TapAction =
   | { kind: 'place'; target: DropTarget }
-  | { kind: 'unschedule'; orderId: string }
+  | { kind: 'unschedule'; target: UnscheduleTarget }
   | { kind: 'cancel' }
 
 /**
  * Insertion index for a tap on a card, in the server's terms.
  *
- * `setProductionPlacement` stores the index it is given, and the drag path
- * feeds it dnd-kit's displayed index — which counts positions *with the moved
- * card already lifted out*. A tap has no lift, so the tapped card's rendered
- * index counts the armed card too; when both share a column and the armed card
- * sits above the tap, the rendered index is one higher than the insertion the
+ * The placement actions store the index they are given, and the drag path feeds
+ * them dnd-kit's displayed index — which counts positions *with the moved card
+ * already lifted out*. A tap has no lift, so the tapped card's rendered index
+ * counts the armed card too; when both share a column and the armed card sits
+ * above the tap, the rendered index is one higher than the insertion the
  * salesperson aimed at ("the armed card takes the tapped card's place").
+ *
+ * Same-column is decided on `dateKey` alone because the cross-group case is
+ * already gone by the time this runs — `resolveTapAction` rejects it first, so
+ * two lists that share a `dateKey` can never be compared against each other.
  */
 function insertionIndex(armed: ArmedCard, target: CardTapTarget): number {
   const sameColumn = target.dateKey === armed.dateKey
@@ -81,8 +97,8 @@ function insertionIndex(armed: ArmedCard, target: CardTapTarget): number {
 }
 
 function resolveCardTap(armed: ArmedCard, target: CardTapTarget): TapAction {
-  if (target.orderId === armed.row.id) return { kind: 'cancel' }
-  // A card inside the callout dropdown is not a position to insert at — the
+  if (target.cardId === armed.row.id) return { kind: 'cancel' }
+  // A card inside a callout dropdown is not a position to insert at — the
   // dropdown has no calendar order. Tapping one means "into the unscheduled
   // list", the same statement as tapping the callout itself.
   if (target.dateKey === UNSCHEDULED_ORIGIN) return resolveCalloutTap(armed)
@@ -92,29 +108,30 @@ function resolveCardTap(armed: ArmedCard, target: CardTapTarget): TapAction {
 
   return {
     kind: 'place',
-    target: { orderId: armed.row.id, dateKey: target.dateKey, index },
+    target: { group: armed.group, cardId: armed.row.id, dateKey: target.dateKey, index },
   }
 }
 
 function resolveColumnTap(armed: ArmedCard, target: ColumnTapTarget): TapAction {
-  // Appending within the card's own column: the rendered count includes the
-  // armed card, so last place is `cardCount - 1` — and if it is already there,
-  // the tap changes nothing and must not burn a write.
+  // Appending within the card's own list: the rendered count includes the armed
+  // card, so last place is `cardCount - 1` — and if it is already there, the tap
+  // changes nothing and must not burn a write. The count is this group's list
+  // only, so a column holding four orders and one pickup never mixes the two.
   const sameColumn = target.dateKey === armed.dateKey
   const index = sameColumn ? target.cardCount - 1 : target.cardCount
   if (sameColumn && index === armed.index) return { kind: 'cancel' }
 
   return {
     kind: 'place',
-    target: { orderId: armed.row.id, dateKey: target.dateKey, index },
+    target: { group: armed.group, cardId: armed.row.id, dateKey: target.dateKey, index },
   }
 }
 
 function resolveCalloutTap(armed: ArmedCard): TapAction {
   // Already unscheduled — nothing to clear, and firing the mutation would burn
-  // a write to set two nulls to null. Mirrors `resolveUnscheduleTarget`.
+  // a write to set nulls to null. Mirrors `resolveUnscheduleTarget`.
   if (armed.dateKey === UNSCHEDULED_ORIGIN) return { kind: 'cancel' }
-  return { kind: 'unschedule', orderId: armed.row.id }
+  return { kind: 'unschedule', target: { group: armed.group, cardId: armed.row.id } }
 }
 
 /**
@@ -124,8 +141,17 @@ function resolveCalloutTap(armed: ArmedCard): TapAction {
  * silent no-ops, an unscheduled card cannot be re-unscheduled, and a `place`
  * carries the same post-removal insertion index a drag would have produced —
  * the server cannot tell the two gestures apart.
+ *
+ * **The group is checked first and is absolute** (CONSTRAINT-25). An armed
+ * pickup ignores every order target and vice versa, whether that target is a
+ * card, a list's empty space or a callout pill. `cancel` rather than a
+ * silently-ignored tap, because the same outcome already exists: an unclaimed
+ * tap bubbles to the calendar root and disarms, so a cross-group tap behaving
+ * any other way would be the odd one out.
  */
 export function resolveTapAction(armed: ArmedCard, target: TapTarget): TapAction {
+  if (target.group !== armed.group) return { kind: 'cancel' }
+
   switch (target.type) {
     case 'card':
       return resolveCardTap(armed, target)

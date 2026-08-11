@@ -14,6 +14,12 @@ interface PickupFormProps {
   initialDetail?: PickupDetail | null
   customers: CustomerSelectOption[]
   lockedCustomerId: string | null
+  /**
+   * `yyyy-MM-dd` pre-filled into the date field in create mode — the calendar
+   * column whose `+ Add → Add Pickup` opened this form. Visible and editable,
+   * because a pickup's date *is* its calendar placement (CONSTRAINT-25).
+   */
+  initialPickupDate?: string | null
   onClose: () => void
   onSaved: () => void
 }
@@ -103,6 +109,7 @@ export default function PickupForm({
   initialDetail,
   customers,
   lockedCustomerId,
+  initialPickupDate,
   onClose,
   onSaved,
 }: PickupFormProps) {
@@ -111,6 +118,7 @@ export default function PickupForm({
     mode,
     initialDetail,
     lockedCustomerId,
+    initialPickupDate,
     onSaved,
   })
   const title = isEdit ? 'Edit Pickup' : 'New Pickup'

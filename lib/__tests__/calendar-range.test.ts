@@ -53,6 +53,16 @@ describe('parseCalendarWeek', () => {
     expect(iso(parseCalendarWeek(malformed, asDate(WEDNESDAY)))).toBe(MONDAY)
   })
 
+  it('ignores a repeated ?week= param, which Next delivers as an array', () => {
+    // SEC-02 / finding T78-L01: the shape check runs before any string method,
+    // so `['2026-07-27', 'garbage']` falls back instead of throwing on `.test`
+    // of a non-string — or worse, matching on the joined `"a,b"` form.
+    const OTHER_WEEK = '2026-08-24'
+    expect(iso(parseCalendarWeek([OTHER_WEEK], asDate(WEDNESDAY)))).toBe(MONDAY)
+    expect(iso(parseCalendarWeek([OTHER_WEEK, 'garbage'], asDate(WEDNESDAY)))).toBe(MONDAY)
+    expect(iso(parseCalendarWeek([], asDate(WEDNESDAY)))).toBe(MONDAY)
+  })
+
   it('never returns a weekend, whatever it is given', () => {
     const inputs = [MONDAY, WEDNESDAY, SATURDAY, SUNDAY, 'garbage', undefined]
     for (const input of inputs) {

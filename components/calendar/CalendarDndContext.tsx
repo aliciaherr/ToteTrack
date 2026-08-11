@@ -6,7 +6,6 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
-  closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -15,15 +14,18 @@ import {
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { useReducedMotion } from 'framer-motion'
-import ProductionCard from './ProductionCard'
+import DragOverlayCard, { findActiveCard, type ActiveCard } from './CalendarDragOverlay'
+import { groupedCollisionDetection } from './calendarCollision'
 import {
   AUTO_SCROLL_EDGE_RATIO,
   POINTER_ACTIVATION_DISTANCE_PX,
   resolveDropTarget,
   resolveUnscheduleTarget,
   type DropTarget,
+  type UnscheduleTarget,
 } from './calendarDnd'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
+import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 /**
  * `PointerSensor` that ignores touch pointers. On touch devices dragging is
@@ -51,12 +53,14 @@ class MouseAndPenPointerSensor extends PointerSensor {
 
 interface CalendarDndContextProps {
   children: React.ReactNode
-  /** Every card currently on the calendar, for resolving the drag overlay. */
+  /** Every draggable order card on screen, for resolving the drag overlay. */
   rows: CalendarOrderRow[]
+  /** Every draggable pickup card on screen, resolved the same way. */
+  pickups: CalendarPickupRow[]
   /** Persists a resolved placement. Called only for real moves. */
   onPlace: (target: DropTarget) => void
-  /** Clears a placement when a card is dropped on the unscheduled callout. */
-  onUnschedule: (orderId: string) => void
+  /** Clears a placement when a card is dropped on its own group's callout. */
+  onUnschedule: (target: UnscheduleTarget) => void
 }
 
 /** The two drag sensors. Touch is deliberately absent — see the class above. */
@@ -84,17 +88,23 @@ function useCalendarSensors() {
  * interaction is long-press-to-arm + tap-to-place — see `armMode.tsx` and
  * `useLongPressArm.ts` (Task 68).
  *
- * Collision detection is `closestCenter`: cards are uniform and stacked, so the
- * nearest centre is the position the salesperson visually aimed at.
+ * Collision detection is `groupedCollisionDetection`: `closestCenter` — cards
+ * are uniform and stacked, so the nearest centre is the position the
+ * salesperson visually aimed at — restricted to droppables in the dragged
+ * card's own group. Filtering the candidates *before* the algorithm runs is
+ * what stops a drag **preview** opening a slot the drop would refuse
+ * (CONSTRAINT-25); rejecting only at drop time would let the pickups list part
+ * for an order card and then snap shut with no explanation.
  */
 export default function CalendarDndContext({
   children,
   rows,
+  pickups,
   onPlace,
   onUnschedule,
 }: CalendarDndContextProps) {
   const shouldReduceMotion = Boolean(useReducedMotion())
-  const [activeRow, setActiveRow] = useState<CalendarOrderRow | null>(null)
+  const [activeCard, setActiveCard] = useState<ActiveCard | null>(null)
   const sensors = useCalendarSensors()
 
   const autoScroll = useMemo(
@@ -103,21 +113,21 @@ export default function CalendarDndContext({
   )
 
   const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      setActiveRow(rows.find((row) => row.id === event.active.id) ?? null)
-    },
-    [rows],
+    (event: DragStartEvent) => setActiveCard(findActiveCard(event, rows, pickups)),
+    [rows, pickups],
   )
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      setActiveRow(null)
+      setActiveCard(null)
 
       // The callout is checked first: it is a drop target that means "remove
       // the placement", not "place here", and it carries no date to resolve.
-      const unscheduleId = resolveUnscheduleTarget(event)
-      if (unscheduleId !== null) {
-        onUnschedule(unscheduleId)
+      // Both resolvers refuse a cross-group event on their own, so neither
+      // branch can route a card into the other group's mutation.
+      const unscheduleTarget = resolveUnscheduleTarget(event)
+      if (unscheduleTarget !== null) {
+        onUnschedule(unscheduleTarget)
         return
       }
 
@@ -128,12 +138,12 @@ export default function CalendarDndContext({
     [onPlace, onUnschedule],
   )
 
-  const handleDragCancel = useCallback(() => setActiveRow(null), [])
+  const handleDragCancel = useCallback(() => setActiveCard(null), [])
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={groupedCollisionDetection}
       autoScroll={autoScroll}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
@@ -141,7 +151,7 @@ export default function CalendarDndContext({
     >
       {children}
       <DragOverlay dropAnimation={shouldReduceMotion ? null : undefined}>
-        {activeRow ? <ProductionCard row={activeRow} isDragging /> : null}
+        {activeCard ? <DragOverlayCard card={activeCard} /> : null}
       </DragOverlay>
     </DndContext>
   )

@@ -2689,13 +2689,13 @@ Read and status-write only. Dates are still set from the Pickups tab, so the app
 - Tests: `components/calendar/__tests__/PickupCard.test.tsx`, `PickupCardDialog.test.tsx`, `pickupVisibility.test.tsx` — create; `CalendarLayout.test.tsx` — modify
 
 **Acceptance criteria:**
-- [ ] Two independent toggles in the calendar header; **Orders on, Pickups off** by default; the state resets on every visit — nothing is persisted (CONSTRAINT-25)
-- [ ] Pickups render as a second list below the orders list in each day column, each list independently ordered
-- [ ] Both toggles off shows an empty-state message, not a blank grid
-- [ ] The pickup card is amber-surfaced with plain dark text (`12 × 275, 4 × 330`), **not** the green/blue combo language, and keeps `height: var(--card-h)` so the four-card math holds
-- [ ] Completed pickups are greyed and locked (`BUILT_SURFACE_CLASS`); cancelled ones are hidden
-- [ ] The popup offers the Contact menu (reusing `ContactMenu` unchanged) plus Mark Complete, Cancel, and Remove from calendar (which clears `pickup_date`)
-- [ ] The page still never scrolls; each list scrolls inside its column (CONSTRAINT-19)
+- [x] Two independent toggles in the calendar header; **Orders on, Pickups off** by default; the state resets on every visit — nothing is persisted (CONSTRAINT-25)
+- [x] Pickups render as a second list below the orders list in each day column, each list independently ordered
+- [x] Both toggles off shows an empty-state message, not a blank grid
+- [x] The pickup card is amber-surfaced with plain dark text (`12 × 275, 4 × 330`), **not** the green/blue combo language, and keeps `height: var(--card-h)` so the four-card math holds
+- [x] Completed pickups are greyed and locked (`BUILT_SURFACE_CLASS`); cancelled ones are hidden
+- [x] The popup offers the Contact menu (reusing `ContactMenu` unchanged) plus Mark Complete, Cancel, and Remove from calendar (which clears `pickup_date`)
+- [x] The page still never scrolls; each list scrolls inside its column (CONSTRAINT-19)
 - [ ] **iPad-verified** — two lists at real card height on the device, not in jsdom
 
 **Tests required:**
@@ -2703,7 +2703,7 @@ Read and status-write only. Dates are still set from the Pickups tab, so the app
 - `pickupVisibility` → `test: defaults to orders-on and pickups-off`
 - `CalendarLayout` → `test: toggling pickups on renders pickup cards in the right column`
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-10 — `db/queries/pickups.calendar.ts` plus seven new `components/calendar/*` files and four new test files; 1110 tests / 98 files (was 1055 / 94), `tsc` clean, all prior calendar, dnd and arm-mode tests green with the four-card height math, `--card-h` and the `overflow-hidden` root untouched. Read and status-write only, as specified — dates are still set from the Pickups tab until Task 81. **Three split files beyond the Files list, forced by CQ-01/CQ-02** and following the same `*Parts` idiom as Tasks 78/79: `CalendarHeader.tsx` (header + toggles), `CalendarBoard.tsx` (`CalendarLayout` had reached 98 lines against CONSTRAINT-14's 80-line allowance) and `ColumnPickupList.tsx` (`DayColumnParts` had reached 209 lines). **`UnscheduledCallout.tsx` was left unchanged and a sibling `UnscheduledPickupsCallout` added instead** — folding both pills into one component would breach CQ-02 and entangle the orders drop target with a group that has no drop handling until Task 81; the new pill renders only while the Pickups toggle is on. **"Remove from calendar" reuses the existing audited `updatePickup` with `pickup_date: null`** rather than inventing a mutation path; the cost is documented at the call site — it resends the whole editable row (last-write-wins against a concurrent Pickups-tab edit) and does not clear `sort_index` — and **Task 81's `clearPickupPlacement` supersedes it**. The popup reuses `PickupStatusBlock` unchanged, so it also offers Reopen on a completed pickup (one audited transition map, mirroring the order popup's reuse of `OrderStatusActions`). Security: `parseCalendarWeek` now takes `string | string[]` and shape-checks with `typeof value === 'string'` before any string method, closing the T78-L01 array class for this page (array-param test added); nothing raw from `searchParams` reaches the new query module — only derived `yyyy-MM-dd` bounds, bound as Drizzle params. **The iPad-verified criterion remains open — it blocks nothing, but the builder must check it on the device**, since jsdom has no layout engine: (1) both lists on in one column at 1024×768 landscape — each is `flex-1 min-h-0`, so they split the column in half, roughly two cards each; confirm that is legible and the page still does not scroll; (2) header crowding — with Pickups on the header holds title + two 44px toggles + two callout pills + Current week, and a wrapped header steals the height the four-card math depends on; (3) 44px touch targets on the toggles and the undated pill, asserted here only as class strings; (4) the amber card reading as clearly distinct from an order card at the 80px card floor. See `docs/session-log.md`.
 
 **Depends on:** Task 77 (Task 78 is not required, though it ships first in practice)
 
@@ -2722,12 +2722,12 @@ The highest-risk task in the feature. Every drag and tap payload gains a `group`
 - Tests: `CalendarDnd.test.tsx`, `armPlacement.test.ts`, `armMode.test.tsx`, `UnscheduledCallout.test.tsx`, `CalendarLayout.test.tsx` — modify; `lib/actions/__tests__/pickups.calendar.test.ts` — create
 
 **Acceptance criteria:**
-- [ ] An order card cannot be dropped into the pickup list or the reverse — and the drag **preview** never opens a slot the drop will refuse
-- [ ] Reordering within a group writes that group's `sort_index` only
-- [ ] Dragging a pickup onto a day writes `pickup_date`; dragging it to the unscheduled callout clears it
-- [ ] Long-press arm mode obeys the same group rule, including the same-column `index - 1` correction
-- [ ] Each day's "+" offers Add Purchase Order and Add Pickup, and lists undated rows of both kinds, labelled
-- [ ] Placement writes revalidate `/calendar` and `/pickups`
+- [x] An order card cannot be dropped into the pickup list or the reverse — and the drag **preview** never opens a slot the drop will refuse
+- [x] Reordering within a group writes that group's `sort_index` only
+- [x] Dragging a pickup onto a day writes `pickup_date`; dragging it to the unscheduled callout clears it
+- [x] Long-press arm mode obeys the same group rule, including the same-column `index - 1` correction
+- [x] Each day's "+" offers Add Purchase Order and Add Pickup, and lists undated rows of both kinds, labelled
+- [x] Placement writes revalidate `/calendar` and `/pickups`
 - [ ] **iPad-verified** — long-press arm, cross-week place and unschedule, all for pickups, on the device
 
 **Tests required:**
@@ -2735,6 +2735,6 @@ The highest-risk task in the feature. Every drag and tap payload gains a `group`
 - `resolveTapAction` → `test: an armed pickup ignores an order column tap`
 - `setPickupPlacement` → `test: writes the date and sort index` / `test: rejects an unknown pickup id`
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-10 — every drag and tap payload now carries a `group` discriminator; 1184 tests / 99 files (was 1110 / 98), `tsc` clean. **Substantial work was already on disk from an interrupted earlier pass** — the core modules (`calendarDnd.ts`, `armPlacement.ts`, `calendarCollision.ts`, `SortablePickupCard`, `usePickupPlacement`, the action module) had been rewritten with `group` but every consumer and all five test files were unmigrated, leaving 39 `tsc` errors; that work was finished rather than restarted. **The group invariant is enforced at four layers:** collision — `groupedCollisionDetection` filters `droppableContainers` by group *before* `closestCenter` runs, so the other group's list never becomes `over` and the preview never opens a slot the drop would refuse (a UX guarantee, not the security control); drop — `resolveDropTarget` / `resolveUnscheduleTarget` refuse a group mismatch as a last line, and `readDropData` validates `group` rather than trusting it; arm tap — `resolveTapAction` checks `target.group !== armed.group` first and returns `cancel`, and `armed.group` participates in the `isArmed` comparison so cards cannot cross-light; server — `z.literal('pickup')` rejects a crossed payload before any query, auth call or DB touch, with the `pickups`-table status lookup as an independent second guard (both tested, including the crossed-payload case). **INFO-05 is closed:** Task 80's "Remove from calendar" is repointed at `clearPickupPlacement`, which nulls both `pickup_date` and `sort_index`; `@/lib/actions/pickups` is no longer imported by any calendar component and `updatePickup` retains exactly one caller repo-wide (the Pickups tab form), with the old test now asserting it is *not* called. **Two CQ-driven splits on the established `*Parts` idiom:** `CalendarDragOverlay.tsx` (`CalendarDndContext` had reached 201 lines against the 200 cap) and `CalendarOverlays.tsx` (`CalendarLayout`'s body had reached 95 against CONSTRAINT-14's 80). Also: `pickupsByDay` bucketing moved up to `CalendarLayout` so a `+ Add` pickup sizes against the pickups list only; the new-pickup drawer pre-fills the **visible** date field (unlike the order drawer's hidden override) because a pickup's date *is* its placement; `+ Add order` relabelled `+ Add`; `z.literal(..., { errorMap })` is invalid in zod 4, so `{ message }` was used. Known gap, mirroring orders: with zero undated pickups the callout renders nothing and so is not a drop target then — the orders callout has always behaved the same, and the popup's Remove always works. **`@security` verdict: CLEAR**, with three new Low findings, none blocking — T81-L01 (`UUID_RE.test(id)` coerces, so a one-element array id passes the gate at `lib/actions/pickups.calendar.ts:98,157`; fails closed at the driver; repo-wide pattern), T81-L02 (CONSTRAINT-24 baseline stale — 10/28/26 recorded, 11/30/28 actual), T81-L03 (`setProductionPlacement` has no `group` literal, making the *order* action the weaker side — one guard where pickups has two; one line to fix). No crafted payload can renumber another group's or another day's `sort_index` (no bulk update exists; all four write sites are a single `.set()` with `.where(eq(<table>.id, id))`), and mass assignment is impossible (9 injected keys stripped by zod, no `parsed.data` spread); residual stale-index via the Pickups tab form recorded as INFO-07, inert. **The iPad-verified criterion is genuinely NOT met and stays unchecked** — jsdom has no layout engine, so on the device the builder must long-press-arm a pickup and place it cross-week; drag a pickup onto a day and onto the undated pill to clear it; confirm dragging an order over the pickups list opens **no** gap and the reverse; check both lists on in one column at 1024×768 landscape without the page scrolling; and check the header holding two toggles, two pills and Current week without wrapping. See `docs/session-log.md`.
 
 **Depends on:** Task 80
