@@ -75,6 +75,21 @@ export class OrderNotFoundError extends Error {
 }
 
 /**
+ * Thrown when a pickup lookup by id returns no row. Same semantics as
+ * `OrderNotFoundError` — the query succeeded but the row does not exist
+ * (stale bookmark, cancelled-and-filtered row, deleted record).
+ */
+export class PickupNotFoundError extends Error {
+  readonly pickupId: string
+
+  constructor(pickupId: string) {
+    super(`Pickup not found: ${pickupId}`)
+    this.name = 'PickupNotFoundError'
+    this.pickupId = pickupId
+  }
+}
+
+/**
  * Thrown when a lead lookup by id returns no row. Same semantics as
  * `OrderNotFoundError` — the query succeeded but the row does not exist.
  */

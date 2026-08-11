@@ -1,6 +1,6 @@
 # Data Model: ToteTrack
 
-**Date:** 2026-07-27 (reconciled through migration `0011_backfill_production_date`; previously reconciled against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
+**Date:** 2026-08-10 (documents migrations through `0015_pickups`; `0014` and `0015` are hand-run and **not yet applied to prod**. Previously reconciled through `0011_backfill_production_date` on 2026-07-27, and against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
 **Status:** Approved — reflects production schema
 
 ---
@@ -12,6 +12,7 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | Enum | Values |
 |------|--------|
 | `po_status` | `scheduled` \| `completed` \| `cancelled` \| `invoiced` |
+| `pickup_status` | `scheduled` \| `completed` \| `cancelled` |
 | `container_size` | `275` \| `330` |
 | `container_type` | `rebottled` \| `reconditioned` \| `brand_new` |
 | `customer_status` | `active` \| `inactive` |
@@ -42,6 +43,7 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 **Relationships:**
 - has many `customer_contacts` (cascade delete)
 - has many `orders` (restrict delete — cannot delete customer with orders)
+- has many `pickups` (restrict delete — cannot delete customer with pickups)
 - has many `leads` via `converted_customer_id` (set null on delete)
 
 ---
@@ -107,6 +109,34 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 **Indexes:** `customer_id`, `status`, `invoice_id`, `requested_delivery_date`, `production_date` (`orders_production_date_idx`)
 
 > **Note on `orders_production_date_idx`:** since migration `0011` the calendar's range query filters on the bare column, so the index **can** serve it. The earlier non-sargable `COALESCE(...)` form — logged as FI-02 — is gone.
+
+---
+
+### `pickups`
+
+Collections of empty totes from a customer (Feature 15, migration `0015`). A **separate entity, not a flag on `orders`** — `orders.customer_collects` (renamed from `pickup_only` in `0014`) is the opposite concept, the customer collecting their own order.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK, defaultRandom() | |
+| `customer_id` | uuid | FK → customers.id, onDelete: restrict | Cannot delete customer with pickups (CONSTRAINT-13) |
+| `status` | pickup_status | NOT NULL, default 'scheduled' | `scheduled` \| `completed` \| `cancelled` — no `invoiced` state exists |
+| `qty_275` | integer | NOT NULL, default 0 | 275 gal totes collected |
+| `qty_330` | integer | NOT NULL, default 0 | 330 gal totes collected |
+| `pickup_date` | date | nullable | **Is** the calendar placement, verbatim. NULL = unscheduled → the calendar's callout. Unlike orders there is no separate promise/build-day pair |
+| `sort_index` | integer | nullable | Position within a day column. NULL = never placed by hand — same semantics as `orders.production_sort_index` |
+| `address` | text | nullable | Optional text snapshot, never an FK (CONSTRAINT-21). When supplied it is also upserted into `customer_addresses` via `recordDeliveryAddressUsage` |
+| `notes` | text | nullable | |
+| `created_at` | timestamptz | NOT NULL, defaultNow() | |
+| `updated_at` | timestamptz | NOT NULL, defaultNow() | |
+
+**No price, no number, no document, never invoiced.** There is deliberately no `price`, `po_number`, `document_url` or `invoice_id` column: pickups appear on no revenue, invoice or dashboard surface. Writes revalidate `/pickups`, `/calendar` and `/customers` — never `/dashboard`.
+
+**Status transitions** (`updatePickupStatus`): `scheduled → completed | cancelled`, and `completed | cancelled → scheduled`. A terminal pickup can be reopened with a plain status flip because there is no invoice to detach — compare `revertOrderToScheduled`, which needs a transaction.
+
+**Indexes:** `customer_id` (`pickups_customer_id_idx`), `status` (`pickups_status_idx`), `pickup_date` (`pickups_pickup_date_idx`)
+
+**RLS:** `authenticated_access` — `FOR ALL TO authenticated USING (true) WITH CHECK (true)`, the 0002 single-user pattern.
 
 ---
 
@@ -197,6 +227,7 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 ```
 customers (1) ──────< customer_contacts (N)
 customers (1) ──────< orders (N)
+customers (1) ──────< pickups (N)   [restrict delete — see CONSTRAINT-13]
 orders (N) >──────── invoices (1)    [invoice_id nullable]
 leads (N) >────────  customers (1)   [converted_customer_id nullable]
 leads (1) ──────────< lead_notes (N)

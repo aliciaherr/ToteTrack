@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
-import { Plus, Package, UserPlus, Target, type LucideIcon } from 'lucide-react'
+import { Plus, Package, Truck, UserPlus, Target, type LucideIcon } from 'lucide-react'
 import {
   speedDialFabVariants,
   speedDialContainerVariants,
@@ -23,6 +23,11 @@ const OPTIONS: readonly QuickAddOption[] = [
   { id: 'new-order', label: 'Add Purchase Order', icon: Package, href: '/orders?new=1' },
   { id: 'new-customer', label: 'Add Customer', icon: UserPlus, href: '/customers?new=1' },
   { id: 'new-lead', label: 'Add Lead', icon: Target, href: '/leads?new=1' },
+  // Pickups is last rather than beside Orders: the dial is ordered by how often
+  // the salesperson reaches for it, and a tote collection is the rarest of the
+  // four. The nav drawer orders by entity relationship instead, so the two
+  // lists differ on purpose.
+  { id: 'new-pickup', label: 'Add Pickup', icon: Truck, href: '/pickups?new=1' },
 ]
 
 /**
@@ -71,9 +76,9 @@ function FabOption({ option, onSelect, shouldReduceMotion }: FabOptionProps) {
 
 /**
  * Dashboard-only speed-dial FAB. Tapping the "+" button rotates it 45° (to "×")
- * and fans three options vertically upward (Purchase Order, Customer, Lead).
- * Tapping an option navigates to the destination screen with `?new=1` to
- * pre-open the create form.
+ * and fans four options vertically upward (Purchase Order, Customer, Lead,
+ * Pickup). Tapping an option navigates to the destination screen with `?new=1`
+ * to pre-open the create form.
  *
  * Hides itself when the AppShell nav drawer is open. Dismisses on tap-outside,
  * Esc key, or another tap on the "+/×" button. Tap-outside uses mousedown

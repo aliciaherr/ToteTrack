@@ -7,6 +7,14 @@ export const poStatusEnum = pgEnum('po_status', [
   'invoiced',
 ])
 
+// Feature 15 (migration 0015). Deliberately NOT `po_status`: a pickup is never
+// invoiced, so it has no `invoiced` state to model.
+export const pickupStatusEnum = pgEnum('pickup_status', [
+  'scheduled',
+  'completed',
+  'cancelled',
+])
+
 export const containerSizeEnum = pgEnum('container_size', ['275', '330'])
 
 export const containerTypeEnum = pgEnum('container_type', [

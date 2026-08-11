@@ -62,11 +62,16 @@ export async function addressBelongsToCustomer(
  * it failed when it didn't (pushing them into a duplicate-PO retry). The
  * failure is logged loudly with full context instead (EH-01 via logs).
  * @param usage Address fields from the validated create payload.
- * @param orderId The just-created order's id, for the failure log.
+ * @param rowId The just-created row's id, for the failure log.
+ * @param operation Name of the calling action, so the failure log names the
+ *   action that actually ran (EH-02). Feature 15 gave this helper a second
+ *   caller — `createPickup` writes to the same address book — and a log line
+ *   hardcoded to `createOrder` would point an incident at the wrong table.
  */
 export async function recordDeliveryAddressUsage(
   usage: DeliveryAddressUsage,
-  orderId: string,
+  rowId: string,
+  operation: string = 'createOrder',
 ): Promise<boolean> {
   try {
     if (usage.customer_collects) return false
@@ -90,8 +95,9 @@ export async function recordDeliveryAddressUsage(
       })
     return true
   } catch (cause) {
-    console.error('createOrder: address bookkeeping failed', {
-      orderId,
+    console.error(`${operation}: address bookkeeping failed`, {
+      operation,
+      rowId,
       customerId: usage.customer_id,
       cause,
     })

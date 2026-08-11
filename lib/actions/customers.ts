@@ -4,7 +4,7 @@ import { eq, sql } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '@/db'
-import { customers, customerContacts, orders } from '@/db/schema'
+import { customers, customerContacts, orders, pickups } from '@/db/schema'
 import { UUID_RE } from '@/lib/validators/uuid'
 import { firstZodMessage, nullIfBlank } from './orders.validation'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
@@ -194,10 +194,32 @@ export async function updateCustomer(
   }
 }
 
+const ORDER_HISTORY_BLOCKS_DELETE_MESSAGE =
+  'Cannot delete a customer with order history. Set them to Inactive instead.'
+// Feature 15: `pickups.customer_id` is ON DELETE RESTRICT just like
+// `orders.customer_id`, so a customer holding only pickups would otherwise
+// fail with a raw Postgres FK error. CONSTRAINT-13 covers both tables — the
+// rejection has to be readable and name the right history.
+const PICKUP_HISTORY_BLOCKS_DELETE_MESSAGE =
+  'Cannot delete a customer with pickup history. Set them to Inactive instead.'
+
+/** Number of rows in `table` (an orders/pickups table) for one customer. */
+async function countCustomerRows(
+  table: typeof orders | typeof pickups,
+  customerId: string,
+): Promise<number> {
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(table)
+    .where(eq(table.customer_id, customerId))
+  return count
+}
+
 /**
- * Hard-deletes a customer. Rejects if the customer has any orders — order
- * history must not be orphaned. To remove a customer with history, set status
- * to `inactive` via the customer form. See CONSTRAINT-13.
+ * Hard-deletes a customer. Rejects if the customer has any orders OR any
+ * pickups — both histories are `ON DELETE RESTRICT` and must not be orphaned.
+ * To remove a customer with history, set status to `inactive` via the customer
+ * form. See CONSTRAINT-13.
  * @param id UUID of the customer to delete.
  */
 export async function deleteCustomer(
@@ -210,16 +232,12 @@ export async function deleteCustomer(
 
     if (!UUID_RE.test(id)) return { error: 'Invalid customer id.' }
 
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(orders)
-      .where(eq(orders.customer_id, id))
+    if (await countCustomerRows(orders, id) > 0) {
+      return { error: ORDER_HISTORY_BLOCKS_DELETE_MESSAGE }
+    }
 
-    if (count > 0) {
-      return {
-        error:
-          'Cannot delete a customer with order history. Set them to Inactive instead.',
-      }
+    if (await countCustomerRows(pickups, id) > 0) {
+      return { error: PICKUP_HISTORY_BLOCKS_DELETE_MESSAGE }
     }
 
     await db.delete(customers).where(eq(customers.id, id))

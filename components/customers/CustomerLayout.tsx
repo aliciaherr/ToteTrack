@@ -15,6 +15,7 @@ import type {
   CustomerOrdersWindow,
   VolumeOverview,
 } from '@/db/queries/customers'
+import type { CustomerPickupRow, CustomerPickupsWindow } from '@/db/queries/pickups'
 
 export type CustomerLayoutInitialMode = 'detail' | 'new-customer'
 
@@ -27,6 +28,8 @@ interface CustomerLayoutProps {
   detail: CustomerDetailType | null
   orders: CustomerOrderRow[]
   window: CustomerOrdersWindow
+  pickups: CustomerPickupRow[]
+  pickupWindow: CustomerPickupsWindow
   volumeOverview: VolumeOverview
   initialMode?: CustomerLayoutInitialMode
 }
@@ -49,6 +52,8 @@ export default function CustomerLayout({
   detail,
   orders,
   window,
+  pickups,
+  pickupWindow,
   volumeOverview,
   initialMode = 'detail',
 }: CustomerLayoutProps) {
@@ -105,6 +110,8 @@ export default function CustomerLayout({
         detail={detail}
         orders={orders}
         window={window}
+        pickups={pickups}
+        pickupWindow={pickupWindow}
         volumeOverview={volumeOverview}
         onEdit={openEditCustomer}
       />

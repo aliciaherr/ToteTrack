@@ -94,7 +94,18 @@ function stubTransactionCapturing(id: string): CapturedWrites {
   return captured
 }
 
+// `deleteCustomer` counts orders first, then pickups (Feature 15 /
+// CONSTRAINT-13) — both FKs are ON DELETE RESTRICT. Each helper stubs the
+// next `db.select()` in that order.
 function stubOrderCount(count: number) {
+  mockSelect.mockReturnValueOnce({
+    from: () => ({
+      where: () => Promise.resolve([{ count }]),
+    }),
+  })
+}
+
+function stubPickupCount(count: number) {
   mockSelect.mockReturnValueOnce({
     from: () => ({
       where: () => Promise.resolve([{ count }]),
@@ -215,13 +226,34 @@ describe('deleteCustomer', () => {
     expect(mockDeleteRoot).not.toHaveBeenCalled()
   })
 
-  it('succeeds when the customer has zero orders', async () => {
+  it('refuses when the customer has pickups', async () => {
+    // Feature 15: `pickups.customer_id` is ON DELETE RESTRICT too, so without
+    // this check a customer holding only pickups would surface a raw FK error
+    // instead of a readable rejection (CONSTRAINT-13).
     stubOrderCount(0)
+    stubPickupCount(2)
+    const result = await deleteCustomer(CUSTOMER_ID)
+    expect(result).toEqual({
+      error: 'Cannot delete a customer with pickup history. Set them to Inactive instead.',
+    })
+    expect(mockDeleteRoot).not.toHaveBeenCalled()
+  })
+
+  it('succeeds when the customer has zero orders and zero pickups', async () => {
+    stubOrderCount(0)
+    stubPickupCount(0)
     stubRootDelete()
     const result = await deleteCustomer(CUSTOMER_ID)
     expect(result).toEqual({ success: true })
     expect(mockDeleteRoot).toHaveBeenCalledOnce()
     expect(mockRevalidatePath).toHaveBeenCalledWith('/customers')
+  })
+
+  it('never counts pickups when orders already block the delete', async () => {
+    stubOrderCount(3)
+    const result = await deleteCustomer(CUSTOMER_ID)
+    expect(result).toMatchObject({ error: expect.stringContaining('order history') })
+    expect(mockSelect).toHaveBeenCalledOnce()
   })
 
   it('rejects a malformed customer id before touching the database', async () => {

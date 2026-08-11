@@ -6,6 +6,7 @@ import type {
   CustomerOrderRow,
   VolumeOverview,
 } from '@/db/queries/customers'
+import type { CustomerPickupRow } from '@/db/queries/pickups'
 
 const emptyVolume: VolumeOverview = {
   gal275: { rebottled: 0, reconditioned: 0, brandNew: 0, totalAvg: 0 },
@@ -99,6 +100,16 @@ const sampleOrders: CustomerOrderRow[] = [
   },
 ]
 
+const samplePickups: CustomerPickupRow[] = [
+  {
+    id: 'cccc1111-cccc-cccc-cccc-cccccccccccc',
+    status: 'scheduled',
+    qty_275: 6,
+    qty_330: 2,
+    pickup_date: '2026-04-15',
+  },
+]
+
 describe('CustomerDetail', () => {
   it('renders the empty state when detail is null', () => {
     render(
@@ -106,6 +117,8 @@ describe('CustomerDetail', () => {
         detail={null}
         orders={[]}
         window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -119,6 +132,8 @@ describe('CustomerDetail', () => {
         detail={baseDetail}
         orders={sampleOrders}
         window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -138,6 +153,8 @@ describe('CustomerDetail', () => {
         detail={baseDetail}
         orders={[]}
         window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -151,6 +168,8 @@ describe('CustomerDetail', () => {
         detail={baseDetail}
         orders={[]}
         window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -170,6 +189,8 @@ describe('CustomerDetail', () => {
         detail={{ ...baseDetail, contacts: [{ ...baseDetail.contacts[0], ...contact }] }}
         orders={[]}
         window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -200,6 +221,55 @@ describe('CustomerDetail', () => {
     expect(screen.queryByText(/^\s+$/)).toBeNull()
   })
 
+  it('renders Pickup History below Order History, each with its own tab group', () => {
+    render(
+      <CustomerDetail
+        detail={baseDetail}
+        orders={sampleOrders}
+        window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
+        volumeOverview={emptyVolume}
+        onEdit={vi.fn()}
+      />,
+    )
+
+    const orderSection = screen.getByRole('region', { name: /order history/i })
+    const pickupSection = screen.getByRole('region', { name: /pickup history/i })
+    // Bitwise, not `>` — compareDocumentPosition returns a bitmask.
+    expect(
+      orderSection.compareDocumentPosition(pickupSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    // Two independent tab groups: driving one must not select the other.
+    expect(screen.getByRole('tablist', { name: /order history time window/i })).toBeInTheDocument()
+    expect(screen.getByRole('tablist', { name: /pickup history time window/i })).toBeInTheDocument()
+    expect(screen.getByText('2026-04-15')).toBeInTheDocument()
+  })
+
+  it('leaves Volume Overview as purchase volume only when the customer has pickups', () => {
+    render(
+      <CustomerDetail
+        detail={baseDetail}
+        orders={sampleOrders}
+        window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
+        volumeOverview={emptyVolume}
+        onEdit={vi.fn()}
+      />,
+    )
+
+    // `samplePickups` carries 6 × 275 and 2 × 330. With an all-zero volume
+    // overview, neither number may appear inside that card — if a later change
+    // folds pickups into the averages, this fails.
+    const volumeCard = screen.getByText(/volume overview/i).closest('section')
+    expect(volumeCard).not.toBeNull()
+    expect(volumeCard?.textContent).not.toMatch(/\b6\b/)
+    expect(volumeCard?.textContent).not.toMatch(/\b2\b/)
+  })
+
   it('shows the "Contact Recommended" overdue banner when overdue_days > 0', () => {
     const overdueDetail = { ...baseDetail, overdue_days: 3 }
     render(
@@ -207,6 +277,8 @@ describe('CustomerDetail', () => {
         detail={overdueDetail}
         orders={[]}
         window="1M"
+        pickups={samplePickups}
+        pickupWindow="1M"
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,

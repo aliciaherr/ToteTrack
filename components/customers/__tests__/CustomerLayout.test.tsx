@@ -45,6 +45,8 @@ const baseProps = {
   detail: null,
   orders: [],
   window: '1M' as const,
+  pickups: [],
+  pickupWindow: '1M' as const,
   volumeOverview: EMPTY_VOLUME_OVERVIEW,
 }
 

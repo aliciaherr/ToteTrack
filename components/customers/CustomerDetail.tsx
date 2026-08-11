@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import CustomerAddresses from './CustomerAddresses'
 import CustomerContactCard from './CustomerContactCard'
 import OrderHistory from './OrderHistory'
+import PickupHistory from './PickupHistory'
 import VolumeOverview from './VolumeOverview'
 import type {
   CustomerDetail as CustomerDetailType,
@@ -12,11 +13,14 @@ import type {
   CustomerOrdersWindow,
   VolumeOverview as VolumeOverviewData,
 } from '@/db/queries/customers'
+import type { CustomerPickupRow, CustomerPickupsWindow } from '@/db/queries/pickups'
 
 interface CustomerDetailProps {
   detail: CustomerDetailType | null
   orders: CustomerOrderRow[]
   window: CustomerOrdersWindow
+  pickups: CustomerPickupRow[]
+  pickupWindow: CustomerPickupsWindow
   volumeOverview: VolumeOverviewData
   onEdit: () => void
 }
@@ -95,13 +99,16 @@ function FrequencyLine({ detail }: { detail: CustomerDetailType }) {
  * Right-panel customer detail view. Renders the company header, primary
  * contact card (with collapsible more-contacts), contact-frequency line,
  * saved delivery addresses (Feature 14), and the order history table filtered
- * by the active time window. Renders the empty state when `detail` is null
- * (no row selected or stale id).
+ * by the active time window. Below that sits the pickup history table, which
+ * carries its own independent time window. Renders the empty state when
+ * `detail` is null (no row selected or stale id).
  */
 export default function CustomerDetail({
   detail,
   orders,
   window,
+  pickups,
+  pickupWindow,
   volumeOverview,
   onEdit,
 }: CustomerDetailProps) {
@@ -123,8 +130,11 @@ export default function CustomerDetail({
       />
       <FrequencyLine detail={detail} />
       <CustomerAddresses customerId={detail.id} addresses={detail.addresses} />
+      {/* VolumeOverview stays purchase-volume only — pickups are not sales,
+          so folding them in would corrupt the per-PO averages. */}
       <VolumeOverview data={volumeOverview} />
       <OrderHistory orders={orders} window={window} />
+      <PickupHistory pickups={pickups} window={pickupWindow} />
     </div>
   )
 }

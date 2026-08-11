@@ -2601,14 +2601,14 @@ Mechanical rename, no behavior change. Isolated so the naming ambiguity is gone 
 - `updatePickupStatus(id: string, target: 'completed' | 'cancelled' | 'scheduled'): Promise<{ success: true } | { error: string }>`
 
 **Acceptance criteria:**
-- [ ] SEC-01/02: `assertAuthenticated()` inside the try in every exported action; zod `safeParse` before it; `UUID_RE` on every id param
-- [ ] CONSTRAINT-24: `pickups.validation.ts` carries no `'use server'`
-- [ ] At least one of `qty_275` / `qty_330` must be greater than 0; `QUANTITY_MAX` enforced
-- [ ] `pickup_date` optional — absent means unscheduled
-- [ ] Address optional; when present it is snapshotted on the pickup **and** upserted into `customer_addresses` through the existing `recordDeliveryAddressUsage` path (CONSTRAINT-21)
-- [ ] `deleteCustomer` refuses a customer holding pickups with a readable message, not a raw FK error (CONSTRAINT-13)
-- [ ] Writes revalidate `/pickups`, `/calendar`, `/customers` — never `/dashboard` (no widget shows pickups)
-- [ ] EH-01: `console.error` with operation, ids and cause, then `GENERIC_FAILURE_MESSAGE` to the client
+- [x] SEC-01/02: `assertAuthenticated()` inside the try in every exported action; zod `safeParse` before it; `UUID_RE` on every id param
+- [x] CONSTRAINT-24: `pickups.validation.ts` carries no `'use server'`
+- [x] At least one of `qty_275` / `qty_330` must be greater than 0; `QUANTITY_MAX` enforced
+- [x] `pickup_date` optional — absent means unscheduled
+- [x] Address optional; when present it is snapshotted on the pickup **and** upserted into `customer_addresses` through the existing `recordDeliveryAddressUsage` path (CONSTRAINT-21)
+- [x] `deleteCustomer` refuses a customer holding pickups with a readable message, not a raw FK error (CONSTRAINT-13)
+- [x] Writes revalidate `/pickups`, `/calendar`, `/customers` — never `/dashboard` (no widget shows pickups)
+- [x] EH-01: `console.error` with operation, ids and cause, then `GENERIC_FAILURE_MESSAGE` to the client
 
 **Tests required:**
 - `getPickups` → `test: status and search clauses compile into the expected SQL` / `test: a driver rejection throws DatabaseError`
@@ -2616,7 +2616,7 @@ Mechanical rename, no behavior change. Isolated so the naming ambiguity is gone 
 - `updatePickupStatus` → `test: completes a scheduled pickup` / `test: an invalid uuid is rejected before any query`
 - `deleteCustomer` → `test: refuses when the customer has pickups`
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-10 — migration + schema + queries + actions + `PickupNotFoundError` + `deleteCustomer` pickups guard; 990 tests / 88 files (was 938 / 85), `tsc` clean. Two additive changes outside the Files list: `calendarDateSchema` extracted out of `productionDateSchema` in `lib/actions/dates.validation.ts` (`pickup_date` needs the real-calendar-day check without CONSTRAINT-19's weekday rule), and `recordDeliveryAddressUsage` gained an optional `operation` param so a `createPickup` failure logs the right action (EH-02). `updatePickupStatus` allows reopen (`completed|cancelled → scheduled`) — a pickup has no price, invoice or document, so it is a plain flip; no-op transitions rejected. **`db/migrations/0015_pickups.sql` has NOT been run against prod yet** — hand-run in the Supabase SQL editor by the builder alongside the still-pending `0014`, then push immediately.
 
 **Depends on:** Task 76
 
@@ -2634,20 +2634,20 @@ Mirrors the Orders vertical: a server page reading URL params, a client two-pane
 - Tests: `components/pickups/__tests__/PickupTable.test.tsx`, `PickupLayout.test.tsx`, `PickupForm.test.tsx` — create; `components/shell/__tests__/NavDrawer.test.tsx` (`EXPECTED_NAV_ORDER` and the "Calendar between Orders and Leads" case), `components/dashboard/__tests__/QuickAddFab.test.tsx` (count / order / href assertions) — modify
 
 **Acceptance criteria:**
-- [ ] Columns `Customer | 275 | 330 | Status | Date`; an em dash for a zero count and for a null date
-- [ ] Status tabs All / Scheduled / Completed / Cancelled with their **own** framer `layoutId`, not the orders tabs' or `order-history-underline`
-- [ ] Search debounced 250ms, applied server-side via URL params, matching customer name only
-- [ ] `?new=1` opens the create form through `parseInitialMode`; `?customerId=` pre-selects and locks the customer
-- [ ] No delete anywhere — cancel is the only removal
-- [ ] SEC-02: status and uuid params validated at the page boundary
-- [ ] Touch targets at least 44px; the page never scrolls (CONSTRAINT-19 / 23 — `min-h-svh`, never `vh`)
+- [x] Columns `Customer | 275 | 330 | Status | Date`; an em dash for a zero count and for a null date
+- [x] Status tabs All / Scheduled / Completed / Cancelled with their **own** framer `layoutId`, not the orders tabs' or `order-history-underline`
+- [x] Search debounced 250ms, applied server-side via URL params, matching customer name only
+- [x] `?new=1` opens the create form through `parseInitialMode`; `?customerId=` pre-selects and locks the customer
+- [x] No delete anywhere — cancel is the only removal
+- [x] SEC-02: status and uuid params validated at the page boundary
+- [x] Touch targets at least 44px; the page never scrolls (CONSTRAINT-19 / 23 — `min-h-svh`, never `vh`)
 
 **Tests required:**
 - `PickupTable` → `test: renders rows and builds the expected filter href` / `test: the empty state distinguishes no-results from no-pickups`
 - `PickupForm` → `test: submitting creates a pickup` / `test: a server error renders in the alert region`
 - `NavDrawer` → `test: Pickups sits between Orders and Calendar`
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-10 — page + ten `components/pickups/*` files + NavDrawer entry (lucide `Truck`, between Orders and Calendar) + QuickAddFab 4th option; 1025 tests / 92 files (was 990 / 88), `tsc` clean. Two additions outside the Files list: `PickupDetailParts.tsx`, splitting `PickupDetail.tsx` (240 lines, a CQ-02 breach) into 97 / 184 on the established `OrderDetail` + `OrderDetailParts` idiom; and `app/(app)/pickups/__tests__/page.test.tsx`, the first page-boundary test for a list route (worth backfilling onto orders/customers/leads). That page boundary now validates `status` against an `all|scheduled|completed|cancelled` whitelist and uuids via the canonical `isUuid`, mirroring `app/(app)/orders/page.tsx` — **closes @security finding T77-L02 (Low)**, `db/queries/pickups.ts` untouched. QuickAddFab order deliberately differs from NavDrawer order (spec says "4th option"); a comment at the FAB says why. **Three criteria are asserted only as class strings and still need the builder's eyes on real iPad hardware** — 44px touch targets, the page never scrolling in landscape (CONSTRAINT-23 exists for this blind spot), and the status-tab pill animation not fighting Order History's underline when both are mounted.
 
 **Depends on:** Task 77
 
@@ -2662,15 +2662,15 @@ Mirrors the Orders vertical: a server page reading URL params, a client two-pane
 - `components/customers/__tests__/PickupHistory.test.tsx` — create; `CustomerDetail.test.tsx` — modify
 
 **Acceptance criteria:**
-- [ ] The section sits below Order History with the same card chrome and window tabs
-- [ ] It uses its **own** `?pwindow=` param and its own `layoutId`, so it neither drives nor fights Order History's tabs
-- [ ] Volume Overview is untouched — it stays purchase volume only
-- [ ] Rows link to `/pickups?id=…`
+- [x] The section sits below Order History with the same card chrome and window tabs
+- [x] It uses its **own** `?pwindow=` param and its own `layoutId`, so it neither drives nor fights Order History's tabs
+- [x] Volume Overview is untouched — it stays purchase volume only
+- [x] Rows link to `/pickups?id=…`
 
 **Tests required:**
 - `PickupHistory` → `test: renders rows for the selected window` / `test: empty state when the customer has none`
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-10 — `components/customers/PickupHistory.tsx` (191 lines) below Order History, fed by a new `getCustomerPickups` in `db/queries/pickups.ts` (233 lines, under the 300 service cap); 1046 tests / 94 files (was 1025 / 92), `tsc` clean. Isolation from Order History is by construction: `WINDOW_PARAM = 'pwindow'` and `UNDERLINE_LAYOUT_ID = 'pickup-history-underline'`, both verified unique against every `layoutId` and param in the codebase. Reused rather than duplicated — `computeWindowStartDate` and `CustomerOrdersWindow` are imported from `db/queries/customers.ts` (aliased `CustomerPickupsWindow`) so the two panels cannot drift on what "3M" means, and the panel reuses `PickupStatusBadge` + `formatPoTotal` rather than a second colour map; no import cycle. Columns are `Date | 275 | 330 | Status` — a pickup has no PO number and no price. `pwindow` is whitelisted at the page boundary through the same `parseWindow` as `window` (the mandated T77-L02 / T78-L01 pattern), now typed `string | string[] | undefined` and matching by whitelist membership only — no `.trim()` or other string-only method is ever called, so a repeated `?pwindow=a&pwindow=b` array falls through to the default instead of throwing; covered by a new `app/(app)/customers/__tests__/page.test.tsx` alongside hostile values and a malformed `?id=`. **One decision awaits the builder:** the window filter excludes undated pickups (`AND p.pickup_date >= $startDate` mirrors `customerOrdersQuery` deliberately, and is commented), so a customer whose only pickups are unscheduled sees "No pickups in this window" — an undated pickup is a more common real state than an undated order, and pinning unscheduled rows to the top instead is a one-line spec change. **Still needs real-iPad verification** (jsdom has no layout engine): the two underlines not fighting when both panels are mounted — jsdom only proves the `layoutId` strings differ (the same open item Task 78 flagged for the status-tab pill); 44px touch targets on the new tab row, asserted only as a class string; CONSTRAINT-19/23 — the detail panel is a whole card taller and scrolls internally via `overflow-y-auto`, but the page must still not scroll; and whether the four-column table's `overflow-x-auto` wrapper ever triggers at iPad width.
 
 **Depends on:** Task 78
 

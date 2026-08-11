@@ -631,7 +631,7 @@ describe('createOrder', () => {
     expect(result).toEqual({ id: ORDER_ID })
     expect(consoleSpy).toHaveBeenCalledWith(
       'createOrder: address bookkeeping failed',
-      expect.objectContaining({ orderId: ORDER_ID, customerId: CUSTOMER_ID }),
+      expect.objectContaining({ rowId: ORDER_ID, customerId: CUSTOMER_ID }),
     )
     expect(mockRevalidatePath).not.toHaveBeenCalledWith('/customers')
     consoleSpy.mockRestore()

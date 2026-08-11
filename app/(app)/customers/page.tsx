@@ -11,6 +11,11 @@ import {
   type CustomerOrdersWindow,
   type VolumeOverview,
 } from '@/db/queries/customers'
+import {
+  getCustomerPickups,
+  type CustomerPickupRow,
+  type CustomerPickupsWindow,
+} from '@/db/queries/pickups'
 import { CustomerNotFoundError } from '@/lib/errors'
 import { parseInitialMode } from '@/lib/parse-initial-mode'
 import CustomerLayout from '@/components/customers/CustomerLayout'
@@ -31,6 +36,11 @@ interface CustomersPageProps {
     search?: string
     sort?: string
     window?: string
+    // Pickup History's own window param, kept separate from `window` so the two
+    // panels' tabs never drive each other. Typed `string | string[]` because
+    // that is what Next.js actually hands over for a repeated param
+    // (`?pwindow=1M&pwindow=3M`) — see `parseWindow`.
+    pwindow?: string | string[]
     new?: string
   }
 }
@@ -45,7 +55,16 @@ function parseSort(value: string | undefined): CustomerListSort {
     : 'alphabetical'
 }
 
-function parseWindow(value: string | undefined): CustomerOrdersWindow {
+// SEC-02 — the whitelist that keeps a hand-typed `?window=` / `?pwindow=` off
+// the query. `db/queries/pickups.ts` does no validation of its own at its
+// boundary, so an un-whitelisted value must never leave this file.
+//
+// The value is typed `string | string[]` because Next.js hands a repeated param
+// (`?pwindow=1M&pwindow=3M`) through as an array. Membership is tested against
+// the raw value and no string-only method is ever called on it, so an array
+// simply fails the test and falls back to the default — the `?.trim()` crash
+// pattern (a `?.` guards null, not the wrong type) cannot occur here.
+function parseWindow(value: string | string[] | undefined): CustomerOrdersWindow {
   return VALID_WINDOWS.includes(value as CustomerOrdersWindow)
     ? (value as CustomerOrdersWindow)
     : DEFAULT_WINDOW
@@ -58,26 +77,30 @@ function parseSelectedId(value: string | undefined): string | null {
 interface DetailResult {
   detail: CustomerDetail | null
   orders: CustomerOrderRow[]
+  pickups: CustomerPickupRow[]
   volumeOverview: VolumeOverview
 }
 
 const EMPTY_DETAIL_RESULT: DetailResult = {
   detail: null,
   orders: [],
+  pickups: [],
   volumeOverview: EMPTY_VOLUME_OVERVIEW,
 }
 
 async function loadCustomerDetail(
   customerId: string,
   window: CustomerOrdersWindow,
+  pickupWindow: CustomerPickupsWindow,
 ): Promise<DetailResult> {
   try {
-    const [detail, orders, volumeOverview] = await Promise.all([
+    const [detail, orders, pickups, volumeOverview] = await Promise.all([
       getCustomerDetail(customerId),
       getCustomerOrders(customerId, window),
+      getCustomerPickups(customerId, pickupWindow),
       getCustomerVolumeOverview(customerId),
     ])
-    return { detail, orders, volumeOverview }
+    return { detail, orders, pickups, volumeOverview }
   } catch (error) {
     // Stale or deleted id is not a server error — surface as "no selection".
     // Other errors (DatabaseError) bubble to the Next.js error boundary.
@@ -88,9 +111,11 @@ async function loadCustomerDetail(
 
 /**
  * Customers list route. Reads filter + selection + form-deep-link state from
- * query params (`status`, `search`, `sort`, `id`, `window`, `new`), validates
- * each, and fetches list rows + (when an `id` is selected) detail + orders +
- * volume overview in parallel. `?new=1` opens the create form on mount and
+ * query params (`status`, `search`, `sort`, `id`, `window`, `pwindow`, `new`),
+ * validates each, and fetches list rows + (when an `id` is selected) detail +
+ * orders + pickups + volume overview in parallel. Order History and Pickup
+ * History own separate window params (`window` / `pwindow`) so switching one
+ * panel's tabs leaves the other alone. `?new=1` opens the create form on mount and
  * takes precedence over `?id=` (selectedId is dropped when both are present).
  * Unknown values fall back to defaults.
  */
@@ -99,6 +124,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
   const search = searchParams.search ?? ''
   const sort = parseSort(searchParams.sort)
   const window = parseWindow(searchParams.window)
+  const pickupWindow = parseWindow(searchParams.pwindow)
   const initialMode = parseInitialMode(searchParams.new, 'new-customer')
   // `?new=1` takes precedence over `?id=` per PRD Feature 8 — when both are
   // present, the New Customer form opens and the existing selection is dropped.
@@ -107,7 +133,9 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
 
   const [customers, detailResult] = await Promise.all([
     getCustomers({ status, search, sort }),
-    selectedId ? loadCustomerDetail(selectedId, window) : Promise.resolve(EMPTY_DETAIL_RESULT),
+    selectedId
+      ? loadCustomerDetail(selectedId, window, pickupWindow)
+      : Promise.resolve(EMPTY_DETAIL_RESULT),
   ])
 
   return (
@@ -121,6 +149,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         detail={detailResult.detail}
         orders={detailResult.orders}
         window={window}
+        pickups={detailResult.pickups}
+        pickupWindow={pickupWindow}
         volumeOverview={detailResult.volumeOverview}
         initialMode={initialMode}
       />

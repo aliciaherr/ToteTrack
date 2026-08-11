@@ -383,7 +383,7 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 **Practical impact — the check that actually satisfies this is export-level, not file-level:** enumerate every exported async function in every module whose first line is `'use server'`, count `assertAuthenticated()` calls against that number, and reconcile the total against the action-ID count in `.next/server/server-reference-manifest.json`. Comparing the *list of files* against last time passes while a file inside it exports three unguarded functions — that is precisely how the 2026-08-02 audit missed this (see FI-11).
 
-**Current baseline (2026-08-09, commit `3b27ed7`):** 9 directive-bearing modules, 25 exports, 23 guarded + `signIn`/`signOut` unguarded by design, reconciling exactly against 25 manifest action IDs.
+**Current baseline (2026-08-10, after Task 77):** 10 directive-bearing modules, 28 exports, 26 guarded + `signIn`/`signOut` unguarded by design, reconciling exactly against 28 manifest action IDs.
 
 **Who decided and when:** Builder, 2026-08-09, on `@security` finding M-01; fix `3b27ed7`, verified against a fresh build.
 

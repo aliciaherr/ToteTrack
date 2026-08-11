@@ -49,6 +49,7 @@ const EXPECTED_NAV_ORDER = [
   { name: 'Dashboard', href: '/dashboard' },
   { name: 'Customers', href: '/customers' },
   { name: 'Orders', href: '/orders' },
+  { name: 'Pickups', href: '/pickups' },
   { name: 'Calendar', href: '/calendar' },
   { name: 'Leads', href: '/leads' },
   { name: 'Invoices', href: '/invoices' },
@@ -64,7 +65,7 @@ beforeEach(() => {
 })
 
 describe('NavDrawer', () => {
-  it('renders all 7 nav items with correct href values', () => {
+  it('renders all 8 nav items with correct href values', () => {
     render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
 
     for (const { name, href } of EXPECTED_NAV_ORDER) {
@@ -75,7 +76,7 @@ describe('NavDrawer', () => {
     }
   })
 
-  it('renders the Calendar nav item between Orders and Leads', () => {
+  it('renders the Calendar nav item between Pickups and Leads', () => {
     render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
 
     const hrefs = screen
@@ -83,6 +84,29 @@ describe('NavDrawer', () => {
       .map((link) => link.getAttribute('href'))
 
     expect(hrefs).toEqual(EXPECTED_NAV_ORDER.map((item) => item.href))
+  })
+
+  it('Pickups sits between Orders and Calendar', () => {
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    const hrefs = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'))
+
+    expect(hrefs.indexOf('/pickups')).toBe(hrefs.indexOf('/orders') + 1)
+    expect(hrefs.indexOf('/calendar')).toBe(hrefs.indexOf('/pickups') + 1)
+  })
+
+  it('marks Pickups active on /pickups without also lighting up Orders', () => {
+    mockUsePathname.mockReturnValue('/pickups')
+    render(<NavDrawer isOpen={true} onClose={vi.fn()} />)
+
+    expect(screen.getByRole('link', { name: /pickups/i }).className).toContain(
+      'border-primary',
+    )
+    expect(screen.getByRole('link', { name: /^orders$/i }).className).not.toContain(
+      'border-primary',
+    )
   })
 
   it('marks Calendar active on /calendar', () => {

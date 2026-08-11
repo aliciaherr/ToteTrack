@@ -33,6 +33,21 @@ function parseIsoDateOrNull(value: string): Date | null {
 }
 
 /**
+ * A real `yyyy-MM-dd` calendar day, with no weekday restriction.
+ *
+ * `ISO_DATE_RE` alone proves only the shape, so `2026-02-31` would pass it and
+ * then be rejected by Postgres as an opaque driver error. This schema is the
+ * boundary that turns that into a validation message. Used directly by
+ * `pickups.validation` (`pickup_date` is a calendar placement but carries no
+ * weekday rule — pickups are not production) and as the base of
+ * {@link productionDateSchema}.
+ */
+export const calendarDateSchema = z
+  .string()
+  .regex(ISO_DATE_RE, 'Invalid date format.')
+  .refine((value) => parseIsoDateOrNull(value) !== null, 'Invalid date format.')
+
+/**
  * A stored production date: a real `yyyy-MM-dd` calendar day that falls on a
  * weekday.
  *
@@ -44,10 +59,7 @@ function parseIsoDateOrNull(value: string): Date | null {
  * column — drag placement, the `+ Add order` list, and PO creation — goes
  * through this one schema.
  */
-export const productionDateSchema = z
-  .string()
-  .regex(ISO_DATE_RE, 'Invalid date format.')
-  .refine((value) => parseIsoDateOrNull(value) !== null, 'Invalid date format.')
+export const productionDateSchema = calendarDateSchema
   .refine((value) => {
     const parsed = parseIsoDateOrNull(value)
     return parsed === null || isBusinessDay(parsed)

@@ -57,7 +57,7 @@ describe('QuickAddFab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('tap toggles to expanded state with 3 options visible', () => {
+  it('tap toggles to expanded state with 4 options visible', () => {
     render(<QuickAddFab />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Quick add' }))
@@ -67,10 +67,10 @@ describe('QuickAddFab', () => {
       'true',
     )
     expect(screen.getByRole('menu', { name: 'Quick add options' })).toBeInTheDocument()
-    expect(screen.getAllByRole('menuitem')).toHaveLength(3)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(4)
   })
 
-  it('options render in order: Purchase Order, Customer, Lead (top-to-bottom in DOM)', () => {
+  it('options render in order: Purchase Order, Customer, Lead, Pickup (top-to-bottom in DOM)', () => {
     render(<QuickAddFab />)
     fireEvent.click(screen.getByRole('button', { name: 'Quick add' }))
 
@@ -78,12 +78,14 @@ describe('QuickAddFab', () => {
     expect(menuitems[0]).toHaveTextContent('Add Purchase Order')
     expect(menuitems[1]).toHaveTextContent('Add Customer')
     expect(menuitems[2]).toHaveTextContent('Add Lead')
+    expect(menuitems[3]).toHaveTextContent('Add Pickup')
   })
 
   it.each([
     ['Add Purchase Order', '/orders?new=1'],
     ['Add Customer', '/customers?new=1'],
     ['Add Lead', '/leads?new=1'],
+    ['Add Pickup', '/pickups?new=1'],
   ])('tap "%s" navigates to %s', (label, href) => {
     render(<QuickAddFab />)
     fireEvent.click(screen.getByRole('button', { name: 'Quick add' }))
@@ -143,6 +145,6 @@ describe('QuickAddFab', () => {
 
     // Render path is gated by `shouldReduceMotion ? undefined : variants` —
     // verify the component still mounts and shows options without animation props.
-    expect(screen.getAllByRole('menuitem')).toHaveLength(3)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(4)
   })
 })

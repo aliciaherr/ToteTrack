@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Users,
   Package,
+  Truck,
   CalendarDays,
   Target,
   Receipt,
@@ -24,8 +25,10 @@ const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Customers', href: '/customers', icon: Users },
   { label: 'Orders', href: '/orders', icon: Package },
-  // Calendar sits directly after Orders: it is a view *of* orders, so the two
-  // read as a pair before the drawer moves on to Leads and billing.
+  // Pickups sits directly after Orders and before Calendar: it is the second
+  // movement entity (totes coming back), and the Calendar that follows is a
+  // view of *both* lists (CONSTRAINT-25), so it reads last of the three.
+  { label: 'Pickups', href: '/pickups', icon: Truck },
   { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'Leads', href: '/leads', icon: Target },
   { label: 'Invoices', href: '/invoices', icon: Receipt },
