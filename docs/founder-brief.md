@@ -420,3 +420,82 @@ The fix was deleting the `'use server'` line. Nothing else — the file works ex
 - **The rule now written down (CONSTRAINT-24) has no automatic enforcement**, same as the last two constraints. The realistic way this comes back is someone adding `'use server'` to that file to match its neighbours. There is now a comment at the top of the file addressed to exactly that person.
 
 **What this closes off:** Nothing in the app. What it closes off is a *style of checking*: the previous security pass looked at whether the same set of files was present and concluded nothing had changed. That was true and useless — the problem was inside one of those files, in what it exported. Future passes have to count the exported functions and reconcile them against what the build actually publishes. That is slower and it is the only version of the check that works.
+
+---
+
+## FB-25 — The Calendar Now Holds Two Kinds of Card, and "Which Kind Is This" Is Enforced Four Times
+
+**Date:** 2026-08-10
+**Architecture reference:** `docs/architecture.md` → *The Two-List Calendar (Feature 15)*, sections 1 and 2. Rule recorded as CONSTRAINT-25 in `docs/constraints.md`.
+**Tasks:** 80, 81 — commits `df78e2b`, `f84c31b`.
+
+**Decided:** Every card on the calendar carries a permanent tag saying whether it is an order or a pickup, and that tag is checked four separate times on the way from your finger to the database — including once on the server, which does not trust anything the screen sends it.
+
+**Means for your product:** The calendar used to show one kind of thing. It now shows two, stacked in every day column: orders on top, pickups underneath. That creates a failure this app cannot recover from quietly — a pickup written into the orders table, or an order written into the pickups table. Nothing would look wrong on screen. The row would simply be in the wrong place, in live production data, with no sandbox to have caught it.
+
+So "which kind is this" is not a UI detail here, it is a boundary. Four things check it:
+
+1. **While you drag**, the other list is removed from consideration entirely before the app works out what you are hovering over — so an order dragged over the pickups list never opens a gap. This one exists for honesty: refusing only at the moment you let go would mean the screen showed you a slot it was always going to refuse.
+2. **When you let go**, the drop is refused outright if the kinds do not match.
+3. **In tap-to-place mode** (the long-press flow you use on the iPad), the tap is cancelled before any position arithmetic runs, so an armed order cannot compute where it would sit in the pickup list.
+4. **On the server**, the request is rejected before it touches the database, by a check that does not care what the browser claimed. There is then a *second* server check that looks the card up in its own table — so an order id sent to the pickup save fails even if the tag was forged.
+
+The first three are the experience. Only the last two are the safeguard. That distinction is written into the code comments so nobody later "simplifies" a guard by deciding the drag already handles it.
+
+There is also exactly **one place in the whole app** where a calendar gesture decides which table to write to. Everything above it is deliberately ignorant of the difference. That is the design's real payoff: adding a third kind of card later means changing one file, not auditing every gesture.
+
+**Check before approving:**
+- **Try to break it on the iPad, deliberately.** Drag an order over the pickups half of a day and confirm nothing opens up to receive it; then the reverse. Long-press a pickup to arm it, then tap an order card, and confirm the arming just cancels rather than doing something surprising.
+- **The security pass tested all four layers by running them, not by reading them** — including sending a deliberately forged request straight at the server. Verdict was clear.
+- **One asymmetry was found and fixed during review, not at build time.** The pickup save had two guards; the order save had one. They now match. It was never exploitable, but it is exactly the kind of drift that makes the *next* change unsafe, and it was caught only because someone compared the two sides directly.
+
+**What this closes off:** Moving a card between the two lists — dragging an order into the pickups row to "convert" it — is now impossible by design, at four levels. If that ever becomes a feature you want, it is not a small change; it is a deliberate hole cut through a boundary built to have none.
+
+---
+
+## FB-26 — Shared Building Blocks Now Have a Home of Their Own
+
+**Date:** 2026-08-10
+**Architecture reference:** `docs/architecture.md` → *Component Tree*, `components/shared/`. Rule recorded as CONSTRAINT-26 in `docs/constraints.md`.
+**Tasks:** none — builder-requested address picker plus code-review remediation, commit `f84c31b`.
+
+**Decided:** Anything two parts of the app both use now lives in a shared folder. It does not stay in whichever screen happened to build it first, and no screen reaches across into another screen to borrow it.
+
+**Means for your product:** You asked for the pickup form to offer a customer's saved addresses as a dropdown, the way the order form does, instead of a free-text box. The honest way to do that is to have both forms use the *same* picker. The tempting way is to have the pickup form import the order form's picker.
+
+The tempting way was already in the codebase in a smaller form, and it had gone slightly wrong: a pickup file was reaching the standard input styling by going through the *orders* form's schema file, which re-exported it from somewhere else again. Two hops, through a vertical that had no reason to be involved. Nothing was broken — but the day someone edits the orders form and moves that line, the pickups form changes appearance for no reason anyone can trace.
+
+So the picker moved into the shared folder, and the two forms became thin adapters holding only what genuinely differs between an order's address and a pickup's. Same for the input styling and the field row layout. The rule is now written down: shared things live in the shared folder; verticals never import from each other.
+
+The address picker itself also carries a real safeguard. A pickup can now be attached to one of the customer's saved addresses, and the server checks that the address actually belongs to that customer before saving anything — you cannot end up with one customer's address stapled to another's pickup. And because a saved address and the typed-out text could in principle disagree, the form refuses a request that sends an address id without the matching text.
+
+**Check before approving:**
+- **On the iPad, open a pickup and check the address dropdown behaves like the order form's** — the customer's most recently used address preselected, an "add new" option that lets you type one, and a blank state that is still allowed (a pickup does not require an address).
+- **Addresses typed into a pickup still get remembered** on the customer's address list, as decided during the pickups brainstorm. Worth confirming once with a real customer: add a new address on a pickup, then open an order for that customer and check it appears in the dropdown.
+- **One inconsistency is deliberately left alone and you should know about it.** The leads and support forms each carry their *own* copy of the input styling, and it is a genuinely different look from the one orders, pickups and customers share. That is old drift, not something introduced here. Folding them in changes the appearance of two live screens, so it needs to be its own decision rather than a silent tidy-up.
+
+**What this closes off:** Nothing, but it sets a direction. From here, the cost of a second consumer is a small move into the shared folder rather than a slow accumulation of cross-screen imports — which is the shape technical debt takes in a codebase like this one, where every vertical looks similar enough to borrow from.
+
+---
+
+## FB-27 — "Must Be a Weekday" Is Now a Rule You Opt Into, Not One Every Date Inherits
+
+**Date:** 2026-08-10
+**Architecture reference:** `docs/architecture.md` → *The Two-List Calendar (Feature 15)*, section 4. Interacts with CONSTRAINT-19.
+**Tasks:** 77 — commit `7bb2687`.
+
+**Decided:** The app now has two kinds of date check. Both refuse a date that does not exist. Only one of them additionally refuses weekends, and a new date field has to ask for that on purpose.
+
+**Means for your product:** Production dates cannot fall on a weekend — that is CONSTRAINT-19 and it is correct, because nothing is produced on a Saturday. Until this session that weekend rule was baked into the single date check the whole app used, so any new date field would have silently inherited it.
+
+A pickup date should not inherit it. A collection is not production. The calendar only draws Monday to Friday, so in practice a dragged pickup lands on a weekday anyway — but the *server* should not invent a rule the thing does not actually have. If you ever decide a Saturday collection is fine, that becomes a UI question, not a database refusal you have to go hunting for.
+
+So the check was split in two. The base version guarantees the date is a real day — which matters more than it sounds. Without it, typing something like 31 February does not produce a helpful message; it produces a raw database error, which is the kind of failure that looks like the app is broken. Both versions have that. The production version is the base version plus one extra line: and it must be a weekday.
+
+The reason this is written down rather than just done: the next date field added to this app will pick one of the two, and picking wrong is invisible. Choose the production one for something that is not production and you get a mysterious refusal on Saturdays. Choose the base one for something that genuinely is production and you have quietly deleted CONSTRAINT-19 for that field.
+
+**Check before approving:**
+- **Nothing about order dates changed.** The production check is now literally the pickup check plus the weekend rule, so orders behave exactly as before — that is covered by the existing tests, which were not modified.
+- **The practical question for you is whether a weekend pickup should ever be possible.** Today the calendar shows weekdays only, so the answer is effectively no by way of the interface. The server no longer has an opinion. If you want weekend collections, that is now a calendar change rather than a validation change.
+
+**What this closes off:** Nothing. It reopens something, deliberately: weekend dates are no longer refused app-wide as a matter of course, so any field that genuinely needs the weekday rule must now say so.
