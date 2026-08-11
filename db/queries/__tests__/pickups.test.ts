@@ -6,7 +6,12 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { getPickups, getPickupDetail, getCustomerPickups } from '../pickups'
+import {
+  getPickups,
+  getPickupDetail,
+  getCustomerPickups,
+  getCustomerUnscheduledPickupCount,
+} from '../pickups'
 import { DatabaseError, PickupNotFoundError } from '@/lib/errors'
 
 const dialect = new PgDialect()
@@ -211,5 +216,66 @@ describe('getCustomerPickups', () => {
 
     expect(caught).toBeInstanceOf(DatabaseError)
     expect(caught).toMatchObject({ operation: 'getCustomerPickups', cause: driverError })
+  })
+
+  it('still excludes undated pickups from the row list — they are counted, not listed', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await getCustomerPickups(CUSTOMER_ID, '1Y')
+    const { sql: compiled } = compileCall(0)
+    // The window lower bound is the whole row filter; nothing was relaxed to
+    // let a NULL date through into the table.
+    expect(compiled).toMatch(/p\.pickup_date >= /i)
+    expect(compiled).not.toMatch(/pickup_date IS NULL/i)
+    expect(compiled).not.toMatch(/\bOR\b/i)
+  })
+})
+
+describe('getCustomerUnscheduledPickupCount', () => {
+  it('counts only open, undated pickups for the one customer', async () => {
+    mockExecute.mockResolvedValueOnce([{ count: 3 }])
+    const count = await getCustomerUnscheduledPickupCount(CUSTOMER_ID)
+
+    expect(count).toBe(3)
+    const { sql: compiled, params } = compileCall(0)
+    expect(compiled).toMatch(/COUNT\(\*\)::int/i)
+    expect(compiled).toMatch(/p\.customer_id = /i)
+    expect(compiled).toMatch(/p\.pickup_date IS NULL/i)
+    // A cancelled or completed pickup with no date is closed, not pending.
+    expect(compiled).toMatch(/p\.status = /i)
+    expect(params).toContain(CUSTOMER_ID)
+    expect(params).toContain('scheduled')
+  })
+
+  it('is never window-filtered — an undated pickup has no date to compare', async () => {
+    mockExecute.mockResolvedValueOnce([{ count: 0 }])
+    await getCustomerUnscheduledPickupCount(CUSTOMER_ID)
+    const { sql: compiled, params } = compileCall(0)
+    expect(compiled).not.toMatch(/pickup_date >=/i)
+    expect(params.some((param) => /^\d{4}-\d{2}-\d{2}$/.test(String(param)))).toBe(false)
+  })
+
+  it('returns 0 when the driver hands back no row', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    await expect(getCustomerUnscheduledPickupCount(CUSTOMER_ID)).resolves.toBe(0)
+  })
+
+  it('a driver rejection throws DatabaseError carrying the cause', async () => {
+    const driverError = new Error('connection terminated')
+    mockExecute.mockRejectedValueOnce(driverError)
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    let caught: unknown
+    try {
+      await getCustomerUnscheduledPickupCount(CUSTOMER_ID)
+    } catch (error) {
+      caught = error
+    }
+    consoleSpy.mockRestore()
+
+    expect(caught).toBeInstanceOf(DatabaseError)
+    expect(caught).toMatchObject({
+      operation: 'getCustomerUnscheduledPickupCount',
+      cause: driverError,
+    })
   })
 })

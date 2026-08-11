@@ -3,8 +3,7 @@
 import { useTransition, useMemo } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
-import { formatPoTotal } from '@/components/shared/qtyGridValues'
-import PickupStatusBadge from '@/components/pickups/PickupStatusBadge'
+import { PickupsTable } from './PickupHistoryParts'
 import type { CustomerPickupRow, CustomerPickupsWindow } from '@/db/queries/pickups'
 
 const WINDOWS: CustomerPickupsWindow[] = ['1M', '3M', '6M', '1Y', 'YTD']
@@ -25,6 +24,10 @@ const TAB_TRANSITION_SECONDS = 0.15
 interface PickupHistoryProps {
   pickups: CustomerPickupRow[]
   window: CustomerPickupsWindow
+  // Total undated open pickups for this customer. Not window-scoped and not
+  // derivable from `pickups` — every window excludes a NULL date — so it is the
+  // same number on every tab.
+  unscheduledCount: number
 }
 
 function buildTabContentVariants(shouldReduceMotion: boolean | null) {
@@ -78,65 +81,27 @@ function WindowTabs({
   )
 }
 
-function PickupRowItem({ pickup }: { pickup: CustomerPickupRow }) {
-  const router = useRouter()
-  const goToPickup = () => router.push(`/pickups?id=${pickup.id}`)
-  return (
-    <tr
-      role="link"
-      tabIndex={0}
-      aria-label={
-        pickup.pickup_date ? `View pickup on ${pickup.pickup_date}` : 'View pickup'
-      }
-      onClick={goToPickup}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          goToPickup()
-        }
-      }}
-      className="border-b border-border last:border-0 cursor-pointer transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-    >
-      <td className="py-3 px-3 text-sm text-secondary">{pickup.pickup_date ?? '—'}</td>
-      <td className="py-3 px-3 text-sm text-foreground tabular-nums text-right">
-        {formatPoTotal(pickup.qty_275)}
-      </td>
-      <td className="py-3 px-3 text-sm text-foreground tabular-nums text-right">
-        {formatPoTotal(pickup.qty_330)}
-      </td>
-      <td className="py-3 px-3 text-sm">
-        <PickupStatusBadge status={pickup.status} size="sm" />
-      </td>
-    </tr>
-  )
-}
+// The undated-pickup note. `text-muted-foreground` is the palette's quietest
+// text — the same token the table's column labels and empty state already use,
+// one step back from the heading's `text-secondary`. Weight and case are reset
+// so the suffix reads as an aside to the heading rather than part of it. No
+// badge, pill, accent or icon: this is a fact, not an alert.
+const UNSCHEDULED_NOTE_CLASS =
+  'font-normal normal-case tracking-normal text-muted-foreground'
 
-function PickupsTable({ pickups }: { pickups: CustomerPickupRow[] }) {
-  if (pickups.length === 0) {
-    return (
-      <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-        No pickups in this window.
-      </div>
-    )
-  }
+function PickupHistoryHeading({ unscheduledCount }: { unscheduledCount: number }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="text-xs uppercase tracking-wide text-muted-foreground border-b border-border">
-            <th className="py-2 px-3 font-medium">Date</th>
-            <th className="py-2 px-3 font-medium text-right">275</th>
-            <th className="py-2 px-3 font-medium text-right">330</th>
-            <th className="py-2 px-3 font-medium">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {pickups.map((pickup) => (
-            <PickupRowItem key={pickup.id} pickup={pickup} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <h3 className="text-sm font-semibold uppercase tracking-wide text-secondary">
+      Pickup History
+      {/* Explicit space: JSX drops the newline between the title and the span,
+          which would run the two together in the accessible name. */}
+      {unscheduledCount > 0 && (
+        <>
+          {' '}
+          <span className={UNSCHEDULED_NOTE_CLASS}>· {unscheduledCount} unscheduled</span>
+        </>
+      )}
+    </h3>
   )
 }
 
@@ -147,8 +112,17 @@ function PickupsTable({ pickups }: { pickups: CustomerPickupRow[] }) {
  * drives nor is driven by Order History's `?window=`; switching tabs calls
  * `router.push` inside a transition so the server re-renders the pickup list
  * without blocking the UI. Rows link to `/pickups?id=…`.
+ *
+ * The row list is date-filtered by the window, which by definition excludes
+ * pickups with no date. Those are reported quietly in the heading instead —
+ * `Pickup History · N unscheduled` — so a customer whose pickups are all
+ * undated no longer reads as a customer with no pickups at all.
  */
-export default function PickupHistory({ pickups, window }: PickupHistoryProps) {
+export default function PickupHistory({
+  pickups,
+  window,
+  unscheduledCount,
+}: PickupHistoryProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -168,9 +142,7 @@ export default function PickupHistory({ pickups, window }: PickupHistoryProps) {
   return (
     <section aria-label="Pickup history" className="bg-card rounded-xl border border-border p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-secondary">
-          Pickup History
-        </h3>
+        <PickupHistoryHeading unscheduledCount={unscheduledCount} />
       </div>
       <WindowTabs window={window} onChange={handleChange} isPending={isPending} />
       <div className={`mt-3 transition-opacity ${isPending ? 'opacity-60' : 'opacity-100'}`}>

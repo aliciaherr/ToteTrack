@@ -119,6 +119,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -134,6 +135,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -155,6 +157,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -170,6 +173,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -191,6 +195,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -229,6 +234,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -256,6 +262,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,
@@ -279,6 +286,7 @@ describe('CustomerDetail', () => {
         window="1M"
         pickups={samplePickups}
         pickupWindow="1M"
+        unscheduledPickupCount={0}
         volumeOverview={emptyVolume}
         onEdit={vi.fn()}
       />,

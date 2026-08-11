@@ -47,6 +47,7 @@ const baseProps = {
   window: '1M' as const,
   pickups: [],
   pickupWindow: '1M' as const,
+  unscheduledPickupCount: 0,
   volumeOverview: EMPTY_VOLUME_OVERVIEW,
 }
 

@@ -21,6 +21,7 @@ interface CustomerDetailProps {
   window: CustomerOrdersWindow
   pickups: CustomerPickupRow[]
   pickupWindow: CustomerPickupsWindow
+  unscheduledPickupCount: number
   volumeOverview: VolumeOverviewData
   onEdit: () => void
 }
@@ -109,6 +110,7 @@ export default function CustomerDetail({
   window,
   pickups,
   pickupWindow,
+  unscheduledPickupCount,
   volumeOverview,
   onEdit,
 }: CustomerDetailProps) {
@@ -134,7 +136,11 @@ export default function CustomerDetail({
           so folding them in would corrupt the per-PO averages. */}
       <VolumeOverview data={volumeOverview} />
       <OrderHistory orders={orders} window={window} />
-      <PickupHistory pickups={pickups} window={pickupWindow} />
+      <PickupHistory
+        pickups={pickups}
+        window={pickupWindow}
+        unscheduledCount={unscheduledPickupCount}
+      />
     </div>
   )
 }

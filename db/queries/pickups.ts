@@ -184,8 +184,9 @@ export async function getPickupDetail(pickupId: string): Promise<PickupDetail> {
 // lower-bound date, newest first. `pickup_date >= startDate` also excludes
 // undated (unscheduled) pickups, exactly as the orders query excludes orders
 // with no requested delivery date — a history panel lists what has a date on
-// it. Unscheduled pickups surface on the Pickups tab and, from Task 80, in the
-// calendar's unscheduled callout.
+// it. Unscheduled pickups surface on the Pickups tab, in the header count from
+// `getCustomerUnscheduledPickupCount`, and from Task 80 in the calendar's
+// unscheduled callout — never as a dateless row in this list.
 function buildCustomerPickupsQuery(customerId: string, startDate: string): SQL {
   return sql`
     SELECT
@@ -199,6 +200,61 @@ function buildCustomerPickupsQuery(customerId: string, startDate: string): SQL {
       AND p.pickup_date >= ${startDate}
     ORDER BY p.pickup_date DESC NULLS LAST
   `
+}
+
+// A pickup is "unscheduled" only while it is still waiting for a date: no date
+// AND still open. A cancelled or completed pickup with no date is closed, not
+// pending, and counting it would tell the salesperson to chase work that is
+// already off the board.
+const UNSCHEDULED_PICKUP_STATUS: PickupStatus = 'scheduled'
+
+// Counts the undated-but-open pickups `buildCustomerPickupsQuery` cannot show:
+// `pickup_date >= startDate` is never true for a NULL date, so the history
+// panel's rows can be empty while the customer has pending collections.
+//
+// Deliberately its own round trip rather than a column on the row query. An
+// undated pickup has no date to compare a window against, so the number is the
+// same on every tab; folding it into the row query as a window function would
+// also return nothing in exactly the case that matters — zero rows in the
+// window, which is when the count is the only thing left to render.
+function buildCustomerUnscheduledPickupCountQuery(customerId: string): SQL {
+  return sql`
+    SELECT COUNT(*)::int AS count
+    FROM pickups p
+    WHERE p.customer_id = ${customerId}
+      AND p.pickup_date IS NULL
+      AND p.status = ${UNSCHEDULED_PICKUP_STATUS}
+  `
+}
+
+/**
+ * Counts a customer's pickups that are still open but carry no date, for the
+ * quiet `· N unscheduled` suffix on the Pickup History header. Not
+ * window-filtered — an undated pickup falls outside every window, so the count
+ * is identical on all five tabs.
+ *
+ * @param customerId The customer whose unscheduled pickups to count.
+ * @returns The count, or `0` when the customer has none.
+ * @throws {DatabaseError} when the underlying SQL query fails.
+ */
+export async function getCustomerUnscheduledPickupCount(
+  customerId: string,
+): Promise<number> {
+  try {
+    const result = await db.execute(buildCustomerUnscheduledPickupCountQuery(customerId))
+    return (result as unknown as { count: number }[])[0]?.count ?? 0
+  } catch (cause) {
+    console.error('getCustomerUnscheduledPickupCount: query failed', {
+      operation: 'getCustomerUnscheduledPickupCount',
+      customerId,
+      cause,
+    })
+    throw new DatabaseError(
+      'getCustomerUnscheduledPickupCount',
+      'Failed to count unscheduled pickups',
+      { cause },
+    )
+  }
 }
 
 /**

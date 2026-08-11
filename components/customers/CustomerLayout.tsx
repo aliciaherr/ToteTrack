@@ -30,6 +30,7 @@ interface CustomerLayoutProps {
   window: CustomerOrdersWindow
   pickups: CustomerPickupRow[]
   pickupWindow: CustomerPickupsWindow
+  unscheduledPickupCount: number
   volumeOverview: VolumeOverview
   initialMode?: CustomerLayoutInitialMode
 }
@@ -54,6 +55,7 @@ export default function CustomerLayout({
   window,
   pickups,
   pickupWindow,
+  unscheduledPickupCount,
   volumeOverview,
   initialMode = 'detail',
 }: CustomerLayoutProps) {
@@ -112,6 +114,7 @@ export default function CustomerLayout({
         window={window}
         pickups={pickups}
         pickupWindow={pickupWindow}
+        unscheduledPickupCount={unscheduledPickupCount}
         volumeOverview={volumeOverview}
         onEdit={openEditCustomer}
       />

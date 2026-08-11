@@ -63,7 +63,7 @@ beforeEach(() => {
 
 describe('PickupHistory', () => {
   it('renders rows for the selected window', () => {
-    render(<PickupHistory pickups={samplePickups} window="3M" />)
+    render(<PickupHistory pickups={samplePickups} window="3M" unscheduledCount={0} />)
 
     expect(screen.getByRole('heading', { name: /pickup history/i })).toBeInTheDocument()
     expect(screen.getByText('2026-05-01')).toBeInTheDocument()
@@ -79,14 +79,14 @@ describe('PickupHistory', () => {
   })
 
   it('empty state when the customer has none', () => {
-    render(<PickupHistory pickups={[]} window="1M" />)
+    render(<PickupHistory pickups={[]} window="1M" unscheduledCount={0} />)
 
     expect(screen.getByText(/no pickups in this window/i)).toBeInTheDocument()
     expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('links a row to the pickups tab by id', () => {
-    render(<PickupHistory pickups={samplePickups} window="3M" />)
+    render(<PickupHistory pickups={samplePickups} window="3M" unscheduledCount={0} />)
 
     fireEvent.click(screen.getByRole('link', { name: 'View pickup on 2026-05-01' }))
 
@@ -96,7 +96,7 @@ describe('PickupHistory', () => {
   })
 
   it('writes ?pwindow= on a tab change and leaves Order History\'s ?window= alone', () => {
-    render(<PickupHistory pickups={samplePickups} window="1M" />)
+    render(<PickupHistory pickups={samplePickups} window="1M" unscheduledCount={0} />)
 
     fireEvent.click(screen.getByRole('tab', { name: '1Y' }))
 
@@ -109,8 +109,42 @@ describe('PickupHistory', () => {
     expect(params.get('id')).toBe('abc')
   })
 
+  it('notes the unscheduled count in the heading when there is one', () => {
+    render(<PickupHistory pickups={samplePickups} window="3M" unscheduledCount={3} />)
+
+    const heading = screen.getByRole('heading', { name: /pickup history/i })
+    expect(heading).toHaveTextContent('Pickup History · 3 unscheduled')
+
+    // Quiet by construction: the palette's muted token, no weight bump, and
+    // none of the badge/pill/accent chrome that would read as an alert.
+    const note = screen.getByText('· 3 unscheduled')
+    expect(note.className).toContain('text-muted-foreground')
+    expect(note.className).toContain('font-normal')
+    expect(note.className).not.toMatch(/bg-|rounded|font-semibold|font-bold|text-primary/)
+  })
+
+  it('omits the suffix entirely when nothing is unscheduled', () => {
+    render(<PickupHistory pickups={samplePickups} window="3M" unscheduledCount={0} />)
+
+    const heading = screen.getByRole('heading', { name: /pickup history/i })
+    expect(heading.textContent).toBe('Pickup History')
+    expect(screen.queryByText(/unscheduled/i)).toBeNull()
+  })
+
+  it('shows the count without adding a dateless row to the table', () => {
+    // The count is not window-scoped and never becomes a row — the list stays
+    // exactly what `getCustomerPickups` returned for the active window.
+    render(<PickupHistory pickups={[]} window="1M" unscheduledCount={2} />)
+
+    expect(screen.getByText(/no pickups in this window/i)).toBeInTheDocument()
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(
+      screen.getByRole('heading', { name: /pickup history/i }),
+    ).toHaveTextContent('· 2 unscheduled')
+  })
+
   it('uses an underline layoutId of its own, not Order History\'s', () => {
-    render(<PickupHistory pickups={samplePickups} window="1M" />)
+    render(<PickupHistory pickups={samplePickups} window="1M" unscheduledCount={0} />)
 
     const underline = document.querySelector('[data-layout-id]')
     expect(underline?.getAttribute('data-layout-id')).toBe('pickup-history-underline')

@@ -6,6 +6,7 @@ const mockGetCustomerDetail = vi.hoisted(() => vi.fn())
 const mockGetCustomerOrders = vi.hoisted(() => vi.fn())
 const mockGetCustomerVolumeOverview = vi.hoisted(() => vi.fn())
 const mockGetCustomerPickups = vi.hoisted(() => vi.fn())
+const mockGetCustomerUnscheduledPickupCount = vi.hoisted(() => vi.fn())
 
 // Hoisted alongside the mocks — `vi.mock` factories run before module-scope
 // consts are initialised, so a plain const here is a TDZ error.
@@ -24,6 +25,7 @@ vi.mock('@/db/queries/customers', () => ({
 
 vi.mock('@/db/queries/pickups', () => ({
   getCustomerPickups: mockGetCustomerPickups,
+  getCustomerUnscheduledPickupCount: mockGetCustomerUnscheduledPickupCount,
 }))
 
 vi.mock('@/components/shell/PageTransition', () => ({
@@ -35,16 +37,19 @@ vi.mock('@/components/customers/CustomerLayout', () => ({
     window,
     pickupWindow,
     pickups,
+    unscheduledPickupCount,
   }: {
     window: string
     pickupWindow: string
     pickups: unknown[]
+    unscheduledPickupCount: number
   }) => (
     <div
       data-testid="customer-layout"
       data-window={window}
       data-pickup-window={pickupWindow}
       data-pickup-count={pickups.length}
+      data-unscheduled-count={unscheduledPickupCount}
     />
   ),
 }))
@@ -60,6 +65,7 @@ beforeEach(() => {
   mockGetCustomerOrders.mockResolvedValue([])
   mockGetCustomerVolumeOverview.mockResolvedValue(EMPTY_VOLUME_OVERVIEW)
   mockGetCustomerPickups.mockResolvedValue([])
+  mockGetCustomerUnscheduledPickupCount.mockResolvedValue(0)
 })
 
 async function renderPage(
@@ -110,12 +116,25 @@ describe('app/(app)/customers/page — ?pwindow= boundary validation', () => {
     const layout = await renderPage({ pwindow: '3M' })
 
     expect(mockGetCustomerPickups).not.toHaveBeenCalled()
+    expect(mockGetCustomerUnscheduledPickupCount).not.toHaveBeenCalled()
     expect(layout.getAttribute('data-pickup-count')).toBe('0')
+    expect(layout.getAttribute('data-unscheduled-count')).toBe('0')
   })
 
   it('never queries pickups for a malformed uuid id param', async () => {
     await renderPage({ id: 'not-a-uuid', pwindow: '3M' })
 
     expect(mockGetCustomerPickups).not.toHaveBeenCalled()
+    expect(mockGetCustomerUnscheduledPickupCount).not.toHaveBeenCalled()
+  })
+
+  it('counts unscheduled pickups per customer, never per window', async () => {
+    mockGetCustomerUnscheduledPickupCount.mockResolvedValue(4)
+    const layout = await renderPage({ id: VALID_UUID, pwindow: '1Y' })
+
+    // Only the validated uuid crosses the boundary — the window is not an
+    // argument, so the same number renders on every tab.
+    expect(mockGetCustomerUnscheduledPickupCount).toHaveBeenCalledWith(VALID_UUID)
+    expect(layout.getAttribute('data-unscheduled-count')).toBe('4')
   })
 })

@@ -13,6 +13,7 @@ import {
 } from '@/db/queries/customers'
 import {
   getCustomerPickups,
+  getCustomerUnscheduledPickupCount,
   type CustomerPickupRow,
   type CustomerPickupsWindow,
 } from '@/db/queries/pickups'
@@ -78,6 +79,9 @@ interface DetailResult {
   detail: CustomerDetail | null
   orders: CustomerOrderRow[]
   pickups: CustomerPickupRow[]
+  // Undated open pickups. Not a subset of `pickups` — those are window-filtered
+  // and every window excludes a NULL date — so it travels as its own number.
+  unscheduledPickupCount: number
   volumeOverview: VolumeOverview
 }
 
@@ -85,6 +89,7 @@ const EMPTY_DETAIL_RESULT: DetailResult = {
   detail: null,
   orders: [],
   pickups: [],
+  unscheduledPickupCount: 0,
   volumeOverview: EMPTY_VOLUME_OVERVIEW,
 }
 
@@ -94,13 +99,17 @@ async function loadCustomerDetail(
   pickupWindow: CustomerPickupsWindow,
 ): Promise<DetailResult> {
   try {
-    const [detail, orders, pickups, volumeOverview] = await Promise.all([
-      getCustomerDetail(customerId),
-      getCustomerOrders(customerId, window),
-      getCustomerPickups(customerId, pickupWindow),
-      getCustomerVolumeOverview(customerId),
-    ])
-    return { detail, orders, pickups, volumeOverview }
+    const [detail, orders, pickups, unscheduledPickupCount, volumeOverview] =
+      await Promise.all([
+        getCustomerDetail(customerId),
+        getCustomerOrders(customerId, window),
+        getCustomerPickups(customerId, pickupWindow),
+        // Rides the existing parallel batch rather than a client fetch: no extra
+        // wall-clock cost, no client JS, and the number is already server-side.
+        getCustomerUnscheduledPickupCount(customerId),
+        getCustomerVolumeOverview(customerId),
+      ])
+    return { detail, orders, pickups, unscheduledPickupCount, volumeOverview }
   } catch (error) {
     // Stale or deleted id is not a server error — surface as "no selection".
     // Other errors (DatabaseError) bubble to the Next.js error boundary.
@@ -151,6 +160,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         window={window}
         pickups={detailResult.pickups}
         pickupWindow={pickupWindow}
+        unscheduledPickupCount={detailResult.unscheduledPickupCount}
         volumeOverview={detailResult.volumeOverview}
         initialMode={initialMode}
       />
