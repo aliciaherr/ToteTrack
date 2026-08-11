@@ -44,6 +44,47 @@ export function useArmMode(): ArmModeValue {
 }
 
 /**
+ * Owns the post-placement "flying" marker: which card id should animate as a
+ * layout flight, and the timer that clears it after {@link FLY_RESET_MS}.
+ *
+ * Extracted from `useArmModeState` so that hook stays inside CQ-01's 50-line
+ * cap — CONSTRAINT-14's 80-line allowance covers JSX-dominant components, and
+ * explicitly not hooks. Behaviour is unchanged: reduced motion still
+ * short-circuits before any state is written, a second placement still cancels
+ * the in-flight timer before re-arming it, and the timer is still cleared on
+ * unmount.
+ *
+ * @param shouldReduceMotion Disables the marker entirely — no state, no timer.
+ * @returns The currently-flying card id (null when none) and the marker setter.
+ */
+function useFlightTimer(shouldReduceMotion: boolean) {
+  const [flyingId, setFlyingId] = useState<string | null>(null)
+  const flyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (flyTimerRef.current !== null) clearTimeout(flyTimerRef.current)
+    },
+    [],
+  )
+
+  const beginFlight = useCallback(
+    (cardId: string) => {
+      if (shouldReduceMotion) return
+      if (flyTimerRef.current !== null) clearTimeout(flyTimerRef.current)
+      setFlyingId(cardId)
+      flyTimerRef.current = setTimeout(() => {
+        flyTimerRef.current = null
+        setFlyingId(null)
+      }, FLY_RESET_MS)
+    },
+    [shouldReduceMotion],
+  )
+
+  return { flyingId, beginFlight }
+}
+
+/**
  * Owns Task 68's long-press-to-arm state: which card is armed, and what a tap
  * does while one is.
  *
@@ -75,31 +116,10 @@ export function useArmModeState(
   shouldReduceMotion: boolean,
 ): ArmModeValue {
   const [armed, setArmed] = useState<ArmedCard | null>(null)
-  const [flyingId, setFlyingId] = useState<string | null>(null)
-  const flyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(
-    () => () => {
-      if (flyTimerRef.current !== null) clearTimeout(flyTimerRef.current)
-    },
-    [],
-  )
+  const { flyingId, beginFlight } = useFlightTimer(shouldReduceMotion)
 
   const arm = useCallback((card: ArmedCard) => setArmed(card), [])
   const cancel = useCallback(() => setArmed(null), [])
-
-  const beginFlight = useCallback(
-    (cardId: string) => {
-      if (shouldReduceMotion) return
-      if (flyTimerRef.current !== null) clearTimeout(flyTimerRef.current)
-      setFlyingId(cardId)
-      flyTimerRef.current = setTimeout(() => {
-        flyTimerRef.current = null
-        setFlyingId(null)
-      }, FLY_RESET_MS)
-    },
-    [shouldReduceMotion],
-  )
 
   const tap = useCallback(
     (target: TapTarget) => {

@@ -10,14 +10,6 @@ import {
 import type { QtyGridValues, UnitPriceValues } from '@/components/shared/qtyGridValues'
 
 /**
- * Shared Tailwind class string for every text/number/date input across the
- * order form. Extracted so sub-components stay visually identical without
- * copy-pasting the class list.
- */
-export const FORM_INPUT_CLASS =
-  'w-full h-11 px-3 text-sm rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-ring'
-
-/**
  * Form values shape. The 6 quantity cells are stored as numbers (not strings)
  * because QtyGrid is a controlled numeric component — bridging through a
  * string round-trip would just re-parse on every keystroke. The 6 per-combo

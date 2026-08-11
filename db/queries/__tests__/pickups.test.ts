@@ -99,7 +99,14 @@ describe('getPickups', () => {
 
   it('a driver rejection throws DatabaseError', async () => {
     const driverError = new Error('connection terminated')
-    mockExecute.mockRejectedValue(driverError)
+    // `mockRejectedValueOnce`, not the persistent form: `beforeEach` runs only
+    // `vi.clearAllMocks()`, which clears calls but not implementations, so a
+    // persistent rejection would stay armed for the rest of the file — and
+    // more tests follow this one. Several sibling suites (`invoices.test.ts`,
+    // `production-widget.test.ts`, `support.test.ts`) still use the persistent
+    // form; it is harmless there only because each is the last test in its
+    // file, which is a fact about ordering rather than a safe pattern.
+    mockExecute.mockRejectedValueOnce(driverError)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     let caught: unknown

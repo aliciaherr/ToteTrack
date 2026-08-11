@@ -12,11 +12,15 @@ import {
 import { createPickup, updatePickup } from '@/lib/actions/pickups'
 import { useToast } from '@/lib/hooks/useToast'
 import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
+import { useMruAddressPreselect } from '@/components/shared/useMruAddressPreselect'
 import type { PickupDetail } from '@/db/queries/pickups'
+import type { CustomerSelectOption } from '@/db/queries/customers'
 
 interface PickupFormOptions {
   mode: 'create' | 'edit'
   initialDetail?: PickupDetail | null
+  /** Active customers, each carrying its saved addresses for the picker. */
+  customers: CustomerSelectOption[]
   lockedCustomerId: string | null
   /** `yyyy-MM-dd` pre-filled into the date field in create mode. */
   initialPickupDate?: string | null
@@ -89,14 +93,22 @@ function makeSubmitHandler(deps: SubmitDeps) {
 /**
  * Form state and submit flow behind `PickupForm`. Wires react-hook-form to the
  * module-level submit factory above and owns the two error channels.
- * @param options Mode, the edit-mode detail row, the locked customer id from a
- *   `?customerId=` deep link, and the parent's post-save callback.
+ * Also runs the shared MRU address pre-selection, the same way `useOrderForm`
+ * does: changing customer resets the address selection and pre-selects the new
+ * customer's most-recently-used address. That reset is what keeps a previous
+ * customer's `address_id` from riding along into the submit, where the server's
+ * SEC-03 ownership gate would reject it.
+ *
+ * @param options Mode, the edit-mode detail row, the customer list, the locked
+ *   customer id from a `?customerId=` deep link, and the parent's post-save
+ *   callback.
  * @returns The react-hook-form instance, the submit handler, both error
  *   channels (`serverError` for action failures, `qtyError` for the
  *   cross-field quantity rule) and whether the form is in edit mode.
  */
 export function usePickupForm(options: PickupFormOptions) {
-  const { mode, initialDetail, lockedCustomerId, initialPickupDate, onSaved } = options
+  const { mode, initialDetail, customers, lockedCustomerId, initialPickupDate, onSaved } =
+    options
   const { toast } = useToast()
   const [serverError, setServerError] = useState<string | null>(null)
   const [qtyError, setQtyError] = useState<string | null>(null)
@@ -106,6 +118,14 @@ export function usePickupForm(options: PickupFormOptions) {
   const form = useForm<PickupFormValues>({
     defaultValues: detailToPickupFormValues(initialDetail, lockedCustomerId, initialPickupDate),
     mode: 'onSubmit',
+  })
+
+  useMruAddressPreselect({
+    customerId: form.watch('customer_id'),
+    customers,
+    mode,
+    setAddress: (value) => form.setValue('address', value),
+    setAddressId: (value) => form.setValue('address_id', value),
   })
 
   const onSubmit = makeSubmitHandler({

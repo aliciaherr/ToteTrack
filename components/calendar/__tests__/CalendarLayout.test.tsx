@@ -646,6 +646,27 @@ describe('CalendarLayout — Add Purchase Order from a day column', () => {
     ).toBeInTheDocument()
   })
 
+  it('places the chosen undated order on the clicked day, at the end of that list', () => {
+    renderLayout({
+      rows: [makeRow({ id: 'placed', production_date: ANCHOR_FRIDAY })],
+      unscheduled: [makeRow({ id: 'u1', po_number: 'PO-2000', production_date: null })],
+      pickups: [makePickup({ id: 'p1', pickup_date: ANCHOR_FRIDAY })],
+    })
+
+    const menu = openDayMenu(ANCHOR_FRIDAY)
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /PO-2000/ }))
+
+    // Index 1 — the count of *orders* already on Friday, never the two lists
+    // combined (CONSTRAINT-25); a pickup sits on that day too, and counting it
+    // would open a gap in the orders sequence.
+    expect(mockSetProductionPlacement).toHaveBeenCalledWith('u1', {
+      group: 'order',
+      productionDate: ANCHOR_FRIDAY,
+      sortIndex: 1,
+    })
+    expect(mockSetPickupPlacement).not.toHaveBeenCalled()
+  })
+
   it('places the chosen undated pickup on the clicked day, at the end of that list', () => {
     renderLayout({
       pickups: [makePickup({ id: 'placed', pickup_date: ANCHOR_FRIDAY })],

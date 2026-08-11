@@ -41,6 +41,28 @@ function requireAtLeastOneQty(data: PickupQuantities, ctx: z.RefinementCtx) {
   }
 }
 
+// CONSTRAINT-21 makes the pickup row's `address` a text SNAPSHOT and
+// `address_id` pure address-book bookkeeping. An id without text is therefore
+// a self-contradicting pair: `recordDeliveryAddressUsage` would take its
+// id branch and bump that saved address's `last_used_at` while the pickup row
+// records no address at all. Reject the state at the boundary instead of
+// letting the action silently drop the id — same idiom, same reason, as
+// `requireDeliveryAddressWhenNotCollected` on the orders side. The picker
+// cannot produce it (it writes text and id together), so this is defence in
+// depth against a hand-rolled submit.
+function requirePickedAddressText(
+  data: { address?: string | null; address_id?: string | null },
+  ctx: z.RefinementCtx,
+) {
+  if (data.address_id && (data.address ?? '').trim() === '') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['address'],
+      message: 'Collection address text is required when a saved address is selected.',
+    })
+  }
+}
+
 const pickupBaseSchema = z.object({
   customer_id: z.string().regex(UUID_RE, 'Please choose a customer.'),
   qty_275: qtySchema,
@@ -64,11 +86,29 @@ const pickupBaseSchema = z.object({
 // (no PO number to make unique, no initial status to choose, no price to
 // derive), so the two schemas are the base plus the same quantity invariant.
 // They stay separate names so a future divergence has somewhere to land.
-export const createPickupInputSchema = pickupBaseSchema.superRefine(requireAtLeastOneQty)
+export const createPickupInputSchema = pickupBaseSchema
+  .extend({
+    // Id of the saved `customer_addresses` row the salesperson picked from the
+    // address dropdown, so `createPickup` can bump its `last_used_at` instead
+    // of re-upserting identical text. Null/absent when the address was typed
+    // fresh ("+ Add new address") or left blank. Ownership — the row must
+    // belong to `customer_id` — is verified in the action BEFORE the pickup
+    // insert (SEC-03); this schema only guards the shape, exactly as
+    // `createOrderInputSchema` does for `delivery_address_id`.
+    address_id: z
+      .string()
+      .regex(UUID_RE, 'Invalid collection address id.')
+      .nullable()
+      .optional(),
+  })
+  .superRefine(requireAtLeastOneQty)
+  .superRefine(requirePickedAddressText)
 
 // The update schema intentionally has no `status` field. Status transitions
 // are owned exclusively by `updatePickupStatus`; a status key sent to
-// `updatePickup` is not whitelisted here and never reaches the column.
+// `updatePickup` is not whitelisted here and never reaches the column. It also
+// has no `address_id`: edits keep snapshot semantics and never touch the
+// address book, mirroring `updateOrderInputSchema`.
 export const updatePickupInputSchema = pickupBaseSchema.superRefine(requireAtLeastOneQty)
 
 export type CreatePickupInput = z.input<typeof createPickupInputSchema>

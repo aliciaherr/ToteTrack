@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { renderHook, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DndContext, type DragEndEvent } from '@dnd-kit/core'
+import { DndContext, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
 
 const mockSetProductionPlacement = vi.hoisted(() => vi.fn())
 const mockClearProductionPlacement = vi.hoisted(() => vi.fn())
@@ -29,6 +29,7 @@ vi.mock('@/lib/hooks/useToast', () => ({
 }))
 
 import DayColumn from '../DayColumn'
+import { findActiveCard } from '../CalendarDragOverlay'
 import { PickupVisibilityProvider } from '../pickupVisibility'
 import { useProductionPlacement } from '../useProductionPlacement'
 import { useGroupedPlacement, usePickupPlacement } from '../usePickupPlacement'
@@ -261,6 +262,66 @@ describe('resolveDropTarget', () => {
   })
 })
 
+describe('findActiveCard — the fifth enforcement site of the group discriminator', () => {
+  /** Minimal `DragStartEvent` — only the fields `findActiveCard` reads. */
+  function startEvent(activeId: string, activeData: unknown): DragStartEvent {
+    return {
+      active: { id: activeId, data: { current: activeData } },
+    } as unknown as DragStartEvent
+  }
+
+  // The same uuid in both collections. This cannot happen with real data —
+  // `orders` and `pickups` are separate tables with separate uuids — but it is
+  // exactly the collision the overlay's doc comment says it refuses to paper
+  // over, and nothing tested that claim until now.
+  const SHARED_ID = 'collided-uuid'
+
+  it('searches the payload’s own group, not both collections', () => {
+    const card = findActiveCard(
+      startEvent(SHARED_ID, CARD_AT(MONDAY, 0, 'pickup')),
+      [makeRow({ id: SHARED_ID })],
+      [makePickup({ id: SHARED_ID })],
+    )
+
+    // The pickup, never the same-id order — the group picks the list, so the
+    // overlay can never draw an order card for a pickup drag (CONSTRAINT-25).
+    expect(card).toEqual({ group: 'pickup', row: makePickup({ id: SHARED_ID }) })
+  })
+
+  it('resolves an order drag against the orders list for the same id', () => {
+    const card = findActiveCard(
+      startEvent(SHARED_ID, CARD_AT(MONDAY, 0, 'order')),
+      [makeRow({ id: SHARED_ID })],
+      [makePickup({ id: SHARED_ID })],
+    )
+
+    expect(card).toEqual({ group: 'order', row: makeRow({ id: SHARED_ID }) })
+  })
+
+  it('returns null when the id is only in the other group’s list', () => {
+    // Draws nothing rather than reaching across. A found row here would mean
+    // the two tables had colliding uuids, and silently drawing it would hide
+    // that instead of surfacing it as an overlay that never appears.
+    expect(
+      findActiveCard(startEvent('order-1', CARD_AT(MONDAY, 0, 'pickup')), [makeRow()], []),
+    ).toBeNull()
+    expect(
+      findActiveCard(startEvent('pickup-1', CARD_AT(MONDAY, 0, 'order')), [], [makePickup()]),
+    ).toBeNull()
+  })
+
+  it('returns null for a payload carrying no legal group', () => {
+    const noGroup = { type: 'card', dateKey: MONDAY, index: 0 }
+    expect(
+      findActiveCard(startEvent('order-1', noGroup), [makeRow()], [makePickup()]),
+    ).toBeNull()
+    expect(
+      findActiveCard(startEvent('order-1', { ...noGroup, group: 'orders' }), [makeRow()], []),
+    ).toBeNull()
+    expect(findActiveCard(startEvent('order-1', null), [makeRow()], [])).toBeNull()
+  })
+})
+
 describe('droppable id composition', () => {
   it('gives a day’s two lists ids that cannot collide', () => {
     // The orders list is the bare date key; the pickups list is composed. One
@@ -387,7 +448,10 @@ describe('useProductionPlacement', () => {
       })
     })
 
+    // The group travels with the payload so the server can refuse a
+    // pickup-shaped call outright — the mirror of `usePickupPlacement`.
     expect(mockSetProductionPlacement).toHaveBeenCalledWith('order-1', {
+      group: 'order',
       productionDate: TUESDAY,
       sortIndex: 2,
     })
@@ -475,6 +539,7 @@ describe('useGroupedPlacement', () => {
     })
 
     expect(mockSetProductionPlacement).toHaveBeenCalledWith('order-1', {
+      group: 'order',
       productionDate: TUESDAY,
       sortIndex: 1,
     })

@@ -3,8 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import CustomerList from './CustomerList'
-import CustomerDetail, { CustomerDetailEmptyState } from './CustomerDetail'
-import CustomerForm from './CustomerForm'
+import CustomerRightPanel, { type RightPanelMode } from './CustomerRightPanel'
 import DetailDrawer from '@/components/shell/DetailDrawer'
 import type {
   CustomerDetail as CustomerDetailType,
@@ -34,8 +33,6 @@ interface CustomerLayoutProps {
   volumeOverview: VolumeOverview
   initialMode?: CustomerLayoutInitialMode
 }
-
-type RightPanelMode = 'detail' | 'new-customer' | 'edit-customer'
 
 /**
  * Two-panel layout for the Customers screen. The left panel is the
@@ -84,43 +81,6 @@ export default function CustomerLayout({
     if (selectedId) router.push('/customers')
   }, [router, selectedId])
 
-  const renderRightPanel = () => {
-    if (mode === 'new-customer') {
-      return (
-        <CustomerForm
-          mode="create"
-          onClose={closePanel}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
-        />
-      )
-    }
-    if (mode === 'edit-customer' && detail) {
-      return (
-        <CustomerForm
-          mode="edit"
-          initialDetail={detail}
-          onClose={closePanel}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
-        />
-      )
-    }
-    if (!detail) return <CustomerDetailEmptyState />
-    return (
-      <CustomerDetail
-        detail={detail}
-        orders={orders}
-        window={window}
-        pickups={pickups}
-        pickupWindow={pickupWindow}
-        unscheduledPickupCount={unscheduledPickupCount}
-        volumeOverview={volumeOverview}
-        onEdit={openEditCustomer}
-      />
-    )
-  }
-
   return (
     <div className="h-[calc(100svh-0.75rem)] lg:grid lg:grid-cols-[minmax(320px,35%)_1fr] lg:grid-rows-[minmax(0,1fr)]">
       <CustomerList
@@ -136,7 +96,20 @@ export default function CustomerLayout({
         onClose={handleDrawerClose}
         ariaLabel="Customer detail"
       >
-        {renderRightPanel()}
+        <CustomerRightPanel
+          mode={mode}
+          detail={detail}
+          orders={orders}
+          window={window}
+          pickups={pickups}
+          pickupWindow={pickupWindow}
+          unscheduledPickupCount={unscheduledPickupCount}
+          volumeOverview={volumeOverview}
+          onClosePanel={closePanel}
+          onSaved={handleSaved}
+          onDeleted={handleDeleted}
+          onEdit={openEditCustomer}
+        />
       </DetailDrawer>
     </div>
   )

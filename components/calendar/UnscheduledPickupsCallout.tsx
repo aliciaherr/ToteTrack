@@ -1,18 +1,19 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import { useDndMonitor, useDroppable } from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDismissOnOutsideOrEsc } from '@/lib/hooks/useDismissOnOutsideOrEsc'
 import SortablePickupCard from './SortablePickupCard'
 import { useArmMode } from './armMode'
+import { DROPDOWN_MAX_HEIGHT } from './calloutMetrics'
+import { useOpenOnDragOverTarget } from './useOpenOnDragOverTarget'
 import {
   sortableListId,
   UNSCHEDULED_ORIGIN,
   UNSCHEDULED_PICKUPS_DROPPABLE_ID,
   type CalloutDropData,
 } from './calendarDnd'
-import { UNSCHEDULED_DROPDOWN_VISIBLE } from '@/db/queries/calendar.constants'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 interface UnscheduledPickupsCalloutProps {
@@ -25,36 +26,6 @@ interface UnscheduledPickupsCalloutProps {
 // (CONSTRAINT-25): the two pills sit side by side in one header, and without it
 // a mis-aimed drop would unschedule across entities.
 const DROP_DATA: CalloutDropData = { type: 'callout', group: 'pickup' }
-
-// Gap between dropdown cards, in rem, matching the day columns' `space-y-2`.
-const CARD_GAP_REM = 0.5
-// Vertical padding of the dropdown list, in rem (`p-2` top + bottom).
-const LIST_PADDING_REM = 1
-
-/**
- * Height of exactly `UNSCHEDULED_DROPDOWN_VISIBLE` cards plus their gaps and
- * the list's own padding — the same expression the orders callout uses, against
- * `--card-h` so the panel scales with the cards instead of drifting from them.
- */
-const DROPDOWN_MAX_HEIGHT = `calc(var(--card-h) * ${UNSCHEDULED_DROPDOWN_VISIBLE} + ${
-  CARD_GAP_REM * (UNSCHEDULED_DROPDOWN_VISIBLE - 1) + LIST_PADDING_REM
-}rem)`
-
-/**
- * Opens the dropdown while a pickup is dragged over the collapsed pill.
- *
- * Without this the callout is unreachable by drag: the drop zone is the pill
- * itself, a 44px target, and a salesperson aiming at "somewhere in the undated
- * list" has nothing to aim at. The id comparison is what keeps it from opening
- * when an order is dragged over the *other* pill.
- */
-function useOpenOnPickupDragOver(open: () => void) {
-  useDndMonitor({
-    onDragOver(event) {
-      if (event.over?.id === UNSCHEDULED_PICKUPS_DROPPABLE_ID) open()
-    },
-  })
-}
 
 /** The card list. Every entry drags straight out onto a day column. */
 function PickupsDropdown({
@@ -146,7 +117,7 @@ export default function UnscheduledPickupsCallout({
     [close, onSelect],
   )
 
-  useOpenOnPickupDragOver(open)
+  useOpenOnDragOverTarget(UNSCHEDULED_PICKUPS_DROPPABLE_ID, open)
   // The shared dismissal hook rather than a third hand-rolled copy (CQ-07).
   useDismissOnOutsideOrEsc(isExpanded, wrapperRef, close, { pointerEvent: 'pointerdown' })
 

@@ -74,6 +74,8 @@ function FormBody({
 }) {
   const {
     register,
+    watch,
+    setValue,
     formState: { errors },
   } = form
   return (
@@ -90,6 +92,8 @@ function FormBody({
         customers={customers}
         lockedCustomerId={lockedCustomerId}
         register={register}
+        watch={watch}
+        setValue={setValue}
         errors={errors}
         qtyError={qtyError}
       />
@@ -117,6 +121,7 @@ export default function PickupForm({
   const { form, onSubmit, serverError, qtyError, isEdit } = usePickupForm({
     mode,
     initialDetail,
+    customers,
     lockedCustomerId,
     initialPickupDate,
     onSaved,

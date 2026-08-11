@@ -87,7 +87,11 @@ describe('getOrders', () => {
 
   it('throws DatabaseError with cause when the underlying query fails', async () => {
     const driverError = new Error('connection terminated')
-    mockExecute.mockRejectedValue(driverError)
+    // `...Once`, not the persistent form: `beforeEach` runs only
+    // `vi.clearAllMocks()`, which clears calls but not implementations, and
+    // this is not the last test in the file — a persistent rejection would
+    // stay armed for every describe below it (TS-05).
+    mockExecute.mockRejectedValueOnce(driverError)
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     let caught: unknown

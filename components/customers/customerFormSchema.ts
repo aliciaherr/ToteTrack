@@ -1,14 +1,6 @@
 import type { CustomerDetail } from '@/db/queries/customers'
 import type { CustomerInput } from '@/lib/actions/customers'
 
-/**
- * Shared Tailwind class string for every text/number/email input across the
- * customer form. Extracted here to keep the scalar-fields and contact-fields
- * sub-components visually identical without copy-pasting the class list.
- */
-export const FORM_INPUT_CLASS =
-  'w-full h-11 px-3 text-sm rounded-md border border-border bg-card focus:outline-none focus:ring-2 focus:ring-ring'
-
 export interface CustomerContactFormValue {
   id?: string
   name: string

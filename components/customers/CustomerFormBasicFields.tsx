@@ -6,7 +6,8 @@ import {
   type UseFormSetValue,
   type UseFormWatch,
 } from 'react-hook-form'
-import { FORM_INPUT_CLASS, type CustomerFormValues } from './customerFormSchema'
+import { type CustomerFormValues } from './customerFormSchema'
+import { FORM_INPUT_CLASS } from '@/components/shared/formFields'
 
 interface CustomerFormBasicFieldsProps {
   isEdit: boolean

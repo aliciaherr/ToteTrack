@@ -2,11 +2,10 @@
 
 import { useCallback, useState } from 'react'
 import { format } from 'date-fns'
-import { useDroppable } from '@dnd-kit/core'
 import ColumnPickupList from './ColumnPickupList'
 import { ColumnFooter, ColumnListsHidden, ColumnOrderList, DayHeader } from './DayColumnParts'
 import { useCalendarVisibility } from './pickupVisibility'
-import { pickupColumnDroppableId, type ColumnDropData } from './calendarDnd'
+import { useColumnDroppables } from './useColumnDroppables'
 import { DB_DATE_FORMAT } from '@/lib/dates'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
@@ -42,10 +41,11 @@ interface ColumnBodyProps {
  * The column's body: its two card lists, each scrolling inside its own share of
  * the column, or the message shown when both are toggled off.
  *
- * Both lists are `flex-1 min-h-0`, so the height split is decided by the flex
- * chain rather than by any pixel value — one list on takes the whole column,
- * both on take half each, and neither can make the page itself scroll
- * (CONSTRAINT-19). Which lists are drawn comes from the header toggles through
+ * Both lists carry `COLUMN_LIST_FLEX`, so the height split is decided by the
+ * flex chain rather than by any pixel value — one list on grows to the whole
+ * column, both on take an explicit half each whatever their padding, and
+ * neither can make the page itself scroll (CONSTRAINT-19). Which lists are
+ * drawn comes from the header toggles through
  * `pickupVisibility`, which defaults to orders-on / pickups-off (CONSTRAINT-25).
  *
  * Each list gets its **own** droppable ref, and a hidden list mounts neither
@@ -90,15 +90,14 @@ function ColumnBody({
  * dashboard rather than a bolted-on screen.
  *
  * The column takes its height from the viewport through the surrounding flex
- * chain and never sets a pixel height: `flex-1 min-h-0` on the card lists is
+ * chain and never sets a pixel height: `COLUMN_LIST_FLEX` on the card lists is
  * what lets the page stay exactly one viewport tall (CONSTRAINT-19) while a
  * list scrolls internally when a day holds more cards than fit.
  *
- * It registers **two** droppables, one per group (CONSTRAINT-25): the orders
- * list under the bare `dateKey`, and the pickups list under
- * `pickups:${dateKey}`. Two ids rather than one shared column target is what
- * lets collision detection remove the other group's list from the running
- * before a drag preview can open a slot in it.
+ * It registers **two** droppables, one per group (CONSTRAINT-25), through
+ * `useColumnDroppables` — the orders list under the bare `dateKey`, the pickups
+ * list under `pickups:${dateKey}`. See that hook for why two ids rather than one
+ * shared column target.
  *
  * Past days render identically to future ones — a build that already happened
  * is still the record of what was built, and dimming it would make the
@@ -145,23 +144,11 @@ export default function DayColumn({
     [onPickPickup, dateKey],
   )
 
-  // Each list is a drop target in its own right, not only through its cards —
-  // otherwise an empty day could never receive one.
-  const orderDrop: ColumnDropData = { type: 'column', group: 'order', dateKey, cardCount: rows.length }
-  const pickupDrop: ColumnDropData = {
-    type: 'column',
-    group: 'pickup',
+  const { setOrderDropRef, setPickupDropRef, isOver } = useColumnDroppables(
     dateKey,
-    cardCount: pickups.length,
-  }
-  const { setNodeRef: setOrderDropRef, isOver: isOrderOver } = useDroppable({
-    id: dateKey,
-    data: orderDrop,
-  })
-  const { setNodeRef: setPickupDropRef, isOver: isPickupOver } = useDroppable({
-    id: pickupColumnDroppableId(dateKey),
-    data: pickupDrop,
-  })
+    rows.length,
+    pickups.length,
+  )
 
   return (
     <section
@@ -169,7 +156,7 @@ export default function DayColumn({
       data-date={dateKey}
       aria-label={format(date, 'EEEE, MMMM d')}
       className={`day-column w-44 shrink-0 h-full flex flex-col rounded-xl bg-card border overflow-hidden ${
-        isOrderOver || isPickupOver ? 'border-primary' : 'border-border'
+        isOver ? 'border-primary' : 'border-border'
       }`}
     >
       <DayHeader date={date} isToday={isToday} />

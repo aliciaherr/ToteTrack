@@ -1,14 +1,22 @@
 'use client'
 
-import { type FieldErrors, type UseFormRegister } from 'react-hook-form'
-import { FieldRow } from '@/components/orders/OrderFormFields'
-import { FORM_INPUT_CLASS, type PickupFormValues } from './pickupFormSchema'
+import {
+  type FieldErrors,
+  type UseFormRegister,
+  type UseFormSetValue,
+  type UseFormWatch,
+} from 'react-hook-form'
+import { FieldRow, FORM_INPUT_CLASS } from '@/components/shared/formFields'
+import { type PickupFormValues } from './pickupFormSchema'
+import PickupAddressSelect from './PickupAddressSelect'
 import type { CustomerSelectOption } from '@/db/queries/customers'
 
 interface PickupFormFieldsProps {
   customers: CustomerSelectOption[]
   lockedCustomerId: string | null
   register: UseFormRegister<PickupFormValues>
+  watch: UseFormWatch<PickupFormValues>
+  setValue: UseFormSetValue<PickupFormValues>
   errors: FieldErrors<PickupFormValues>
   qtyError: string | null
 }
@@ -110,19 +118,29 @@ function TotalCountFields({
  * PO number, backhaul flag or document — a pickup carries none of them
  * (CONSTRAINT-25).
  *
- * The address is a free-text field rather than the order form's saved-address
- * picker: `AddressSelect` is typed against `OrderFormValues` and its
- * `delivery_address_id` bridge, which a pickup has no column for. A typed
- * address is still remembered — `createPickup` upserts it into the customer's
- * address book through the same `recordDeliveryAddressUsage` path.
+ * The address is the same saved-address picker the order form uses (shared
+ * `AddressSelect`, bound here by `PickupAddressSelect`): choosing a customer
+ * offers that customer's saved addresses as a dropdown with a "+ Add new
+ * address" escape hatch. It sits directly below the customer dropdown, for the
+ * same reason it does on the order form — picking a customer and its address
+ * should be one motion. A typed address is still snapshotted on the row and
+ * remembered: `createPickup` upserts it into the customer's address book
+ * through the same `recordDeliveryAddressUsage` path (CONSTRAINT-21).
  */
 export default function PickupFormFields({
   customers,
   lockedCustomerId,
   register,
+  watch,
+  setValue,
   errors,
   qtyError,
 }: PickupFormFieldsProps) {
+  // The picker only offers the selected customer's saved addresses; no customer
+  // selected yet → empty list → free-text entry, exactly as on the order form.
+  const watchedCustomerId = watch('customer_id')
+  const selectedAddresses =
+    customers.find((customer) => customer.id === watchedCustomerId)?.addresses ?? []
   return (
     <>
       <CustomerDropdown
@@ -130,6 +148,14 @@ export default function PickupFormFields({
         lockedCustomerId={lockedCustomerId}
         register={register}
         error={errors.customer_id?.message}
+      />
+
+      <PickupAddressSelect
+        addresses={selectedAddresses}
+        register={register}
+        watch={watch}
+        setValue={setValue}
+        error={errors.address?.message}
       />
 
       <TotalCountFields register={register} qtyError={qtyError} />
@@ -144,15 +170,6 @@ export default function PickupFormFields({
           type="date"
           {...register('pickup_date')}
           className={FORM_INPUT_CLASS}
-        />
-      </FieldRow>
-
-      <FieldRow label="Collection Address (optional)" htmlFor="address">
-        <textarea
-          id="address"
-          rows={2}
-          {...register('address')}
-          className={`${FORM_INPUT_CLASS} h-auto py-2`}
         />
       </FieldRow>
 

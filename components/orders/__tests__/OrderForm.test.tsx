@@ -18,20 +18,23 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }))
 
-vi.mock('framer-motion', () => ({
-  motion: new Proxy(
-    {},
-    {
-      get:
-        () =>
-        ({ children, ...rest }: { children?: React.ReactNode }) => (
-          <form {...rest}>{children}</form>
-        ),
-    },
-  ),
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useReducedMotion: () => true,
-}))
+// The proxy hands back ONE stable component identity. Minting a fresh function
+// on every property access — which is what an inline `get: () => (props) => …`
+// does — gives React a different element type on every render, so it unmounts
+// and remounts the entire form subtree and wipes any state a child holds.
+// `useForm` sits above `motion.form` and survived that; `useAddressSelect`'s
+// `isCustom` / `initialRef` sit below it and did not. The real `motion.form` is
+// a stable, cached component. Same mock as `pickups/__tests__/PickupForm.test.tsx`.
+vi.mock('framer-motion', () => {
+  const MotionForm = ({ children, ...rest }: { children?: React.ReactNode }) => (
+    <form {...rest}>{children}</form>
+  )
+  return {
+    motion: new Proxy({}, { get: () => MotionForm }),
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    useReducedMotion: () => true,
+  }
+})
 
 import OrderForm from '../OrderForm'
 import type { OrderDetail } from '@/db/queries/orders'
@@ -239,9 +242,13 @@ describe('OrderForm', () => {
     fireEvent.change(screen.getByLabelText(/^Customer$/i), {
       target: { value: customersWithAddresses[0].id },
     })
-    expect(await screen.findByLabelText(/^Delivery Address$/i)).toHaveDisplayValue(
-      '500 MRU Boulevard',
-    )
+    const picker = await screen.findByLabelText(/^Delivery Address$/i)
+    // The tag assertion is the load-bearing half. `toHaveDisplayValue` alone
+    // passes on a *textarea* holding the same text, which `useMruAddressPreselect`
+    // fills in regardless — it never proved `useAddressSelect` re-derived the
+    // entry mode from "no saved addresses" to "dropdown".
+    expect(picker.tagName).toBe('SELECT')
+    expect(picker).toHaveDisplayValue('500 MRU Boulevard')
     // Switching to Beta (no saved addresses) clears it back to an empty textarea.
     fireEvent.change(screen.getByLabelText(/^Customer$/i), {
       target: { value: customersWithAddresses[1].id },

@@ -2,6 +2,7 @@
 
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import SortablePickupCard from './SortablePickupCard'
+import { COLUMN_LIST_FLEX } from './DayColumnParts'
 import { useArmMode } from './armMode'
 import { sortableListId } from './calendarDnd'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
@@ -25,10 +26,14 @@ interface ColumnPickupListProps {
  * the 200-line component cap (CQ-02) — the same reason `DayColumnParts` was
  * split out of `DayColumn`.
  *
- * `flex-1 min-h-0` on both branches, matching the orders list: with both lists
- * on they take half the column each and scroll internally, and with orders off
- * this one takes the whole column. The split falls out of the flex chain, so
- * neither list can force the page itself to scroll (CONSTRAINT-19).
+ * `COLUMN_LIST_FLEX` on both branches, the same class the orders list carries:
+ * with both lists on they take half the column each and scroll internally, and
+ * with orders off this one grows to the whole column. The split falls out of the
+ * flex chain, so neither list can force the page itself to scroll
+ * (CONSTRAINT-19). See that constant for why the basis is an explicit half
+ * rather than `flex-1` — with a zero basis this list's `p-8` empty state was
+ * sizing the split, so a column holding a pickup got a shorter pickups list than
+ * a column whose pickups list was empty.
  *
  * It is a **separate sortable list and a separate droppable** from the orders
  * list above it: `SortableContext` id `pickup:${dateKey}`, droppable id
@@ -64,7 +69,7 @@ export default function ColumnPickupList({
           ref={setDropRef}
           onClick={handleTap}
           data-testid="column-pickups-empty"
-          className={`flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground p-8 text-center ${dividerClass}`}
+          className={`${COLUMN_LIST_FLEX} flex items-center justify-center text-sm text-muted-foreground p-8 text-center ${dividerClass}`}
         >
           No pickups.
         </div>
@@ -73,7 +78,7 @@ export default function ColumnPickupList({
           ref={setDropRef}
           onClick={handleTap}
           data-testid="column-pickups"
-          className={`calendar-scroll flex-1 min-h-0 overflow-y-auto p-2 space-y-2 ${dividerClass}`}
+          className={`calendar-scroll ${COLUMN_LIST_FLEX} overflow-y-auto p-2 space-y-2 ${dividerClass}`}
           role="list"
         >
           {pickups.map((pickup, index) => (

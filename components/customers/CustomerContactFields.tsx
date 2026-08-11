@@ -9,7 +9,8 @@ import {
   type FieldErrors,
 } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { FORM_INPUT_CLASS, type CustomerFormValues } from './customerFormSchema'
+import { type CustomerFormValues } from './customerFormSchema'
+import { FORM_INPUT_CLASS } from '@/components/shared/formFields'
 import { MAX_CONTACTS_PER_CUSTOMER } from '@/lib/actions/customers.constants'
 
 interface CustomerContactFieldsProps {

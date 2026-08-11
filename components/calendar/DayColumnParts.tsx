@@ -12,7 +12,29 @@ import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
 // Presentational pieces of `DayColumn`, split out to keep that file within the
 // 200-line component cap (CQ-02). Same `*Parts` idiom as `OrderDetailParts` and
-// `InvoiceLedgerParts`. Nothing here is exported beyond the column.
+// `InvoiceLedgerParts`. Nothing here is exported beyond the column and its
+// sibling `ColumnPickupList`, which shares the flex class below.
+
+/**
+ * The flex sizing every card-list region in a column carries — both branches of
+ * the orders list here, and both branches of `ColumnPickupList`.
+ *
+ * The basis is written **explicitly as half** rather than `flex-1`
+ * (`flex: 1 1 0%`). With a zero basis and `box-sizing: border-box`, a region's
+ * base size cannot fall below its own padding, so the airy `p-8` empty state
+ * started 48px ahead of a populated `p-2` list and only the leftover was split
+ * evenly — a column with a pickup card gave that list ~24px less than a column
+ * whose pickups list was empty. An explicit `basis-1/2` makes the split
+ * padding-independent and identical in every column.
+ *
+ * `grow` and `shrink` are kept so a single visible list still fills the column
+ * and neither list can push the page past one viewport (CONSTRAINT-19); the two
+ * bases sum to 100%, so no pixel height enters the chain.
+ *
+ * Do not add `flex-1` alongside this — the shorthand would reset the basis to 0
+ * if Tailwind emitted it later in the sheet, which is the bug all over again.
+ */
+export const COLUMN_LIST_FLEX = 'grow shrink basis-1/2 min-h-0'
 
 /**
  * Weekday and date only — deliberately no order count. A count invites the
@@ -94,7 +116,7 @@ export function ColumnOrderList({
         <div
           ref={setDropRef}
           onClick={handleTap}
-          className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground p-8 text-center"
+          className={`${COLUMN_LIST_FLEX} flex items-center justify-center text-sm text-muted-foreground p-8 text-center`}
         >
           Nothing scheduled.
         </div>
@@ -102,7 +124,7 @@ export function ColumnOrderList({
         <ul
           ref={setDropRef}
           onClick={handleTap}
-          className="calendar-scroll flex-1 min-h-0 overflow-y-auto p-2 space-y-2"
+          className={`calendar-scroll ${COLUMN_LIST_FLEX} overflow-y-auto p-2 space-y-2`}
           role="list"
         >
           {rows.map((row, index) => (

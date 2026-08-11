@@ -80,12 +80,17 @@ function revalidateCalendarSurfaces(): void {
  * Weekend dates are rejected — the calendar has no Saturday or Sunday column
  * and nothing downstream re-homes a stored weekend date.
  *
+ * The payload's `group: 'order'` literal is checked server-side, mirroring
+ * `setPickupPlacement` (CONSTRAINT-25): a crossed payload is refused here rather
+ * than relying on the id simply not existing in `orders`.
+ *
  * @param id UUID of the order to place.
- * @param input Target `productionDate` (`yyyy-MM-dd`, weekday) and `sortIndex`.
+ * @param input `group: 'order'`, target `productionDate` (`yyyy-MM-dd`, weekday)
+ * and `sortIndex`.
  * @returns `{ success: true }`, or `{ error }` carrying a user-facing message —
- * not signed in, invalid id, a Zod rejection (weekend, impossible date, out-of-range
- * sort index), a blocked status, or `GENERIC_FAILURE_MESSAGE` when the write
- * itself fails (the real cause is logged, never returned).
+ * not signed in, invalid id, a Zod rejection (crossed group, weekend, impossible
+ * date, out-of-range sort index), a blocked status, or `GENERIC_FAILURE_MESSAGE`
+ * when the write itself fails (the real cause is logged, never returned).
  */
 export async function setProductionPlacement(
   id: string,

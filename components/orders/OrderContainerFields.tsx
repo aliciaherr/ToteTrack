@@ -6,8 +6,8 @@ import {
   type UseFormSetValue,
   type UseFormWatch,
 } from 'react-hook-form'
-import { FORM_INPUT_CLASS, computeFormTotal, type OrderFormValues } from './orderFormSchema'
-import { FieldRow } from './OrderFormFields'
+import { computeFormTotal, type OrderFormValues } from './orderFormSchema'
+import { FieldRow, FORM_INPUT_CLASS } from '@/components/shared/formFields'
 import { QtyGrid } from '@/components/shared/QtyGrid'
 import {
   type QtyGridValues,

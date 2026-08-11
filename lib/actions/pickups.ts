@@ -16,11 +16,16 @@ import {
   type UpdatePickupStatusTarget,
   type ValidatedPickup,
 } from './pickups.validation'
-import { recordDeliveryAddressUsage } from './orders.addresses'
+import {
+  addressBelongsToCustomer,
+  recordDeliveryAddressUsage,
+} from './orders.addresses'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
 const INVALID_PICKUP_ID_MESSAGE = 'Invalid pickup id.'
 const PICKUP_NOT_FOUND_MESSAGE = 'Pickup not found.'
+const ADDRESS_NOT_OWNED_MESSAGE =
+  'Selected collection address does not belong to this customer.'
 
 // Routes a pickup appears on, revalidated on every write: the pickups list,
 // the calendar (the card lands in the column its `pickup_date` names, and
@@ -59,6 +64,38 @@ function buildPickupWriteBase(data: ValidatedPickup) {
   }
 }
 
+// Address-book bookkeeping after a pickup insert: same helper and the same
+// containment rules as `createOrder`. It swallows and logs its own failures
+// because the pickup row is already committed. `customer_collects: false` is
+// the "we travel to an address" case, which is exactly what a pickup is; a
+// null address makes the helper a no-op. A picked saved address bumps its
+// `last_used_at` instead of re-upserting identical text (CONSTRAINT-21) — and
+// `requirePickedAddressText` guarantees an id never arrives without that text,
+// so the bumped row and the stored snapshot can never disagree. Its
+// "did the book change?" return value is deliberately ignored — `/customers`
+// revalidates on every pickup write anyway, because the customer panel also
+// shows Pickup History.
+//
+// Not a `'use server'` export: it lives inside this module and is only ever
+// reached through `createPickup` (CONSTRAINT-24 in spirit — nothing extra gets
+// published to the browser).
+async function rememberPickupAddress(
+  values: ReturnType<typeof buildPickupWriteBase>,
+  addressId: string | null,
+  rowId: string,
+): Promise<void> {
+  await recordDeliveryAddressUsage(
+    {
+      customer_id: values.customer_id,
+      customer_collects: false,
+      delivery_address: values.address,
+      delivery_address_id: addressId,
+    },
+    rowId,
+    'createPickup',
+  )
+}
+
 /**
  * Creates a tote pickup. Validates input server-side via Zod (customer id
  * shape, whole-number quantities within `QUANTITY_MAX`, at least one of
@@ -68,10 +105,13 @@ function buildPickupWriteBase(data: ValidatedPickup) {
  * An address is optional; when one is given it is snapshotted on the pickup
  * row (CONSTRAINT-21 — never an FK) and also upserted into the customer's
  * saved address book through the same `recordDeliveryAddressUsage` path
- * `createOrder` uses.
+ * `createOrder` uses. When the address came from the form's saved-address
+ * dropdown, the optional `address_id` is ownership-checked against the
+ * customer before the insert (SEC-03) and then bumped instead of re-upserted.
  *
- * @param input Pickup data: customer, tote counts, optional date, address and
- *   notes. No price, number or document — a pickup is never billed.
+ * @param input Pickup data: customer, tote counts, optional date, address,
+ *   optional saved-address id and notes. No price, number or document — a
+ *   pickup is never billed.
  * @returns The new pickup id, or a user-facing error message.
  */
 export async function createPickup(
@@ -85,24 +125,18 @@ export async function createPickup(
     const authError = await assertAuthenticated()
     if (authError) return authError
 
+    // SEC-03: a submitted saved-address id must belong to the submitted
+    // customer, checked BEFORE the pickup insert so a forged id fails the
+    // whole create. Reuses `createOrder`'s guard rather than a second copy.
+    const addressId = parsed.data.address_id ?? null
+    if (addressId) {
+      const owned = await addressBelongsToCustomer(addressId, parsed.data.customer_id)
+      if (!owned) return { error: ADDRESS_NOT_OWNED_MESSAGE }
+    }
+
     const values = buildPickupWriteBase(parsed.data)
     const [row] = await db.insert(pickups).values(values).returning({ id: pickups.id })
-    // Address-book bookkeeping, same helper and same containment rules as
-    // `createOrder`: it swallows and logs its own failures because the pickup
-    // row is already committed. `customer_collects: false` is the "we travel
-    // to an address" case, which is exactly what a pickup is; a null address
-    // makes the helper a no-op. Its "did the book change?" return value is
-    // deliberately ignored — `/customers` revalidates on every pickup write
-    // anyway, because the customer panel also shows Pickup History.
-    await recordDeliveryAddressUsage(
-      {
-        customer_id: values.customer_id,
-        customer_collects: false,
-        delivery_address: values.address,
-      },
-      row.id,
-      'createPickup',
-    )
+    await rememberPickupAddress(values, addressId, row.id)
     for (const path of PICKUP_REVALIDATE_PATHS) revalidatePath(path)
     return { id: row.id }
   } catch (cause) {

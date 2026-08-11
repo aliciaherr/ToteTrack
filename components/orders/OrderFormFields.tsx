@@ -6,11 +6,9 @@ import {
   type UseFormSetValue,
   type UseFormWatch,
 } from 'react-hook-form'
-import {
-  FORM_INPUT_CLASS,
-  type OrderFormValues,
-} from './orderFormSchema'
+import { type OrderFormValues } from './orderFormSchema'
 import type { CustomerSelectOption } from '@/db/queries/customers'
+import { FieldRow, FORM_INPUT_CLASS } from '@/components/shared/formFields'
 import AddressSelect from './AddressSelect'
 import OrderContainerFields from './OrderContainerFields'
 import OrderLogisticsFields from './OrderLogisticsFields'
@@ -24,30 +22,6 @@ interface OrderFormFieldsProps {
   setValue: UseFormSetValue<OrderFormValues>
   errors: FieldErrors<OrderFormValues>
   qtyError: string | null
-}
-
-const LABEL_CLASS = 'text-xs uppercase tracking-wide text-muted-foreground'
-
-export function FieldRow({
-  label,
-  htmlFor,
-  error,
-  children,
-}: {
-  label: string
-  htmlFor?: string
-  error?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="space-y-1">
-      <label className={LABEL_CLASS} htmlFor={htmlFor}>
-        {label}
-      </label>
-      {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  )
 }
 
 function CustomerDropdown({

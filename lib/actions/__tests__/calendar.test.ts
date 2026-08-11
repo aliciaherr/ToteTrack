@@ -26,12 +26,18 @@ import {
   toggleBackhaul,
   toggleSameDayDelivery,
 } from '../calendar'
-import { SORT_INDEX_MAX } from '../calendar.validation'
+import {
+  SORT_INDEX_MAX,
+  type SetProductionPlacementInput,
+} from '../calendar.validation'
 
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
 const AUTH_MISSING = { data: { user: null }, error: null }
 
 const ORDER_ID = '11111111-1111-1111-1111-111111111111'
+// A well-formed uuid that belongs to the *pickups* table — used to prove the id
+// check and the group literal are two independent guards.
+const PICKUP_ID = '44444444-4444-4444-4444-444444444444'
 
 // 2026-07-27 is a Monday; 2026-07-25 the Saturday before it.
 const MONDAY = '2026-07-27'
@@ -77,6 +83,7 @@ describe('setProductionPlacement', () => {
     const captured = captureUpdatePayload()
 
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: 2,
     })
@@ -95,6 +102,7 @@ describe('setProductionPlacement', () => {
 
   it('rejects a Saturday date', async () => {
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: SATURDAY,
       sortIndex: 0,
     })
@@ -105,6 +113,7 @@ describe('setProductionPlacement', () => {
 
   it('rejects a Sunday date', async () => {
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: SUNDAY,
       sortIndex: 0,
     })
@@ -115,6 +124,7 @@ describe('setProductionPlacement', () => {
 
   it('rejects an impossible calendar date that still matches the ISO shape', async () => {
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: '2026-02-31',
       sortIndex: 0,
     })
@@ -125,6 +135,7 @@ describe('setProductionPlacement', () => {
 
   it('rejects a sort index above SORT_INDEX_MAX', async () => {
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: SORT_INDEX_MAX + 1,
     })
@@ -137,6 +148,7 @@ describe('setProductionPlacement', () => {
     stubStatus('cancelled')
 
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: 0,
     })
@@ -151,6 +163,7 @@ describe('setProductionPlacement', () => {
     stubStatus(status)
 
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: 0,
     })
@@ -161,6 +174,7 @@ describe('setProductionPlacement', () => {
 
   it('rejects a malformed order id before any DB access', async () => {
     const result = await setProductionPlacement('not-a-uuid', {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: 0,
     })
@@ -177,6 +191,7 @@ describe('setProductionPlacement', () => {
     })
 
     const result = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: 0,
     })
@@ -187,6 +202,49 @@ describe('setProductionPlacement', () => {
       expect.objectContaining({ orderId: ORDER_ID, productionDate: MONDAY }),
     )
     consoleError.mockRestore()
+  })
+})
+
+describe('setProductionPlacement — the group discriminator is a trust boundary', () => {
+  // The mirror of `setPickupPlacement`'s block. Before this literal existed the
+  // order action was the asymmetric half: a crossed payload had its `group`
+  // silently stripped by Zod and accepted, leaving `assertMutable` failing to
+  // find the id as the only guard (T81-L03).
+  it('rejects a payload carrying the pickup group', async () => {
+    const result = await setProductionPlacement(ORDER_ID, {
+      group: 'pickup',
+      productionDate: MONDAY,
+      sortIndex: 0,
+    } as unknown as SetProductionPlacementInput)
+
+    expect(result).toEqual({ error: 'That card is not an order.' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a payload with no group at all', async () => {
+    const result = await setProductionPlacement(ORDER_ID, {
+      productionDate: MONDAY,
+      sortIndex: 0,
+    } as unknown as SetProductionPlacementInput)
+
+    expect(result).toEqual({ error: 'That card is not an order.' })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a pickup id even when the payload claims the order group', async () => {
+    // The second, independent check: orders and pickups are separate tables, so
+    // a pickup id is simply not here and comes back as not-found.
+    stubStatus(null)
+
+    const result = await setProductionPlacement(PICKUP_ID, {
+      group: 'order',
+      productionDate: MONDAY,
+      sortIndex: 0,
+    })
+
+    expect(result).toEqual({ error: 'Order not found.' })
+    expect(mockUpdate).not.toHaveBeenCalled()
   })
 })
 
@@ -342,6 +400,7 @@ describe('authentication', () => {
 
   it('rejects unauthenticated calls before any DB access', async () => {
     const placement = await setProductionPlacement(ORDER_ID, {
+      group: 'order',
       productionDate: MONDAY,
       sortIndex: 0,
     })

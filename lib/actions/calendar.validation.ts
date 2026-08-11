@@ -12,8 +12,21 @@ import { productionDateSchema } from './dates.validation'
  */
 export const SORT_INDEX_MAX = 9_999
 
-/** Payload for `setProductionPlacement` — a day column plus a position in it. */
+/**
+ * Payload for `setProductionPlacement` — a day column plus a position in it.
+ *
+ * **`group` is a validated field, not documentation.** It is the exact mirror of
+ * `setPickupPlacementInputSchema`'s literal, and the two sides must stay
+ * symmetric: the discriminator that keeps orders and pickups apart on the client
+ * (CONSTRAINT-25) is carried across the wire and re-checked here, so a caller
+ * that reuses the *pickup* placement payload — or hand-crafts one — is rejected
+ * by Zod before the action touches the database. Without it a crossed payload
+ * was silently stripped and accepted, leaving `assertMutable` failing to find
+ * the id as the only guard: correct by accident, and only while the two tables
+ * hold no colliding uuid.
+ */
 export const setProductionPlacementInputSchema = z.object({
+  group: z.literal('order', { message: 'That card is not an order.' }),
   productionDate: productionDateSchema,
   sortIndex: z
     .number()

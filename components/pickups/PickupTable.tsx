@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useReducedMotion } from 'framer-motion'
-import { Search } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import PickupStatusTabs from './PickupStatusTabs'
 import PickupRow from './PickupRow'
+import {
+  PickupColumnHeaders,
+  PickupEmptyState,
+  PickupTableHeader,
+} from './PickupTableParts'
 import type { PickupListStatus, PickupTableRow } from '@/db/queries/pickups'
 
 // The list is unbounded (no pagination), so every keystroke would refetch the
@@ -40,32 +42,6 @@ export function buildPickupsHref(
   if (pickupId) params.set('id', pickupId)
   const query = params.toString()
   return query ? `/pickups?${query}` : '/pickups'
-}
-
-function EmptyState({ hasSearch, hasFilter }: { hasSearch: boolean; hasFilter: boolean }) {
-  return (
-    <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-      {hasSearch
-        ? 'No pickups match that search.'
-        : hasFilter
-          ? 'No pickups match this filter.'
-          : 'No pickups yet.'}
-    </div>
-  )
-}
-
-function TableHeader() {
-  return (
-    <thead className="sticky top-0 bg-muted text-xs uppercase tracking-wide text-muted-foreground">
-      <tr>
-        <th scope="col" className="px-4 py-3 text-left font-medium">Customer</th>
-        <th scope="col" className="px-4 py-3 text-right font-medium">275</th>
-        <th scope="col" className="px-4 py-3 text-right font-medium">330</th>
-        <th scope="col" className="px-4 py-3 text-left font-medium">Status</th>
-        <th scope="col" className="px-4 py-3 text-left font-medium">Date</th>
-      </tr>
-    </thead>
-  )
 }
 
 /**
@@ -117,32 +93,13 @@ export default function PickupTable({
 
   return (
     <div className="flex flex-col h-full bg-card">
-      <div className="pl-20 pr-4 pt-4 pb-3 border-b border-border space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-lg font-semibold text-foreground">Tote Pickups</h1>
-          <Button
-            onClick={onNewPickup}
-            className="min-h-[44px]"
-            aria-label="Create new pickup"
-          >
-            + New Pickup
-          </Button>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <PickupStatusTabs status={status} onChange={handleStatusChange} />
-          <div className="relative w-64 max-w-[50%]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="search"
-              defaultValue={search}
-              placeholder="Search customer..."
-              aria-label="Search pickups"
-              onChange={handleSearchChange}
-              className="w-full pl-9 pr-3 h-11 text-sm bg-muted rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-            />
-          </div>
-        </div>
-      </div>
+      <PickupTableHeader
+        status={status}
+        search={search}
+        onNewPickup={onNewPickup}
+        onStatusChange={handleStatusChange}
+        onSearchChange={handleSearchChange}
+      />
 
       <div
         className={`flex-1 overflow-y-auto transition-opacity ${
@@ -150,10 +107,10 @@ export default function PickupTable({
         }`}
       >
         {pickups.length === 0 ? (
-          <EmptyState hasSearch={Boolean(search.trim())} hasFilter={status !== 'all'} />
+          <PickupEmptyState hasSearch={Boolean(search.trim())} hasFilter={status !== 'all'} />
         ) : (
           <table className="w-full border-collapse">
-            <TableHeader />
+            <PickupColumnHeaders />
             <tbody>
               {pickups.map((pickup, index) => (
                 <PickupRow

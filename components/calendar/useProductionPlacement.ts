@@ -76,7 +76,16 @@ export function useProductionPlacement() {
 
   const place = useCallback(
     ({ cardId, dateKey, index }: DropTarget) =>
-      run(() => setProductionPlacement(cardId, { productionDate: dateKey, sortIndex: index })),
+      run(() =>
+        // `group` travels with the payload so the server can reject a
+        // pickup-shaped call outright, rather than relying on the client having
+        // routed correctly — the exact mirror of `usePickupPlacement`.
+        setProductionPlacement(cardId, {
+          group: 'order',
+          productionDate: dateKey,
+          sortIndex: index,
+        }),
+      ),
     [run],
   )
 

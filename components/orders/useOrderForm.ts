@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useForm, type UseFormReturn } from 'react-hook-form'
+import { useMruAddressPreselect as useSharedMruAddressPreselect } from '@/components/shared/useMruAddressPreselect'
 import {
   detailToFormValues,
   firstUnitPriceCouplingError,
@@ -41,33 +42,28 @@ function firstClientValidationError(values: OrderFormValues): string | null {
 }
 
 /**
- * Resets the address selection whenever the salesperson actually changes the
- * customer, then pre-selects the new customer's most-recently-used address —
- * `addresses` arrives MRU-first from `getActiveCustomersForSelect`, so index 0
- * is it (Feature 14; replaces the Feature-4 `useDeliveryAddressAutofill`,
- * which read the now-deprecated `default_delivery_address`). A customer with
- * no saved addresses clears both fields. Edit mode: the guard ref starts at
- * the order's own customer, so mount never overwrites the stored address
- * snapshot — only a real dropdown change re-derives the field. Create mode:
- * the ref starts empty, so a locked-customer deep link pre-selects on mount.
+ * Order-form binding of the shared MRU address pre-selection (Feature 14;
+ * replaces the Feature-4 `useDeliveryAddressAutofill`, which read the
+ * now-deprecated `default_delivery_address`). Maps the order form's
+ * `delivery_address` / `delivery_address_id` onto the shared hook, which the
+ * pickup form binds to its own two fields — see
+ * `components/shared/useMruAddressPreselect` for the reset/pre-select rules.
+ * @param form The order form's react-hook-form instance.
+ * @param mode Create or edit — decides whether mount counts as a change.
+ * @param customers Active customers, each carrying its saved addresses.
  */
 export function useMruAddressPreselect(
   form: UseFormReturn<OrderFormValues>,
   mode: 'create' | 'edit',
   customers: CustomerSelectOption[],
 ) {
-  const watchedCustomerId = form.watch('customer_id')
-  const prevCustomerIdRef = useRef<string | null>(
-    mode === 'edit' ? watchedCustomerId : null,
-  )
-  useEffect(() => {
-    if (prevCustomerIdRef.current === watchedCustomerId) return
-    prevCustomerIdRef.current = watchedCustomerId
-    const picked = customers.find((c) => c.id === watchedCustomerId)
-    const mru = picked?.addresses[0] ?? null
-    form.setValue('delivery_address', mru?.address ?? '')
-    form.setValue('delivery_address_id', mru?.id ?? null)
-  }, [watchedCustomerId, customers, form])
+  useSharedMruAddressPreselect({
+    customerId: form.watch('customer_id'),
+    customers,
+    mode,
+    setAddress: (value) => form.setValue('delivery_address', value),
+    setAddressId: (value) => form.setValue('delivery_address_id', value),
+  })
 }
 
 interface SubmitDeps {

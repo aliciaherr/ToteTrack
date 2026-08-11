@@ -1,15 +1,8 @@
 'use client'
 
-import type {
-  UseFormRegister,
-  UseFormRegisterReturn,
-  UseFormSetValue,
-  UseFormWatch,
-} from 'react-hook-form'
-import { FORM_INPUT_CLASS, type OrderFormValues } from './orderFormSchema'
-import { FieldRow } from './OrderFormFields'
-import { ADD_NEW_VALUE, CURRENT_VALUE, useAddressSelect } from './useAddressSelect'
-import { DELIVERY_ADDRESS_MAX } from '@/lib/actions/orders.validation'
+import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
+import type { OrderFormValues } from './orderFormSchema'
+import SharedAddressSelect from '@/components/shared/AddressSelect'
 import type { CustomerAddressOption } from '@/db/queries/customers'
 
 interface AddressSelectProps {
@@ -22,86 +15,14 @@ interface AddressSelectProps {
   error?: string
 }
 
-function SavedAddressPicker({
-  value,
-  snapshot,
-  addresses,
-  onSelect,
-  error,
-  hiddenInput,
-}: {
-  value: string
-  snapshot: string | null
-  addresses: CustomerAddressOption[]
-  onSelect: (value: string) => void
-  error?: string
-  hiddenInput: React.ReactNode
-}) {
-  return (
-    <FieldRow label="Delivery Address" htmlFor="delivery_address" error={error}>
-      {hiddenInput}
-      <select
-        id="delivery_address"
-        value={value}
-        onChange={(event) => onSelect(event.target.value)}
-        className={FORM_INPUT_CLASS}
-      >
-        {value === '' && <option value="">Select an address…</option>}
-        {snapshot !== null && <option value={CURRENT_VALUE}>Current: {snapshot}</option>}
-        {addresses.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.address}
-          </option>
-        ))}
-        <option value={ADD_NEW_VALUE}>+ Add new address</option>
-      </select>
-    </FieldRow>
-  )
-}
-
-function NewAddressEntry({
-  registered,
-  error,
-  canReturn,
-  onBack,
-}: {
-  registered: UseFormRegisterReturn<'delivery_address'>
-  error?: string
-  canReturn: boolean
-  onBack: () => void
-}) {
-  return (
-    <FieldRow label="Delivery Address" htmlFor="delivery_address" error={error}>
-      <textarea
-        id="delivery_address"
-        rows={2}
-        maxLength={DELIVERY_ADDRESS_MAX}
-        {...registered}
-        className={`${FORM_INPUT_CLASS} h-auto py-2`}
-      />
-      {canReturn && (
-        <button
-          type="button"
-          onClick={onBack}
-          className="min-h-[44px] text-xs text-muted-foreground underline underline-offset-2"
-        >
-          Use a saved address
-        </button>
-      )}
-    </FieldRow>
-  )
-}
-
 /**
- * Delivery-address picker for the order form (Feature 14). Two modes, run by
- * `useAddressSelect`: a dropdown of the customer's saved addresses (MRU-first)
- * plus a "+ Add new address" option, or a free-text textarea for a fresh
- * address. Picking a saved address writes its text into `delivery_address`
- * and its row id into `delivery_address_id`; typed text keeps the id null.
- * A customer with zero saved addresses goes straight to the textarea. Edit
- * mode: the order's stored snapshot (which may match no saved row) shows as
- * a "Current:" option with the id kept null, so an unchanged resubmit never
- * links or duplicates an address-book row.
+ * The order form's delivery-address picker: a thin adapter that maps
+ * `OrderFormValues`' `delivery_address` / `delivery_address_id` onto the shared
+ * `AddressSelect` (which the pickup form mounts the same way, against its own
+ * two fields). All picker behaviour — dropdown vs free-text mode, the
+ * "Current:" edit snapshot, the "+ Add new address" escape hatch — lives in
+ * `components/shared/AddressSelect`; only the field names, the label and the
+ * order-specific required rule are decided here.
  */
 export default function AddressSelect({
   addresses,
@@ -110,8 +31,6 @@ export default function AddressSelect({
   setValue,
   error,
 }: AddressSelectProps) {
-  const state = useAddressSelect({ addresses, watch, setValue })
-
   // Same inline rule the pre-Feature-14 textarea carried, in both modes: in
   // dropdown mode it rides on a hidden input so submit-time validation and
   // the error channel keep working.
@@ -122,25 +41,20 @@ export default function AddressSelect({
         : 'Delivery address is required unless the customer collects.',
   })
 
-  if (state.isCustom) {
-    return (
-      <NewAddressEntry
-        registered={registered}
-        error={error}
-        canReturn={state.canReturn}
-        onBack={state.handleBackToSaved}
-      />
-    )
-  }
-
   return (
-    <SavedAddressPicker
-      value={state.selectValue}
-      snapshot={state.snapshot}
+    <SharedAddressSelect
       addresses={addresses}
-      onSelect={state.handleSelect}
+      label="Delivery Address"
+      fieldId="delivery_address"
+      registered={registered}
       error={error}
-      hiddenInput={<input type="hidden" {...registered} />}
+      bridge={{
+        customerId: watch('customer_id'),
+        address: watch('delivery_address'),
+        addressId: watch('delivery_address_id'),
+        setAddress: (value) => setValue('delivery_address', value),
+        setAddressId: (value) => setValue('delivery_address_id', value),
+      }}
     />
   )
 }

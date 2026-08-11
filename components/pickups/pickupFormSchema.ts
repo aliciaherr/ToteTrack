@@ -6,15 +6,6 @@ import type {
 } from '@/lib/actions/pickups.validation'
 
 /**
- * Shared Tailwind class string for every text/number/date input on the pickup
- * form. Re-exported from the order form's schema module rather than
- * re-declared, so the two forms cannot drift visually — the same reuse
- * `lib/actions/pickups.validation.ts` already makes of `orders.validation`'s
- * shared limits.
- */
-export { FORM_INPUT_CLASS } from '@/components/orders/orderFormSchema'
-
-/**
  * Form values shape for `PickupForm`. Every field is a string because all six
  * are plain registered inputs — unlike the order form, whose quantity cells
  * are bridged through the controlled `QtyGrid` and therefore held as numbers.
@@ -27,6 +18,14 @@ export interface PickupFormValues {
   /** `yyyy-MM-dd`, or '' — an empty date means the pickup is unscheduled. */
   pickup_date: string
   address: string
+  /**
+   * `customer_addresses` row id when the salesperson picked a saved address
+   * from the dropdown; null when the address was typed fresh ("+ Add new
+   * address") or is an edit-mode snapshot. Bridged through setValue/watch by
+   * `PickupAddressSelect` — never a registered input. Exactly the role
+   * `delivery_address_id` plays on the order form.
+   */
+  address_id: string | null
   notes: string
 }
 
@@ -43,6 +42,7 @@ export const EMPTY_PICKUP_FORM_VALUES: PickupFormValues = {
   qty_330: '',
   pickup_date: '',
   address: '',
+  address_id: null,
   notes: '',
 }
 
@@ -102,19 +102,17 @@ export function detailToPickupFormValues(
     qty_330: qtyToField(detail.qty_330),
     pickup_date: detail.pickup_date ?? '',
     address: detail.address ?? '',
+    // The stored address is a point-in-time snapshot, not a reference
+    // (CONSTRAINT-21) — it starts with no saved-address id, so resubmitting an
+    // unchanged edit never links (or duplicates) an address-book row.
+    address_id: null,
     notes: detail.notes ?? '',
   }
 }
 
-/**
- * Converts form values into the create-pickup action's input shape. Counts are
- * parsed to integers; blank date / address / notes collapse to null so the Zod
- * schema sees absent values consistently.
- * @param values The form's current field values.
- */
-export function formValuesToCreatePickupInput(
-  values: PickupFormValues,
-): CreatePickupInput {
+// Fields both action inputs share. `address_id` is deliberately absent — it is
+// a create-only field, exactly as `delivery_address_id` is on the order form.
+function pickupInputBase(values: PickupFormValues) {
   return {
     customer_id: values.customer_id,
     qty_275: parsePickupQty(values.qty_275),
@@ -126,13 +124,28 @@ export function formValuesToCreatePickupInput(
 }
 
 /**
- * Converts form values into the update-pickup action's input shape. Identical
- * to the create shape — a pickup has no create-only field, and status
- * transitions are owned by `updatePickupStatus`, never by this form.
+ * Converts form values into the create-pickup action's input shape. Counts are
+ * parsed to integers; blank date / address / notes collapse to null so the Zod
+ * schema sees absent values consistently. `address_id` rides along so the
+ * action can ownership-check it (SEC-03) and bump the saved address's
+ * `last_used_at` instead of re-upserting its text.
+ * @param values The form's current field values.
+ */
+export function formValuesToCreatePickupInput(
+  values: PickupFormValues,
+): CreatePickupInput {
+  return { ...pickupInputBase(values), address_id: values.address_id }
+}
+
+/**
+ * Converts form values into the update-pickup action's input shape. Same as the
+ * create shape minus `address_id`: edits keep snapshot semantics and never
+ * touch the address book — MRU bumps and organic backfill happen only through
+ * `createPickup`, mirroring `formValuesToUpdateInput` on the order form.
  * @param values The form's current field values.
  */
 export function formValuesToUpdatePickupInput(
   values: PickupFormValues,
 ): UpdatePickupInput {
-  return formValuesToCreatePickupInput(values)
+  return pickupInputBase(values)
 }

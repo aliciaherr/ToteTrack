@@ -21,6 +21,7 @@ import { createPickup, updatePickup, updatePickupStatus } from '../pickups'
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
 const PICKUP_ID = '33333333-3333-3333-3333-333333333333'
 const CUSTOMER_ID = '22222222-2222-2222-2222-222222222222'
+const ADDRESS_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
 // Captures the last `.values(...)` / `.set(...)` payload so tests can assert
 // what would be written without running a real query. The address-book upsert
@@ -203,6 +204,79 @@ describe('createPickup', () => {
       address: '123 Main Street',
       last_used_at: expect.any(Date),
     })
+    // Upsert, not bump: with no address_id there is nothing to touch by id.
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('bumps a picked saved address instead of re-upserting its text', async () => {
+    // Ownership probe finds the row under this customer, so the create goes
+    // through and the address book gets an MRU bump, not a second insert.
+    stubSelectRow({ id: ADDRESS_ID })
+    stubInsertReturning(PICKUP_ID)
+    stubUpdateResolves()
+    const result = await createPickup({ ...VALID_PICKUP, address_id: ADDRESS_ID })
+    expect(result).toEqual({ id: PICKUP_ID })
+    expect(lastUpdateSet).toMatchObject({ last_used_at: expect.any(Date) })
+    // The pickup row still stores the address as plain text (CONSTRAINT-21) —
+    // no id column is written.
+    expect(lastInsertValues).toMatchObject({ address: '123 Main Street' })
+    expect(lastInsertValues).not.toHaveProperty('address_id')
+    // One insert only: the pickup row. No address upsert.
+    expect(mockInsert).toHaveBeenCalledOnce()
+  })
+
+  it('rejects an address_id belonging to a different customer (SEC-03)', async () => {
+    // The ownership probe finds nothing: the id is real but hangs off another
+    // customer, so a forged submit must fail server-side even though the UI
+    // would never have offered it.
+    stubSelectRow(null)
+    const result = await createPickup({ ...VALID_PICKUP, address_id: ADDRESS_ID })
+    expect(result).toEqual({
+      error: 'Selected collection address does not belong to this customer.',
+    })
+    // Nothing was written — not the pickup row, not the address book.
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('rejects an address_id sent with no address text (CONSTRAINT-21)', async () => {
+    // The snapshot/id pair must agree: bumping a saved address's last_used_at
+    // while the pickup row stores no address is the state this guards.
+    const result = await createPickup({
+      ...VALID_PICKUP,
+      address: null,
+      address_id: ADDRESS_ID,
+    })
+    expect(result).toEqual({
+      error: 'Collection address text is required when a saved address is selected.',
+    })
+    // Nothing at all reached the driver — not the ownership probe, not the
+    // pickup insert, and above all no last_used_at bump.
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an address_id sent with a whitespace-only address', async () => {
+    const result = await createPickup({
+      ...VALID_PICKUP,
+      address: '   ',
+      address_id: ADDRESS_ID,
+    })
+    expect(result).toEqual({
+      error: 'Collection address text is required when a saved address is selected.',
+    })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed address_id before touching the database', async () => {
+    const result = await createPickup({ ...VALID_PICKUP, address_id: 'not-a-uuid' })
+    expect(result).toEqual({ error: 'Invalid collection address id.' })
+    expect(mockSelect).not.toHaveBeenCalled()
+    expect(mockInsert).not.toHaveBeenCalled()
   })
 
   it('revalidates the pickups list, the calendar and customers — never the dashboard', async () => {

@@ -1,7 +1,30 @@
 # API Spec: ToteTrack
 
 **Date:** 2026-04-20
-**Status:** Approved — Phase 2 complete
+**Last revised:** 2026-08-10 — added Pickups (Feature 15), Calendar and Customer Addresses; removed `markInvoicePaid`, which no longer exists. Same-day DS-01 fix: `signOut`'s signature and error path corrected — it was documented as `Promise<void>` inside a section this file's banner declared verified
+**Status:** Partially revised — sections below carry different vintages, see the warning
+
+> ⚠ **This document is not fully reconciled against source.** The 2026-08-10 pass
+> verified Auth, Customer Addresses, Calendar, Pickups and the Invoices deletion
+> against the real `lib/actions/*.ts` and `db/queries/*.ts`. **Auth was re-verified
+> line by line later the same day** after `signOut` was found documented with the
+> wrong return type despite being inside the "verified" set — treat "verified"
+> as *checked on a date*, not as a guarantee.
+>
+> The Dashboard, Customers, Orders, Leads, Invoices and Support sections were
+> **not** re-verified and are known to contain stale entries. Known and still
+> outstanding as of 2026-08-10:
+> - **Documented but nonexistent:** `getPendingOrdersForDashboard` (the real
+>   function is `getOpenOrdersForDashboard`), `uploadPODocument` and
+>   `getPODocumentSignedUrl` (Tasks 19/33 were cut — nothing uploads a PO document).
+> - **Exists but undocumented:** `getProductionWidgetData`
+>   (`db/queries/production-widget.ts`) and `getSupportAttachmentSignedUrl`
+>   (`lib/actions/support.ts`, the third export of that module).
+> - **Stale shapes:** `createOrder`'s documented input predates the multi-combo
+>   schema (CONSTRAINT-18), and some Invoices types predate the v3 model
+>   (CONSTRAINT-17).
+>
+> Read the source before relying on anything outside the verified sections.
 
 > All operations are TypeScript functions — not HTTP endpoints.
 > **Queries** (in `db/queries/`) are read-only, called from server components or server actions.
@@ -39,9 +62,15 @@ On success: session cookie set, `redirect('/dashboard')`.
 ### `signOut`
 **File:** `lib/actions/auth.ts` | **Type:** Server Action
 ```ts
-signOut(): Promise<void>
+signOut(): Promise<{ error: string } | void>
 ```
-Calls `supabase.auth.signOut()`. Redirects to `/login`.
+Calls `supabase.auth.signOut()`. **On success it returns nothing and `redirect('/login')` runs. On failure it returns `{ error }` and does not redirect** — the caller must render that error.
+
+**Errors:** Two distinct failure surfaces, both logged with context (`operation: 'supabase.auth.signOut'`) and both returned as `{ error: GENERIC_FAILURE_MESSAGE }` (audit L-02 — a failed sign-out must reach the user, never silently redirect):
+- supabase-js v2 `auth.signOut()` **resolves** with `{ error }` on an auth-service failure rather than throwing; the resolved error is captured and checked before redirecting.
+- A thrown/rejected call (network failure, service down) is caught so it never escapes as an unhandled rejection.
+
+The `redirect('/login')` sits **outside** the `try` — inside it, the `NEXT_REDIRECT` throw would be swallowed by the `catch` and reported to the user as a sign-out failure. It runs only when neither surface produced an error. `components/shell/NavDrawer.tsx` is the only caller and awaits the result to surface `{ error }`.
 
 ---
 
@@ -257,6 +286,48 @@ deleteCustomer(id: string): Promise<{ success: boolean } | { error: string }>
 
 ---
 
+## Customer Addresses
+
+Feature 14. The saved address book per customer. Orders and pickups store address **text
+snapshots**, never foreign keys into this table (CONSTRAINT-21) — which is why deleting a saved
+address leaves past rows untouched.
+
+### `addCustomerAddress`
+**File:** `lib/actions/customer-addresses.ts` | **Type:** Server Action
+```ts
+addCustomerAddress(customer_id: string, address: string): Promise<{ id: string } | { error: string }>
+```
+Address is trimmed before validation, so a whitespace-only string is rejected server-side; the
+trimmed text is what gets stored. Dedupe is a **single atomic upsert** against the unique
+`(customer_id, address)` index (migration `0013`) — no check-then-insert race. An exact-text match
+has its `last_used_at` bumped to now and its existing id returned; a genuinely new row is inserted
+with `last_used_at` left NULL, since it is only set when the address is actually *used* on an order
+or pickup. Equality is plain SQL `=`, case- and whitespace-sensitive: `"123 Main St"` and
+`"123 main st"` are intentionally distinct rows.
+**Errors:** `{ error: "Invalid customer id." }` | `{ error: "Address is required." }` | `{ error: "Address must be [N] characters or fewer." }`
+
+---
+
+### `updateCustomerAddress`
+**File:** `lib/actions/customer-addresses.ts` | **Type:** Server Action
+```ts
+updateCustomerAddress(id: string, address: string): Promise<{ success: true } | { error: string }>
+```
+Rewrites the stored text (trimmed) and touches `updated_at`.
+**Errors:** `{ error: "Invalid address id." }` | `{ error: "Address not found." }` — returned, not silently succeeded: the row may have been deleted from another screen.
+
+---
+
+### `deleteCustomerAddress`
+**File:** `lib/actions/customer-addresses.ts` | **Type:** Server Action
+```ts
+deleteCustomerAddress(id: string): Promise<{ success: true } | { error: string }>
+```
+Hard delete. Past orders and pickups are unaffected by design — they hold text snapshots, not FKs.
+**Errors:** `{ error: "Invalid address id." }` | `{ error: "Address not found." }`
+
+---
+
 ## Orders
 
 ### `getOrders`
@@ -335,6 +406,24 @@ Stores at `po-documents/[orderId]/[filename]`. Updates `orders.document_url` wit
 
 ---
 
+### `revertOrderToScheduled`
+**File:** `lib/actions/orders.revert.ts` | **Type:** Server Action
+```ts
+revertOrderToScheduled(id: string): Promise<{ success: true } | { error: string }>
+```
+FB-08. Moves a **terminal** order back to `scheduled`. Three source states:
+- `completed → scheduled` — status flip; the auto-set-on-completion `requested_delivery_date` is preserved
+- `cancelled → scheduled` — status flip
+- `invoiced → scheduled` — also detaches the order from its invoice (`invoice_id → null`), recomputes that invoice's `total_amount` from the orders still attached, and **deletes the invoice entirely if it ends up with zero orders** (a $0 zombie is worse UX than the slim risk of an invoice number being reused later)
+
+The whole revert runs in **one DB transaction**, so partial state cannot leak — the order cannot
+detach from its invoice without the total recomputing. A `scheduled` order cannot be reverted;
+it is already in the in-flight state.
+**Revalidates:** `/orders`, `/calendar`, `/dashboard`.
+**Errors:** `{ error: "Invalid order id." }` | order not found | already `scheduled`.
+
+---
+
 ### `getPODocumentSignedUrl`
 **File:** `lib/actions/orders.ts` | **Type:** Server Action
 ```ts
@@ -342,6 +431,336 @@ getPODocumentSignedUrl(storagePath: string): Promise<string>
 ```
 Returns a 1-hour signed URL. Called when user clicks "Download" on an uploaded document.
 **Errors:** Throws with context if storage path not found.
+
+---
+
+## Pickups
+
+Feature 15 (Tasks 76–81). Collections of empty totes — a separate table, never a flag on `orders`
+(CONSTRAINT-25). No price, PO number, document or invoice link, so pickups appear on **no revenue
+or dashboard surface**. `pickup_date` **is** the calendar placement; NULL means unscheduled.
+
+All five actions guard with `assertAuthenticated()` and validate with Zod before any DB write.
+Shared limits (`QUANTITY_MAX`, `DELIVERY_ADDRESS_MAX`, `NOTES_MAX`) come from `orders.validation`
+rather than being redeclared.
+
+### `getPickups`
+**File:** `db/queries/pickups.ts` | **Type:** Query
+```ts
+getPickups(filters?: GetPickupsFilters): Promise<GetPickupsResult>
+
+type PickupStatus = 'scheduled' | 'completed' | 'cancelled'
+type PickupListStatus = PickupStatus | 'all'
+
+type GetPickupsFilters = {
+  status?: PickupListStatus   // default 'all'
+  search?: string             // case-insensitive contains on customer company name; blank/whitespace ignored
+}
+
+type PickupTableRow = {
+  id: string
+  customer_id: string
+  customer_name: string | null
+  status: PickupStatus
+  qty_275: number
+  qty_330: number
+  pickup_date: string | null
+}
+
+type GetPickupsResult = { rows: PickupTableRow[] }
+```
+Sorted so scheduled pickups come first (`pickup_date ASC` — next collection first) and
+completed/cancelled ones after (`pickup_date DESC` on the same column). **Unbounded** — the table
+scrolls rather than paginates, which is why the search input is debounced client-side.
+The caller (`app/(app)/pickups/page.tsx`) whitelists `?status=` against the four legal values
+before passing it (SEC-02): the filter is interpolated into `AND p.status = $1` and Postgres
+cannot cast an unknown label to the `pickup_status` enum, so an un-whitelisted value would 500
+the route rather than filter.
+**Errors:** Throws `DatabaseError` with context on query failure.
+
+---
+
+### `getPickupDetail`
+**File:** `db/queries/pickups.ts` | **Type:** Query
+```ts
+getPickupDetail(pickupId: string): Promise<PickupDetail>
+
+type PickupDetail = PickupTableRow & {
+  address: string | null
+  notes: string | null
+}
+```
+Joins `customers` for the company name, so the detail panel renders without a second round-trip.
+**Errors:** Throws `PickupNotFoundError` when no row matches. Throws `DatabaseError` on query failure.
+
+---
+
+### `getCustomerPickups`
+**File:** `db/queries/pickups.ts` | **Type:** Query
+```ts
+getCustomerPickups(
+  customerId: string,
+  window: CustomerPickupsWindow      // = CustomerOrdersWindow: '1M' | '3M' | '6M' | '1Y' | 'YTD'
+): Promise<CustomerPickupRow[]>
+
+type CustomerPickupRow = {
+  id: string
+  status: PickupStatus
+  qty_275: number
+  qty_330: number
+  pickup_date: string | null
+}
+```
+Backs the Pickup History panel on the customer detail view. Sorted `pickup_date DESC`; returns `[]`
+when the customer has no dated pickups in the window. **Every status is included** — a cancelled
+pickup is still history, and each row carries its own badge, mirroring `getCustomerOrders`.
+`CustomerPickupsWindow` is an alias of `CustomerOrdersWindow`, not a second definition, so the two
+history panels can never disagree about what "3M" means. Only the URL param differs (`?pwindow=`
+here, `?window=` there) so the two tab groups stay independent on the one screen.
+**Errors:** Throws `DatabaseError` with context on query failure.
+
+---
+
+### `getCustomerUnscheduledPickupCount`
+**File:** `db/queries/pickups.ts` | **Type:** Query
+```ts
+getCustomerUnscheduledPickupCount(customerId: string): Promise<number>
+```
+Backs the quiet `· N unscheduled` suffix on the Pickup History header. Counts pickups that are
+still open but carry no date. **Not window-filtered** — an undated pickup falls outside every
+window, so the count is identical on all five tabs. Returns `0` when there are none.
+**Errors:** Throws `DatabaseError` with context on query failure.
+
+---
+
+### `getCalendarPickups`
+**File:** `db/queries/pickups.calendar.ts` | **Type:** Query
+```ts
+getCalendarPickups(input: CalendarRange): Promise<CalendarPickupRow[]>
+// CalendarRange = { from: string; to: string }   // 'yyyy-MM-dd', from lib/calendar-range.ts
+
+type CalendarPickupRow = {
+  id: string
+  customer_id: string
+  customer_name: string | null
+  status: PickupStatus
+  qty_275: number
+  qty_330: number
+  pickup_date: string | null
+  sort_index: number | null
+  address: string | null      // popup only — cards show neither address nor notes
+  notes: string | null
+  contacts: CalendarContact[] // embedded for the popup's Contact menu
+}
+```
+The pickup half of `/calendar`'s fetch, alongside `getCalendarOrders`. Filters on the bare
+`pickup_date` column so `pickups_pickup_date_idx` serves it (same sargability rule as FI-02).
+The projection mirrors `CALENDAR_SELECT_LIST` in `calendar.ts` field for field, including the
+`contacts` aggregate — a pickup popup's Contact menu must offer the same people the order popup
+does, and one shared shape is what stops the two drifting. Contacts are embedded on the row rather
+than fetched per popup because this app has no client-side data-fetching pattern.
+**Errors:** Throws `InvalidDateError` when `from > to`. Throws `DatabaseError` on query failure.
+
+---
+
+### `getUnscheduledPickups`
+**File:** `db/queries/pickups.calendar.ts` | **Type:** Query
+```ts
+getUnscheduledPickups(): Promise<CalendarPickupRow[]>
+```
+Open pickups with `pickup_date IS NULL`, for the calendar's undated-pickups callout. Same
+projection as `getCalendarPickups`, so a pickup rendered in the callout and the same pickup
+rendered in a day column carry identical fields.
+**Errors:** Throws `DatabaseError` with context on query failure.
+
+---
+
+### `createPickup`
+**File:** `lib/actions/pickups.ts` | **Type:** Server Action
+```ts
+createPickup(input: CreatePickupInput): Promise<{ id: string } | { error: string }>
+
+type CreatePickupInput = {
+  customer_id: string              // UUID
+  qty_275: number                  // integer ≥ 0, ≤ QUANTITY_MAX
+  qty_330: number                  // integer ≥ 0, ≤ QUANTITY_MAX
+  pickup_date?: string | null      // 'yyyy-MM-dd' or ''; absent/blank = unscheduled
+  address?: string | null          // optional — a pickup from the usual site needs none
+  address_id?: string | null       // UUID of a saved customer_addresses row, when picked from the dropdown
+  notes?: string | null
+}
+```
+`qty_275 + qty_330 > 0` is enforced by a `superRefine`, with the message pathed to `qty_275` so it
+surfaces next to the count grid. `pickup_date` uses **`calendarDateSchema`, not
+`productionDateSchema`** — a pickup carries no weekday rule, because a collection is not
+production (see `docs/architecture.md`, "The Two-List Calendar").
+
+There is no "required unless the customer collects" rule as there is for orders. When an address
+*is* given it is snapshotted on the row (CONSTRAINT-21, never an FK) **and** upserted into the
+customer's address book through the same `recordDeliveryAddressUsage` path `createOrder` uses.
+When `address_id` is present it is ownership-checked against `customer_id` **before** the insert
+(SEC-03), so a forged or foreign id fails the whole create rather than bumping another customer's
+address book.
+**Revalidates:** `/pickups`, `/calendar`, `/customers`. `/dashboard` deliberately absent — no widget reads pickups.
+**Errors:** `{ error: "Please choose a customer." }` | `{ error: "At least one quantity is required." }` | `{ error: "Invalid date format." }` | address-not-owned | `GENERIC_FAILURE_MESSAGE` on write failure (the real cause is logged, never returned).
+
+---
+
+### `updatePickup`
+**File:** `lib/actions/pickups.ts` | **Type:** Server Action
+```ts
+updatePickup(id: string, input: UpdatePickupInput): Promise<{ success: true } | { error: string }>
+```
+Same schema as create, minus two fields — and both omissions are load-bearing:
+- **no `status`** — transitions belong exclusively to `updatePickupStatus`, and a `status` key sent here is not whitelisted and never reaches the column
+- **no `address_id`** — edits keep snapshot semantics and never touch the address book, mirroring `updateOrderInputSchema`
+
+**There is no edit lock.** Unlike CONSTRAINT-18's rule for orders, quantities stay editable in
+every status: a pickup has no price or invoice to protect.
+**Revalidates:** `/pickups`, `/calendar`, `/customers`.
+**Errors:** `{ error: "Invalid pickup id." }` | pickup not found | the create-schema messages | `GENERIC_FAILURE_MESSAGE`.
+
+---
+
+### `updatePickupStatus`
+**File:** `lib/actions/pickups.ts` | **Type:** Server Action
+```ts
+updatePickupStatus(
+  id: string,
+  target: 'scheduled' | 'completed' | 'cancelled'
+): Promise<{ success: true } | { error: string }>
+```
+Valid transitions: `scheduled → completed`, `scheduled → cancelled`, and
+`completed | cancelled → scheduled`. **A terminal pickup can be reopened directly** — it carries no
+price, invoice or document, so there is nothing to unwind (compare `revertOrderToScheduled`, which
+needs a whole transaction to detach an invoice). A no-op move to the status the row already holds
+is rejected rather than silently written.
+**Revalidates:** `/pickups`, `/calendar`, `/customers`.
+**Errors:** `{ error: "Invalid pickup id." }` | pickup not found | `{ error: "Invalid status transition from [current] to [target]." }`
+
+---
+
+### `setPickupPlacement`
+**File:** `lib/actions/pickups.calendar.ts` | **Type:** Server Action
+```ts
+setPickupPlacement(id: string, input: SetPickupPlacementInput): Promise<{ success: true } | { error: string }>
+
+type SetPickupPlacementInput = {
+  group: 'pickup'            // z.literal — a validated field, not documentation
+  pickupDate: string         // 'yyyy-MM-dd', no weekday rule
+  sortIndex: number          // integer 0..SORT_INDEX_MAX (9,999), shared with the order action
+}
+```
+Writes `pickup_date` + `sort_index`. **The group is checked twice, on purpose:** `input.group` must
+be the literal `'pickup'`, which rejects a payload built for `setProductionPlacement` before any
+query runs; and `id` must resolve to a row in `pickups`, which rejects an order id whatever the
+payload claims. Neither check trusts the client, and the UI's discriminator is not part of either.
+Blocked on terminal pickups, matching the order action's message shape.
+**Revalidates:** `/calendar`, `/pickups`, `/customers` — the last because Pickup History renders `pickup_date` in a column of its own, and a drag that skipped it would leave that panel on the old day.
+**Errors:** `{ error: "Invalid pickup id." }` | `{ error: "That card is not a pickup." }` | `{ error: "Invalid date format." }` | sort-index out of range | `{ error: "Cancelled pickups cannot be placed on the calendar." }` | `{ error: "Completed pickups cannot be moved on the calendar." }` | `GENERIC_FAILURE_MESSAGE`.
+
+---
+
+### `clearPickupPlacement`
+**File:** `lib/actions/pickups.calendar.ts` | **Type:** Server Action
+```ts
+clearPickupPlacement(id: string): Promise<{ success: true } | { error: string }>
+```
+Nulls `pickup_date` **and** `sort_index`. Three entry points, one operation: the popup's
+`Remove from calendar`, the drag-onto-callout gesture, and the armed tap on the callout.
+
+Clearing `sort_index` too is deliberate — a pickup placed again later must not inherit a position
+from the column it used to sit in. This supersedes the Task 80 shortcut (recorded as INFO-05),
+which cleared the date by resending the whole editable row through `updatePickup`: that path was
+last-write-wins against a concurrent edit from the Pickups tab and left a stale index behind. Two
+columns and nothing else move here, so a concurrent quantity edit survives. Status, quantities,
+address and notes are untouched — this clears a day, not the collection.
+**Revalidates:** `/calendar`, `/pickups`, `/customers`.
+**Errors:** `{ error: "Invalid pickup id." }` | pickup not found | terminal-status block | `GENERIC_FAILURE_MESSAGE`.
+
+---
+
+## Calendar
+
+Features 11–12. The **order** half of `/calendar`. Every action guards with `assertAuthenticated()`,
+and none of them ever writes `requested_delivery_date` — the calendar owns the build day, never the
+customer-facing promise (CONSTRAINT-19).
+
+### `getCalendarOrders`
+**File:** `db/queries/calendar.ts` | **Type:** Query
+```ts
+getCalendarOrders(input: CalendarRange): Promise<CalendarOrderRow[]>
+// CalendarRange = { from: string; to: string }   // 'yyyy-MM-dd'
+```
+Filters on the **bare** `production_date` column (`>= from AND <= to`), which is sargable, so
+`orders_production_date_idx` serves it. The earlier `COALESCE(production_date, …)` form forced a
+sequential scan (FI-02); removing the read-time derivation removed the problem rather than working
+around it.
+**Errors:** Throws `InvalidDateError` when `from > to`. Throws `DatabaseError` on query failure.
+
+---
+
+### `getUnscheduledOrders`
+**File:** `db/queries/calendar.ts` | **Type:** Query
+```ts
+getUnscheduledOrders(): Promise<CalendarOrderRow[]>
+```
+Open orders with `production_date IS NULL`, for the unscheduled callout — whatever their delivery
+date. Same projection as `getCalendarOrders`.
+**Errors:** Throws `DatabaseError` with context on query failure.
+
+---
+
+### `setProductionPlacement`
+**File:** `lib/actions/calendar.ts` | **Type:** Server Action
+```ts
+setProductionPlacement(id: string, input: SetProductionPlacementInput): Promise<{ success: true } | { error: string }>
+
+type SetProductionPlacementInput = {
+  group: 'order'             // z.literal — the exact mirror of setPickupPlacement's
+  productionDate: string     // 'yyyy-MM-dd', must be a weekday (productionDateSchema)
+  sortIndex: number          // integer 0..SORT_INDEX_MAX (9,999)
+}
+```
+Writes `production_date` + `production_sort_index`. The no-weekend invariant is enforced **here, on
+write** (CONSTRAINT-19) and on no read path. Blocked on terminal statuses.
+**Revalidates:** `/orders`, `/calendar`, `/dashboard`.
+**Errors:** `{ error: "Invalid order id." }` | `{ error: "That card is not an order." }` | `{ error: "Production dates must fall on a weekday." }` | `{ error: "Invalid date format." }` | sort-index out of range | blocked status | `GENERIC_FAILURE_MESSAGE`.
+
+---
+
+### `clearProductionPlacement`
+**File:** `lib/actions/calendar.ts` | **Type:** Server Action
+```ts
+clearProductionPlacement(id: string): Promise<{ success: true } | { error: string }>
+```
+Nulls `production_date` + `production_sort_index`; the order moves to the unscheduled callout.
+`requested_delivery_date` and `same_day_delivery` are left untouched — this clears a build day, not
+the delivery promise.
+**Revalidates:** `/orders`, `/calendar`, `/dashboard`.
+**Errors:** `{ error: "Invalid order id." }` | blocked status | `GENERIC_FAILURE_MESSAGE`.
+
+---
+
+### `toggleSameDayDelivery`
+**File:** `lib/actions/calendar.ts` | **Type:** Server Action
+```ts
+toggleSameDayDelivery(id: string, next: boolean): Promise<{ success: true } | { error: string }>
+```
+Takes the **target state** rather than flipping the stored value, so a double-fired click cannot
+toggle twice. Touches neither production column nor `requested_delivery_date`.
+**Errors:** `{ error: "Invalid order id." }` | cancelled order | `GENERIC_FAILURE_MESSAGE`.
+
+---
+
+### `toggleBackhaul`
+**File:** `lib/actions/calendar.ts` | **Type:** Server Action
+```ts
+toggleBackhaul(id: string, next: boolean): Promise<{ success: true } | { error: string }>
+```
+Same target-state semantics. **Stays available on completed and invoiced orders** — CONSTRAINT-18
+locks quantities and price on those, not logistics flags.
+**Errors:** `{ error: "Invalid order id." }` | cancelled order | `GENERIC_FAILURE_MESSAGE`.
 
 ---
 
@@ -505,13 +924,10 @@ type CreateInvoiceInput = {
 
 ---
 
-### `markInvoicePaid`
-**File:** `lib/actions/invoices.ts` | **Type:** Server Action
-```ts
-markInvoicePaid(invoiceId: string): Promise<{ success: boolean } | { error: string }>
-```
-Only valid on `status = 'draft'` invoices.
-**Errors:** `{ error: "Invoice is already marked paid." }`
+> **`markInvoicePaid` was removed** (CONSTRAINT-17, 2026-04-22, migration `0007`). Invoice v3
+> dropped the `status` column the action read, and the action with it. `lib/actions/invoices.ts`
+> exports exactly one function, `createInvoice`. Anything still calling `markInvoicePaid` is
+> calling something that has not existed for months.
 
 ---
 

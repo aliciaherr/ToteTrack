@@ -1,8 +1,8 @@
 'use client'
 
 import { type UseFormRegister } from 'react-hook-form'
-import { FORM_INPUT_CLASS, type OrderFormValues } from './orderFormSchema'
-import { FieldRow } from './OrderFormFields'
+import { type OrderFormValues } from './orderFormSchema'
+import { FieldRow, FORM_INPUT_CLASS } from '@/components/shared/formFields'
 
 interface OrderLogisticsFieldsProps {
   register: UseFormRegister<OrderFormValues>

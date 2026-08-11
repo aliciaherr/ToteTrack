@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { FORM_INPUT_CLASS } from './customerFormSchema'
+import { FORM_INPUT_CLASS } from '@/components/shared/formFields'
 import { useCustomerAddresses, type CustomerAddressesState } from './useCustomerAddresses'
 // Same bound the server actions enforce (lib/actions/customer-addresses.ts).
 // Safe to import client-side: orders.validation.ts is not a 'use server' file.

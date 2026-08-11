@@ -1,16 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useDndMonitor, useDroppable } from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import SortableProductionCard from './SortableProductionCard'
 import { useArmMode } from './armMode'
+import { DROPDOWN_MAX_HEIGHT } from './calloutMetrics'
+import { useOpenOnDragOverTarget } from './useOpenOnDragOverTarget'
 import {
   UNSCHEDULED_DROPPABLE_ID,
   UNSCHEDULED_ORIGIN,
   type CalloutDropData,
 } from './calendarDnd'
-import { UNSCHEDULED_DROPDOWN_VISIBLE } from '@/db/queries/calendar.constants'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 
 interface UnscheduledCalloutProps {
@@ -22,36 +23,6 @@ interface UnscheduledCalloutProps {
 // in one header, and without it a mis-aimed drop would unschedule across
 // entities.
 const DROP_DATA: CalloutDropData = { type: 'callout', group: 'order' }
-
-// Gap between dropdown cards, in rem, matching the day columns' `space-y-2`.
-const CARD_GAP_REM = 0.5
-// Vertical padding of the dropdown list, in rem (`p-2` top + bottom).
-const LIST_PADDING_REM = 1
-
-/**
- * Height of exactly `UNSCHEDULED_DROPDOWN_VISIBLE` cards plus their gaps and
- * the list's own padding. Expressed against `--card-h` so the dropdown scales
- * with the cards rather than drifting from them at small viewports.
- */
-const DROPDOWN_MAX_HEIGHT = `calc(var(--card-h) * ${UNSCHEDULED_DROPDOWN_VISIBLE} + ${
-  CARD_GAP_REM * (UNSCHEDULED_DROPDOWN_VISIBLE - 1) + LIST_PADDING_REM
-}rem)`
-
-/**
- * Opens the dropdown while a card is dragged over the collapsed pill.
- *
- * Without this the callout is unreachable by drag: the drop zone is the pill
- * itself, which is a 44px target, and a salesperson aiming at "somewhere in the
- * unscheduled list" has nothing to aim at. Auto-opening turns the whole panel
- * into the visible target.
- */
-function useOpenOnDragOver(open: () => void) {
-  useDndMonitor({
-    onDragOver(event) {
-      if (event.over?.id === UNSCHEDULED_DROPPABLE_ID) open()
-    },
-  })
-}
 
 function CalloutPill({
   count,
@@ -157,7 +128,7 @@ export default function UnscheduledCallout({ rows }: UnscheduledCalloutProps) {
     setIsExpanded((current) => !current)
   }, [armed, tap])
 
-  useOpenOnDragOver(open)
+  useOpenOnDragOverTarget(UNSCHEDULED_DROPPABLE_ID, open)
   useEscapeToClose(isExpanded, close)
 
   if (rows.length === 0) {
