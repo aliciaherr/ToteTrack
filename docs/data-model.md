@@ -1,6 +1,6 @@
 # Data Model: ToteTrack
 
-**Date:** 2026-08-10 (documents migrations through `0015_pickups`; `0014` and `0015` are hand-run and **not yet applied to prod**. Previously reconciled through `0011_backfill_production_date` on 2026-07-27, and against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
+**Date:** 2026-08-10 (documents migrations through `0015_pickups`; `0014` and `0015` were hand-run against prod on 2026-08-10. Previously reconciled through `0011_backfill_production_date` on 2026-07-27, and against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
 **Status:** Approved — reflects production schema
 
 ---
