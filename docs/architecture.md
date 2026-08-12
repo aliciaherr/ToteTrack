@@ -15,7 +15,7 @@
 
 | Layer | Technology | Version target |
 |-------|-----------|---------------|
-| Framework | Next.js App Router | 14+ |
+| Framework | Next.js App Router | 15.5+ (React 19.2+) — upgraded from 14 in Task 83, 2026-08-11 |
 | Database | Supabase (PostgreSQL) | Free tier |
 | Auth | Supabase Auth | Free tier |
 | File storage | Supabase Storage | Free tier (1GB) |
@@ -472,7 +472,7 @@ Both storage buckets (`po-documents`, `support-attachments`) are private. Files 
 
 ## Platform-Native Rules
 
-Next.js 14 enforces invariants that don't appear in the generic rules files but are binding for any code touching this repo. Surfaced and documented after the first production build (2026-04-22) exposed all three.
+Next.js enforces invariants that don't appear in the generic rules files but are binding for any code touching this repo. The first three were surfaced by the first production build (2026-04-22) under Next 14 and still hold under 15. The fourth arrived with the Next 15 upgrade (Task 83, 2026-08-11).
 
 ### `'use server'` files export async functions only
 Files marked `'use server'` (every file under `lib/actions/`) may export **async functions only**. Non-function exports (constants, arrays, unions, enums) fail the production compile with `Only async functions are allowed to be exported in a "use server" file`. Dev mode tolerates this on the initial compile but surfaces the error on per-route cold compiles.
@@ -493,6 +493,26 @@ Every route that reads session cookies via `supabase.auth.getUser()` must declar
 Currently applied to:
 - `app/(app)/layout.tsx` — forces every authenticated route under `(app)` dynamic
 - `app/(auth)/login/page.tsx` — reads cookies to redirect already-logged-in users
+
+### Request APIs are async — `createClient()` must be awaited
+Since Next 15, `cookies()`, `headers()`, `draftMode()`, `params` and `searchParams` are all promises. Two consequences bind every future file:
+
+**`createClient()` from `lib/supabase/server.ts` is async.** Every call site must `await createClient()`. It is called inside a `try` that converts a non-server-context call into a described error; that failure is now an async rejection rather than a synchronous throw, so any test asserting it must use `.rejects`, not `expect(() => ...).toThrow()`. Eleven call sites across six files at the time of the upgrade.
+
+**Page `searchParams` is a promise.** The established shape — used by all eight pages that read it — is:
+
+```ts
+interface XPageProps { searchParams: Promise<{ /* ... */ }> }
+
+export default async function XPage(props: XPageProps) {
+  const searchParams = await props.searchParams
+  // every downstream reference is unchanged
+}
+```
+
+Take `props` whole rather than destructuring `{ searchParams }` in the signature. It keeps the awaited value under its original name, so the body needs no edits — the customers page has seven references that would otherwise all have to change.
+
+Note this does **not** relax the `force-dynamic` rule above; the two are independent.
 
 ### TypeScript CSS side-effect import declaration
 `import './globals.css'` in `app/layout.tsx` requires an ambient module declaration because TypeScript doesn't natively recognise CSS side-effect imports. The project ships one at `globals.d.ts` (`declare module '*.css'`). Dev tolerates the missing declaration; `tsc --noEmit` and the production build reject it.

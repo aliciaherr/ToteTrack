@@ -499,3 +499,29 @@ The reason this is written down rather than just done: the next date field added
 - **The practical question for you is whether a weekend pickup should ever be possible.** Today the calendar shows weekdays only, so the answer is effectively no by way of the interface. The server no longer has an opinion. If you want weekend collections, that is now a calendar change rather than a validation change.
 
 **What this closes off:** Nothing. It reopens something, deliberately: weekend dates are no longer refused app-wide as a matter of course, so any field that genuinely needs the weekday rule must now say so.
+
+---
+
+## FB-28 — Reading Who Is Logged In Now Takes a Moment, and Every Piece of Code Has to Wait for It
+
+**Date:** 2026-08-11
+**Architecture reference:** `docs/architecture.md` → *Platform-Native Rules*, section "Request APIs are async — `createClient()` must be awaited". Stack table updated to Next.js 15.5+ / React 19.2+.
+**Tasks:** 83 — commit `0476528`.
+
+**Decided:** The app moved from Next.js 14 to 15 and from React 18 to 19. The single change that touches how future code must be written: asking "who is signed in?" and "what was in the web address?" are no longer instant answers. The code has to wait for them.
+
+**Means for your product:** Nothing you can see. Same screens, same speed, same behaviour — 1,222 automated checks all still pass, unchanged, and you exercised the calendar yourself afterwards.
+
+What changed is underneath. Previously a piece of code could ask for the browser's session cookie and get it back immediately, in the same breath. Next.js decided that was a lie worth correcting: fetching that information is genuinely a small piece of work, so now it hands back a promise — "I'll have this for you shortly" — and the code has to wait.
+
+That sounds like a nuisance and mostly it is, but it is the honest version. It also unlocks the thing Next.js is actually chasing: if the framework knows a page is *waiting* on something, it can start rendering the parts that aren't waiting. You do not benefit from that today. You would if this app ever got slow.
+
+The practical cost was eleven places that fetch the logged-in user and eight pages that read the web address. All eighteen now wait. The reason it is written here rather than left in the code: the next page or action added to this app has to do the same, and forgetting is not a subtle bug — it fails loudly at build time, which is the good kind of failure.
+
+Worth knowing how small this was. Two major version jumps sounds alarming; it produced fourteen type errors and took one session. That is not luck — it is because this app never used the features Next.js broke. No image component, no API routes, no custom build configuration. A more conventionally-built app would have paid far more.
+
+**Check before approving:**
+- **The calendar is the thing to keep an eye on.** React 19 changed how components get handles on elements on screen, which is the machinery drag-and-drop runs on. You confirmed drag, drop and arm mode work on the desktop. The gap is the iPad — touch dragging uses that same machinery and a desktop pass cannot tell you about it. **Next time you have the iPad in hand, drag a card.** Not urgent, but it is the one untested surface.
+- **Nothing about your data, login, or hosting changed.** This was entirely a change of the tools the app is built from.
+
+**What this closes off:** Nothing — it opens the door to Next.js 16, which is planned as Task 84 and was the whole point. Going backwards to Next 14 would now mean undoing eighteen deliberate edits, so consider this one-way. That is intended.
