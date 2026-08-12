@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Approved — Phase 3 complete
 **Approved by:** Builder (2026-04-20)
-**Total tasks:** 82 (single file, 2791 lines — over threshold; a `docs/plan-index.md` split is overdue)
+**Total tasks:** 84 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
 
 > Every task is one-shot-ready. A developer must be able to execute it without asking clarifying questions.
 > Tasks with `**Specialist:**` fields require reading that skill before implementation — mandatory, not optional.
@@ -2787,3 +2787,82 @@ REPO-03 named the ten production dependencies only; the five devDependencies car
 **Status:** [x] Done 2026-08-11 — REPO-03 closed and the app has crash boundaries for the first time. **Pins:** all 15 `"latest"` entries replaced with caret ranges at the already-resolved versions; the ten production deps were the finding, the five devDependencies (`@types/node`, `autoprefixer`, `drizzle-kit`, `postcss`, `typescript`) were added on builder approval as the same defect. `npm install` reported `up to date` and changed no `version`/`resolved`/`integrity` line — the tree that was tested is the tree that is pinned. **Boundaries:** `app/(app)/error.tsx` sits inside the authenticated layout so `AppShell` survives the crash and the operator is never stranded; `app/global-error.tsx` renders its own `<html>`/`<body>`, imports `./globals.css` (root-layout styles do not reach it) and offers a hard reload rather than `reset()`, because re-rendering the layout that just threw lands on the same error. **Neither screen renders the error text** — a thrown postgres error can carry a connection string or a customer row, and this was the one surface that would have put internals on a page; the test asserts a deliberately leaky message never reaches the DOM. **Two deviations from the spec, both recorded above as criterion corrections:** the "byte-identical lockfile" criterion was unachievable by construction and was replaced with the check that actually proves the point; and the styling criterion cited CONSTRAINT-20, which is the shared-Supabase decision, not a design rule. **One implementation deviation:** the test was first written against `@testing-library/user-event`, which is not installed — rewritten to `fireEvent`, the established repo precedent, rather than adding a dependency for one click. No icon was used: `lucide-react@1.x` renamed the triangle-alert glyph and no existing file imports it, so the text-only treatment of the four existing empty states was matched instead. 1222 tests / 102 files (was 1218 / 101), `tsc` clean, `npm run build` clean.
 
 **Depends on:** None
+
+---
+
+## Task 83: Upgrade to React 19 and Next.js 15
+
+**Infra task — no `docs/prd.md` entry by design.** Closes the first half of security finding REPO-02. Split from Task 84 deliberately: React 19 is a different risk axis from Next 16's tooling changes, and bundling them would produce a change no one can review and no one can bisect. Each task must be revertable as a single commit.
+
+The Next-specific surface here is small — an impact scan on 2026-08-11 found this repo uses almost none of what Next 15 broke. **React 19 is the actual upgrade**, and it lands on `@dnd-kit`, `framer-motion` and `@base-ui/react` — the calendar drag/drop built across Tasks 76-81.
+
+**Scan results establishing scope (verified 2026-08-11, not assumed):** zero bare `fetch()` calls (all data access is Drizzle/`postgres`/Supabase SDK), zero `app/**/route.ts` handlers, zero `next/image` imports, zero `next/link legacyBehavior`, zero `useFormState`, zero `experimental_*` imports, zero `JSX.Element` annotations, and a five-line `next.config.js` with no custom webpack. Six of Next 15's eleven breaking changes therefore have zero exposure.
+
+**Files:**
+- `package.json` — modify: `next` → latest 15.x, `react` + `react-dom` → latest 19.x, `@types/react` → ^19, `@types/react-dom` → ^19, `eslint-config-next` → matching 15.x. Record the exact resolved versions in the Status line
+- `lib/supabase/server.ts` — modify: `cookies()` becomes async (line 13 call site, line 10 `ReturnType<typeof cookies>` annotation)
+- `app/(app)/calendar/page.tsx`, `customers/page.tsx`, `dashboard/page.tsx`, `invoices/page.tsx`, `leads/page.tsx`, `orders/page.tsx`, `pickups/page.tsx`, `support/page.tsx` — modify: `searchParams` prop type becomes `Promise<...>` and must be awaited. All eight are currently plain objects
+- `app/(auth)/login/page.tsx` — verify only; takes no params
+- Any test file that mocks `next/headers` or renders a page with `searchParams` — modify as the suite reveals
+
+**Approach:**
+1. Run `npx @next/codemod@canary next-async-request-api .` first, then hand-clean. The codemod leaves `@next/codemod` marker comments and `UnsafeUnwrapped` typecasts wherever it cannot infer — none may remain at completion
+2. Upgrade dependencies, reinstall, then work `tsc` to zero before running the suite
+
+**Acceptance criteria:**
+- [ ] `next`, `react`, `react-dom` and their `@types` are on 15.x / 19.x with exact caret pins — no `"latest"` reintroduced (Task 82 regression guard)
+- [ ] `npx tsc --noEmit` clean
+- [ ] No `UnsafeUnwrapped` typecast and no `@next/codemod` marker comment remains anywhere in the repo — `grep -r "UnsafeUnwrapped\|@next/codemod" --include=*.ts --include=*.tsx .` returns nothing
+- [ ] `cookies()` is awaited at `lib/supabase/server.ts`; its type annotation no longer uses the sync `ReturnType<typeof cookies>` shape
+- [ ] All eight `searchParams` pages await the promise; none destructure it synchronously
+- [ ] `npm run build` succeeds
+- [ ] Full suite green at **≥ 1222 tests / 102 files** — the Task 82 baseline. A dropped or skipped test is a failure, not a pass
+- [ ] Calendar drag/drop, arm mode and both card groups work in `npm run dev` on desktop — verified by exercising them, not by assuming the tests cover it
+- [ ] React 19 ref changes are checked at every `forwardRef` and every `ref` prop passed into `@dnd-kit`, `framer-motion` or `@base-ui/react` — enumerate the sites in the Status line and state that each was inspected
+- [ ] [EH-01] No error swallowed to make the upgrade pass — if a component breaks under React 19, it is fixed, not silenced or `try`-wrapped
+- [ ] The commit contains no unrelated refactors. Upgrade only
+
+**Explicitly NOT gated on iPad verification** — builder decision, 2026-08-11. Task 81 gated on it; this one does not. The residual risk is accepted and stated plainly: React 19's ref handling is the most likely thing to break *touch* drag specifically, and a desktop pass will not surface it. If calendar touch behaviour regresses, this task is where it came from.
+
+**Tests required:**
+- No new tests. The existing 1222 are the regression harness — this task's proof is that they still pass unchanged
+- Any test modified to accommodate an async API must be modified for that reason alone; a test whose *assertion* changed is a behaviour change and must be called out in the Status line
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 82
+
+---
+
+## Task 84: Upgrade to Next.js 16 and ESLint 9 flat config
+
+**Infra task — no `docs/prd.md` entry by design.** Closes the second half of REPO-02. Mostly tooling; the application-code surface is near zero once Task 83 has landed.
+
+**Pre-flight gate — blocking:** Next 16 requires **Node.js ≥ 20.9.0** and TypeScript ≥ 5.1. TypeScript is already 6.0.3. Node must be verified with `node --version` *before* this task starts; if it is below 20.9, upgrading Node is a prerequisite and not part of this task.
+
+**Files:**
+- `package.json` — modify: `next` → 16.x, `eslint` → ^9, `eslint-config-next` → 16.x; replace the `lint` script (`next lint` is removed in 16) with the ESLint CLI
+- `eslint.config.mjs` — create: flat config. Subpaths are `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript`
+- `.eslintrc.json` — delete if present
+- `next.config.js` — modify: review `images` defaults that changed in 16 (`minimumCacheTTL` 60s → 14400s, `qualities` → `[75]`, `imageSizes` drops 16, `maximumRedirects` → 3). This repo imports `next/image` nowhere, so the expected outcome is "reviewed, no change needed" — record that explicitly rather than silently skipping it
+- `middleware.ts` → `proxy.ts` — rename via codemod. Deprecated in 16, not removed; doing it now avoids a forced migration later. Note `proxy` is Node-runtime only, no edge
+
+**Approach:** run `npx @next/codemod@canary upgrade latest`, which officially handles only the turbopack config move, `next lint` → ESLint CLI, `middleware` → `proxy`, `unstable_` prefix removal and `experimental_ppr` removal. Everything else is manual.
+
+**Acceptance criteria:**
+- [ ] `node --version` ≥ 20.9.0, recorded in the Status line
+- [ ] `next` on 16.x, `eslint` on ^9, `eslint-config-next` on 16.x, all caret-pinned
+- [ ] `npm run build` succeeds **on Turbopack**, which is the default builder in 16. No `--webpack` escape hatch is used — this repo has no custom webpack config, so needing one would mean something else is wrong
+- [ ] `npm run lint` runs through the ESLint CLI against `eslint.config.mjs` and completes. **This is the first time CQ-05 has any automated enforcement** — record the violation count found; fixing them is out of scope for this task and becomes its own follow-up
+- [ ] `npx tsc --noEmit` clean
+- [ ] Full suite green at ≥ 1222 tests / 102 files
+- [ ] `middleware.ts` renamed to `proxy.ts`; auth still redirects an unauthenticated request to `/login` — verified by loading a protected route signed out in `npm run dev`, not by reading the diff
+- [ ] Parallel-route slots require an explicit `default.js` in 16 or the build fails. This repo has no `@slot` directories — confirm that is still true at implementation time rather than trusting this line
+- [ ] `next.config.js` image defaults reviewed and the finding recorded, even if the finding is "no change needed"
+- [ ] `npm audit --omit=dev` re-run and the result recorded — this is the number REPO-02 was raised on
+
+**Tests required:** none new; the suite is the regression harness, as in Task 83.
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 83
