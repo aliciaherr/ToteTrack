@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Approved — Phase 3 complete
 **Approved by:** Builder (2026-04-20)
-**Total tasks:** 86 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
+**Total tasks:** 87 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
 
 > Every task is one-shot-ready. A developer must be able to execute it without asking clarifying questions.
 > Tasks with `**Specialist:**` fields require reading that skill before implementation — mandatory, not optional.
@@ -2934,3 +2934,29 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Status:** [ ] Not started
 
 **Depends on:** Task 84
+
+---
+
+## Task 87: Fix the `/calendar` hydration mismatch (`@dnd-kit` unstable IDs)
+
+**Infra/accessibility task — no `docs/prd.md` entry by design.** Raised by `@qa` 2026-08-12 (NB-1), found the first time `/calendar` was ever rendered in a logged-in browser.
+
+**The finding:** `/calendar` throws `A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up.` The attribute is `aria-describedby` — server renders `DndDescribedBy-1`, client renders `DndDescribedBy-0` — repeated across ~60 draggable cards, roughly **1,500 console lines per page load**. `@dnd-kit` derives that ID from an internal counter that is not stable across the server and client renders.
+
+**Why it matters, and why it is not urgent:** React explicitly does not patch the attribute, so each drag handle's accessible description points at the wrong element — screen-reader users get wrong or missing drag instructions. Sighted users are unaffected and drag/drop itself works. The second cost is that 1,500 lines of noise will hide a real error during future debugging. Not a Task 84 regression as far as could be determined, though React 19 made hydration mismatches louder and it may have been silent before.
+
+**Files:**
+- Wherever `DndContext` is constructed for both calendar groups — pass a stable `id`. `DndContext` accepts one precisely for SSR determinism. Prefer deriving it from React's `useId` over a hardcoded string, and give the orders and pickups contexts distinct values.
+
+**Acceptance criteria:**
+- [ ] `/calendar` loads signed in with **zero** hydration errors in the browser console, both with the Orders group active and with Pickups active
+- [ ] Console on `/calendar` is clean apart from the known `favicon.ico` 404
+- [ ] Drag/drop and long-press-to-arm still work — verified in `npm run dev`, and on iPad for the touch path, since this touches the same components Task 68 device-validated
+- [ ] Full suite green at ≥ 1228 tests / 103 files
+- [ ] `npx tsc --noEmit` clean
+
+**Tests required:** none new — hydration is not observable from jsdom. The proof is the browser console, so record what was observed in the Status line.
+
+**Status:** [ ] Not started
+
+**Depends on:** —
