@@ -31,7 +31,7 @@ const DEFAULT_WINDOW: CustomerOrdersWindow = '1M'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface CustomersPageProps {
-  searchParams: {
+  searchParams: Promise<{
     id?: string
     status?: string
     search?: string
@@ -43,7 +43,7 @@ interface CustomersPageProps {
     // (`?pwindow=1M&pwindow=3M`) — see `parseWindow`.
     pwindow?: string | string[]
     new?: string
-  }
+  }>
 }
 
 function parseStatus(value: string | undefined): CustomerListStatus {
@@ -128,7 +128,8 @@ async function loadCustomerDetail(
  * takes precedence over `?id=` (selectedId is dropped when both are present).
  * Unknown values fall back to defaults.
  */
-export default async function CustomersPage({ searchParams }: CustomersPageProps) {
+export default async function CustomersPage(props: CustomersPageProps) {
+  const searchParams = await props.searchParams
   const status = parseStatus(searchParams.status)
   const search = searchParams.search ?? ''
   const sort = parseSort(searchParams.sort)

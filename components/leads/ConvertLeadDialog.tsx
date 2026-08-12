@@ -43,7 +43,7 @@ function DialogBody({
   serverError: string | null
   isSubmitting: boolean
   shouldReduceMotion: boolean
-  cancelRef: React.RefObject<HTMLButtonElement>
+  cancelRef: React.RefObject<HTMLButtonElement | null>
   onCancel: () => void
   onConfirm: (force: boolean) => void
 }) {

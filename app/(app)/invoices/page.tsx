@@ -11,10 +11,10 @@ import InvoiceLayout from '@/components/invoices/InvoiceLayout'
 import PageTransition from '@/components/shell/PageTransition'
 
 interface InvoicesPageProps {
-  searchParams: {
+  searchParams: Promise<{
     billingMonth?: string
     id?: string
-  }
+  }>
 }
 
 // YYYY-MM format — anything else falls back to the current month.
@@ -47,7 +47,8 @@ async function loadInvoiceDetail(invoiceId: string): Promise<InvoiceDetail | nul
  * Generate panel, the ledger rows for the right panel, and (when selected)
  * the invoice detail — in parallel.
  */
-export default async function InvoicesPage({ searchParams }: InvoicesPageProps) {
+export default async function InvoicesPage(props: InvoicesPageProps) {
+  const searchParams = await props.searchParams
   const billingMonth = parseBillingMonth(searchParams.billingMonth)
   const selectedInvoiceId = isUuid(searchParams.id) ? searchParams.id : null
 

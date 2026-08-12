@@ -30,7 +30,7 @@ export async function signIn(password: string): Promise<{ error: string | null }
   let authError: AuthError | null = null
 
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { error } = await supabase.auth.signInWithPassword({ email: adminEmail, password: parsed.data })
     authError = error
   } catch (cause) {
@@ -69,7 +69,7 @@ export async function signIn(password: string): Promise<{ error: string | null }
 export async function signOut(): Promise<{ error: string } | void> {
   let signOutError: AuthError | null = null
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { error } = await supabase.auth.signOut()
     signOutError = error
   } catch (cause) {

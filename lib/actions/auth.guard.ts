@@ -23,7 +23,7 @@ export { GENERIC_FAILURE_MESSAGE }
  * down — sends them to a login screen that cannot help them (EH-02, EH-04).
  */
 export async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data, error } = await supabase.auth.getUser()
 
   if (error) {

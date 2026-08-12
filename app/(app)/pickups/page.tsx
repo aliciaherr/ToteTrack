@@ -24,13 +24,13 @@ const VALID_STATUSES: readonly PickupListStatus[] = [
 ]
 
 interface PickupsPageProps {
-  searchParams: {
+  searchParams: Promise<{
     id?: string
     status?: string
     search?: string
     new?: string
     customerId?: string
-  }
+  }>
 }
 
 function parseStatus(value: string | undefined): PickupListStatus {
@@ -66,7 +66,8 @@ async function loadPickupDetail(pickupId: string): Promise<PickupDetail | null> 
  * scroll. `?new=1` opens the create form in the right panel;
  * `?customerId=[uuid]` pre-selects and locks the customer field.
  */
-export default async function PickupsPage({ searchParams }: PickupsPageProps) {
+export default async function PickupsPage(props: PickupsPageProps) {
+  const searchParams = await props.searchParams
   const status = parseStatus(searchParams.status)
   const search = searchParams.search?.trim() ?? ''
   const selectedId = parseUuid(searchParams.id)

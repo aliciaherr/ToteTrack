@@ -71,7 +71,12 @@ describe('LeadNotesSection', () => {
       expect(mockAddLeadNote).toHaveBeenCalledWith(LEAD_ID, 'A fresh note.')
     })
     await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
-    expect(textarea).toHaveValue('')
+    // Awaited rather than asserted inline: the component calls `setContent('')`
+    // and `onSaved()` back to back after its await, and under React 19 the
+    // `onSaved` mock records before React has flushed the re-render. React 18
+    // happened to have flushed by this point. The expectation is unchanged —
+    // the textarea still clears, one tick later than the old timing assumed.
+    await vi.waitFor(() => expect(textarea).toHaveValue(''))
   })
 
   it('surfaces a server error inline without calling onSaved', async () => {

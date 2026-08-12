@@ -56,7 +56,7 @@ beforeEach(() => {
 })
 
 async function renderPage(searchParams: Record<string, string | undefined> = {}) {
-  render(await PickupsPage({ searchParams }))
+  render(await PickupsPage({ searchParams: Promise.resolve(searchParams) }))
   return screen.getByTestId('pickup-layout')
 }
 
@@ -120,7 +120,7 @@ describe('app/(app)/pickups/page — SEC-02 boundary validation', () => {
   it('lets a non-not-found query failure bubble to the error boundary', async () => {
     mockGetPickupDetail.mockRejectedValueOnce(new Error('connection reset'))
 
-    await expect(PickupsPage({ searchParams: { id: VALID_UUID } })).rejects.toThrow(
+    await expect(PickupsPage({ searchParams: Promise.resolve({ id: VALID_UUID }) })).rejects.toThrow(
       'connection reset',
     )
   })

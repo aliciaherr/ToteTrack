@@ -48,7 +48,7 @@ function DialogBody({
   poNumber: string
   currentStatus: PoStatus
   onCancel: () => void
-  cancelRef: React.RefObject<HTMLButtonElement>
+  cancelRef: React.RefObject<HTMLButtonElement | null>
   onConfirm: () => void
   isSubmitting: boolean
   serverError: string | null

@@ -9,9 +9,9 @@ import SupportLayout from '@/components/support/SupportLayout'
 import PageTransition from '@/components/shell/PageTransition'
 
 interface SupportPageProps {
-  searchParams: {
+  searchParams: Promise<{
     id?: string
-  }
+  }>
 }
 
 async function loadTicketDetail(ticketId: string): Promise<TicketDetailType | null> {
@@ -31,7 +31,8 @@ async function loadTicketDetail(ticketId: string): Promise<TicketDetailType | nu
  * so the screen renders on a single server round-trip. Auth is enforced
  * by the surrounding `app/(app)/layout.tsx` guard.
  */
-export default async function SupportPage({ searchParams }: SupportPageProps) {
+export default async function SupportPage(props: SupportPageProps) {
+  const searchParams = await props.searchParams
   const selectedId = isUuid(searchParams.id) ? searchParams.id : null
 
   const [tickets, detail] = await Promise.all([

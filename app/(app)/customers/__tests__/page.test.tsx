@@ -71,7 +71,7 @@ beforeEach(() => {
 async function renderPage(
   searchParams: Record<string, string | string[] | undefined> = {},
 ) {
-  render(await CustomersPage({ searchParams }))
+  render(await CustomersPage({ searchParams: Promise.resolve(searchParams) }))
   return screen.getByTestId('customer-layout')
 }
 

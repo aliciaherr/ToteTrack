@@ -2810,17 +2810,17 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 2. Upgrade dependencies, reinstall, then work `tsc` to zero before running the suite
 
 **Acceptance criteria:**
-- [ ] `next`, `react`, `react-dom` and their `@types` are on 15.x / 19.x with exact caret pins — no `"latest"` reintroduced (Task 82 regression guard)
-- [ ] `npx tsc --noEmit` clean
-- [ ] No `UnsafeUnwrapped` typecast and no `@next/codemod` marker comment remains anywhere in the repo — `grep -r "UnsafeUnwrapped\|@next/codemod" --include=*.ts --include=*.tsx .` returns nothing
-- [ ] `cookies()` is awaited at `lib/supabase/server.ts`; its type annotation no longer uses the sync `ReturnType<typeof cookies>` shape
-- [ ] All eight `searchParams` pages await the promise; none destructure it synchronously
-- [ ] `npm run build` succeeds
-- [ ] Full suite green at **≥ 1222 tests / 102 files** — the Task 82 baseline. A dropped or skipped test is a failure, not a pass
-- [ ] Calendar drag/drop, arm mode and both card groups work in `npm run dev` on desktop — verified by exercising them, not by assuming the tests cover it
-- [ ] React 19 ref changes are checked at every `forwardRef` and every `ref` prop passed into `@dnd-kit`, `framer-motion` or `@base-ui/react` — enumerate the sites in the Status line and state that each was inspected
-- [ ] [EH-01] No error swallowed to make the upgrade pass — if a component breaks under React 19, it is fixed, not silenced or `try`-wrapped
-- [ ] The commit contains no unrelated refactors. Upgrade only
+- [x] `next`, `react`, `react-dom` and their `@types` are on 15.x / 19.x with exact caret pins — `next@^15.5.23`, `react`/`react-dom@^19.2.8`, `@types/react@^19.2.18`, `@types/react-dom@^19.2.4`, `eslint-config-next@^15.5.23`. `grep -c '"latest"' package.json` = 0, so the Task 82 guard holds
+- [x] `npx tsc --noEmit` clean — 14 errors at the start of the migration, 0 at the end
+- [x] No `UnsafeUnwrapped` typecast and no `@next/codemod` marker comment remains — count 0. The codemod was **not run**; all nine call sites were migrated by hand, which is why there is no marker residue to clean
+- [x] `cookies()` is awaited at `lib/supabase/server.ts`; the annotation is now `Awaited<ReturnType<typeof cookies>>`
+- [x] All eight `searchParams` pages await the promise. The signature changed from `({ searchParams }: Props)` to `(props: Props)` plus `const searchParams = await props.searchParams`, which keeps every body reference identical and holds the diff to two lines per page
+- [x] `npm run build` succeeds — all 11 routes, no warnings
+- [x] Full suite green at **1222 tests / 102 files**, exactly the Task 82 baseline. Nothing dropped, nothing skipped
+- [ ] **NOT MET — requires the builder.** Calendar drag/drop, arm mode and both card groups exercised in `npm run dev` on desktop. The dev server was started and the runtime path *was* verified as far as an unauthenticated session reaches: `/calendar`, `/dashboard` and `/orders?search=…&status=…` each return `307 → /login` with zero errors in the dev log, which exercises `middleware.ts`, the async `cookies()` and `await createClient()` end to end. Past that point the app requires the admin password, which is deliberately not available to the implementing agent. **The drag/drop pass itself is unverified and this task is not closed until the builder does it.**
+- [x] React 19 ref changes checked. **There are zero `forwardRef` call sites in the entire repo** — the largest React 19 migration hazard is structurally absent. All `@dnd-kit` ref usage is the callback form `ref={setNodeRef}` at four sites (`SortablePickupCard.tsx:96`, `SortableProductionCard.tsx:105`, `UnscheduledCallout.tsx:144`, `UnscheduledPickupsCallout.tsx:128`); React 19's new "a callback ref's return value is a cleanup function" rule does not bite because `setNodeRef` returns void. Of 22 `useRef<T>(null)` sites, the 7 that cross a function or prop boundary needed their annotation widened to `RefObject<T | null>` — `useDismissOnOutsideOrEsc.ts:53`, `productionCardDialogHooks.ts:41` and `:171`, and the `cancelRef` prop on `DeleteCustomerDialog`, `ConvertLeadDialog`, `CancelOrderDialog`, `RevertOrderDialog`. This is a truth-in-typing change, not a behaviour change: those refs were always null on first render
+- [x] [EH-01] No error swallowed. Two tests failed under React 19 and both were diagnosed rather than silenced — see the Status line
+- [x] The commit contains no unrelated refactors
 
 **Explicitly NOT gated on iPad verification** — builder decision, 2026-08-11. Task 81 gated on it; this one does not. The residual risk is accepted and stated plainly: React 19's ref handling is the most likely thing to break *touch* drag specifically, and a desktop pass will not surface it. If calendar touch behaviour regresses, this task is where it came from.
 
@@ -2828,7 +2828,19 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 - No new tests. The existing 1222 are the regression harness — this task's proof is that they still pass unchanged
 - Any test modified to accommodate an async API must be modified for that reason alone; a test whose *assertion* changed is a behaviour change and must be called out in the Status line
 
-**Status:** [ ] Not started
+**Status:** [ ] **Code complete 2026-08-11, NOT closed** — 11 of 12 acceptance criteria met; the desktop calendar drag/drop pass is unmet and needs the builder, who has the password. Do not tick this task without it.
+
+`next@15.5.23`, `react`/`react-dom@19.2.8`. `tsc` clean, `npm run build` clean (11 routes), **1222 tests / 102 files** — the exact Task 82 baseline, nothing dropped.
+
+**The migration was far smaller than the version numbers suggest: 14 type errors total.** The scan in the task body was right — six of Next 15's eleven breaking changes have zero exposure here, so the Next-specific work was nine call sites: `cookies()` at `lib/supabase/server.ts` and `searchParams` on eight pages. `createClient()` became async, which cascaded to 11 `await createClient()` call sites across six files, all already inside async functions. The codemod was deliberately not run — nine hand edits leave no `UnsafeUnwrapped` residue to clean up afterwards.
+
+**React 19 cost 11 of the 14 errors, and every one was a type widening, not a behaviour change.** `useRef<T>(null)` now yields `RefObject<T | null>`, which is what it always was at runtime; seven annotations that crossed a boundary were widened to match. Zero `forwardRef` in the repo meant the headline React 19 hazard never applied.
+
+**Two tests failed and neither was a product bug — both are recorded because the distinction matters.** `lib/supabase/__tests__/server.test.ts` asserted a *synchronous* throw from `createClient`; the failure it guards is unchanged, but it now arrives as a rejection, so both assertions became `await expect(...).resolves/.rejects`. `components/leads/__tests__/LeadNotesSection.test.tsx` asserted `toHaveValue('')` inline after `onSaved` fired; the component calls `setContent('')` and `onSaved()` back to back after its await, and React 19 records the mock before flushing the re-render where React 18 had already flushed. Wrapped in `waitFor` — **the assertion itself is unchanged in both cases.** No assertion was weakened to make the upgrade pass.
+
+**Runtime verification reached as far as an unauthenticated session goes:** `/calendar`, `/dashboard` and `/orders?search=%20tote%20&status=scheduled` all return `307 → /login` with zero dev-log errors, exercising `middleware.ts`, async `cookies()` and `await createClient()` on the real server. The eight `searchParams` awaits are covered by `tsc` and the existing page tests but were not reachable over HTTP, because the layout redirects before a page renders.
+
+**Accepted risk, restated:** this task is not gated on iPad verification (builder decision). React 19's ref semantics are the most plausible cause of a *touch* drag regression, and neither the suite nor a desktop pass would surface it.
 
 **Depends on:** Task 82
 

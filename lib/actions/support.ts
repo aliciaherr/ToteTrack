@@ -53,7 +53,7 @@ function firstZodMessage(error: z.ZodError): string {
 }
 
 async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data, error } = await supabase.auth.getUser()
   if (error || !data.user) return { error: 'You are not signed in.' }
   return null
@@ -206,7 +206,7 @@ export async function uploadTicketAttachment(
 
   const sanitizedName = sanitizeFilename(file.name)
   const storagePath = `${ticketId}/${crypto.randomUUID()}_${sanitizedName}`
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { error: uploadError } = await supabase.storage
     .from(BUCKET_NAME)
@@ -263,7 +263,7 @@ export async function getSupportAttachmentSignedUrl(
     return { error: GENERIC_FAILURE_MESSAGE }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data, error: signError } = await supabase.storage
     .from(BUCKET_NAME)
     .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SECONDS)

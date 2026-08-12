@@ -45,7 +45,7 @@ function firstZodMessage(error: z.ZodError): string {
 }
 
 async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data, error } = await supabase.auth.getUser()
   if (error || !data.user) return { error: 'You are not signed in.' }
   return null

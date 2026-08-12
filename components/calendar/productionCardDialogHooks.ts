@@ -38,7 +38,7 @@ export function useEscapeClose(open: boolean, onClose: () => void, disabled: boo
  * page behind them, and none restores focus on close. That is a real gap in
  * those dialogs, not a reason to repeat it here.
  */
-export function useFocusTrap(open: boolean, panelRef: React.RefObject<HTMLDivElement>) {
+export function useFocusTrap(open: boolean, panelRef: React.RefObject<HTMLDivElement | null>) {
   const restoreRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -168,7 +168,7 @@ export function useDialogActions({
  * @param open Whether the popup itself is open; closing it clears the flag.
  * @param panelRef The popup panel, used to place focus back inside it.
  */
-export function useNestedDialog(open: boolean, panelRef: React.RefObject<HTMLDivElement>) {
+export function useNestedDialog(open: boolean, panelRef: React.RefObject<HTMLDivElement | null>) {
   const [nestedOpen, setNestedOpen] = useState(false)
   const openerRef = useRef<HTMLElement | null>(null)
 

@@ -8,12 +8,12 @@ import CalendarLayout from '@/components/calendar/CalendarLayout'
 import PageTransition from '@/components/shell/PageTransition'
 
 interface CalendarPageProps {
-  searchParams: {
+  searchParams: Promise<{
     // `string[]` because Next hands back an array for a repeated
     // `?week=a&week=b`. Typed honestly here so the boundary parser has to deal
     // with it rather than a `.trim()` throwing at request time (SEC-02).
     week?: string | string[]
-  }
+  }>
 }
 
 /**
@@ -33,7 +33,8 @@ interface CalendarPageProps {
  * from the client. The auth guard and `dynamic = 'force-dynamic'` are inherited
  * from `app/(app)/layout.tsx` and deliberately not redeclared.
  */
-export default async function CalendarPage({ searchParams }: CalendarPageProps) {
+export default async function CalendarPage(props: CalendarPageProps) {
+  const searchParams = await props.searchParams
   const weekStart = parseCalendarWeek(searchParams.week, new Date())
   const range = buildCalendarRange(weekStart)
 

@@ -50,7 +50,7 @@ interface DismissOptions {
  */
 export function useDismissOnOutsideOrEsc(
   isOpen: boolean,
-  containerRef: React.RefObject<HTMLElement>,
+  containerRef: React.RefObject<HTMLElement | null>,
   onDismiss: () => void,
   { pointerEvent, capture = false, swallowOutside = false }: DismissOptions,
 ): void {

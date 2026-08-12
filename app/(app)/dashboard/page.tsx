@@ -16,7 +16,7 @@ function parsePeriod(raw: string | string[] | undefined): DashboardPeriod {
 }
 
 interface DashboardPageProps {
-  searchParams: { period?: string | string[] }
+  searchParams: Promise<{ period?: string | string[] }>
 }
 
 /**
@@ -25,7 +25,8 @@ interface DashboardPageProps {
  * in parallel, and passes them down to the client dashboard shell. Auth
  * is already enforced by `app/(app)/layout.tsx`.
  */
-export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+export default async function DashboardPage(props: DashboardPageProps) {
+  const searchParams = await props.searchParams
   const period = parsePeriod(searchParams.period)
   const [stats, needToContact, openOrders, leadsFollowUp, revenueTrend, production] =
     await Promise.all([

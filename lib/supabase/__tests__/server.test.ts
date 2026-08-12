@@ -11,15 +11,20 @@ vi.mock('@supabase/ssr', () => ({
 
 import { createClient } from '../server'
 
+// `createClient` became async in the Next 15 upgrade (Task 83) because
+// `cookies()` is async there. The failure it guards is unchanged — a call from
+// outside a server context — but it now surfaces as a rejection rather than a
+// synchronous throw, so both assertions are awaited. The expected message is
+// deliberately identical to the pre-upgrade one.
 describe('createClient (server)', () => {
-  it('returns a SupabaseClient without throwing in server context', () => {
-    expect(() => createClient()).not.toThrow()
+  it('returns a SupabaseClient without throwing in server context', async () => {
+    await expect(createClient()).resolves.toBeDefined()
   })
 
-  it('throws with context when cookies() is unavailable', () => {
+  it('rejects with context when cookies() is unavailable', async () => {
     mockCookies.mockImplementationOnce(() => {
       throw new Error('Not a server context')
     })
-    expect(() => createClient()).toThrow('called outside server context')
+    await expect(createClient()).rejects.toThrow('called outside server context')
   })
 })

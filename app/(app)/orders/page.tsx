@@ -25,13 +25,13 @@ const VALID_STATUSES: readonly OrderListStatus[] = [
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface OrdersPageProps {
-  searchParams: {
+  searchParams: Promise<{
     id?: string
     status?: string
     search?: string
     new?: string
     customerId?: string
-  }
+  }>
 }
 
 function parseStatus(value: string | undefined): OrderListStatus {
@@ -63,7 +63,8 @@ async function loadOrderDetail(orderId: string): Promise<OrderDetail | null> {
  * `?new=1` opens the create form in the right panel; `?customerId=[uuid]`
  * pre-selects and locks the customer field.
  */
-export default async function OrdersPage({ searchParams }: OrdersPageProps) {
+export default async function OrdersPage(props: OrdersPageProps) {
+  const searchParams = await props.searchParams
   const status = parseStatus(searchParams.status)
   const search = searchParams.search?.trim() ?? ''
   const selectedId = parseUuid(searchParams.id)

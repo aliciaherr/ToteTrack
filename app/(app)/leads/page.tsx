@@ -13,12 +13,12 @@ import PageTransition from '@/components/shell/PageTransition'
 const VALID_STATUSES: readonly LeadListStatus[] = ['all', 'hot', 'warm', 'cold']
 
 interface LeadsPageProps {
-  searchParams: {
+  searchParams: Promise<{
     id?: string
     status?: string
     search?: string
     new?: string
-  }
+  }>
 }
 
 function parseStatus(value: string | undefined): LeadListStatus {
@@ -46,7 +46,8 @@ async function loadLeadDetail(leadId: string) {
  * notes in parallel. `?new=1` opens the create form on mount and takes
  * precedence over `?id=` (selectedId is dropped when both are present).
  */
-export default async function LeadsPage({ searchParams }: LeadsPageProps) {
+export default async function LeadsPage(props: LeadsPageProps) {
+  const searchParams = await props.searchParams
   const status = parseStatus(searchParams.status)
   const search = searchParams.search ?? ''
   const initialMode = parseInitialMode(searchParams.new, 'new-lead')

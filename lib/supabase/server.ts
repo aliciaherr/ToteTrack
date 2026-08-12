@@ -5,12 +5,17 @@ import { cookies } from 'next/headers'
  * Server Supabase client — reads the user's session from cookies.
  * Call from Server Components, Server Actions, and Route Handlers only.
  * SUPABASE_SERVICE_ROLE_KEY lives in this file only — never in client.ts or any client component.
+ *
+ * Async since Next 15: `cookies()` returns a promise there, so every caller
+ * must `await createClient()`. The `try` still guards the same failure — a
+ * call from outside a server context — it is now an async rejection rather
+ * than a synchronous throw.
  */
-export function createClient() {
-  let cookieStore: ReturnType<typeof cookies>
+export async function createClient() {
+  let cookieStore: Awaited<ReturnType<typeof cookies>>
 
   try {
-    cookieStore = cookies()
+    cookieStore = await cookies()
   } catch (cause) {
     throw new Error(
       'createClient (server): called outside server context — cookies() unavailable. ' +
