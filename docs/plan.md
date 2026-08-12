@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Approved — Phase 3 complete
 **Approved by:** Builder (2026-04-20)
-**Total tasks:** 84 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
+**Total tasks:** 86 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
 
 > Every task is one-shot-ready. A developer must be able to execute it without asking clarifying questions.
 > Tasks with `**Specialist:**` fields require reading that skill before implementation — mandatory, not optional.
@@ -2862,19 +2862,75 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Approach:** run `npx @next/codemod@canary upgrade latest`, which officially handles only the turbopack config move, `next lint` → ESLint CLI, `middleware` → `proxy`, `unstable_` prefix removal and `experimental_ppr` removal. Everything else is manual.
 
 **Acceptance criteria:**
-- [ ] `node --version` ≥ 20.9.0, recorded in the Status line
-- [ ] `next` on 16.x, `eslint` on ^9, `eslint-config-next` on 16.x, all caret-pinned
-- [ ] `npm run build` succeeds **on Turbopack**, which is the default builder in 16. No `--webpack` escape hatch is used — this repo has no custom webpack config, so needing one would mean something else is wrong
-- [ ] `npm run lint` runs through the ESLint CLI against `eslint.config.mjs` and completes. **This is the first time CQ-05 has any automated enforcement** — record the violation count found; fixing them is out of scope for this task and becomes its own follow-up
-- [ ] `npx tsc --noEmit` clean
-- [ ] Full suite green at ≥ 1222 tests / 102 files
-- [ ] `middleware.ts` renamed to `proxy.ts`; auth still redirects an unauthenticated request to `/login` — verified by loading a protected route signed out in `npm run dev`, not by reading the diff
-- [ ] Parallel-route slots require an explicit `default.js` in 16 or the build fails. This repo has no `@slot` directories — confirm that is still true at implementation time rather than trusting this line
-- [ ] `next.config.js` image defaults reviewed and the finding recorded, even if the finding is "no change needed"
-- [ ] `npm audit --omit=dev` re-run and the result recorded — this is the number REPO-02 was raised on
+- [x] `node --version` ≥ 20.9.0 — **v24.16.0**, npm 11.13.0. TypeScript 6.0.3 clears the ≥ 5.1 floor
+- [x] `next` on 16.x, `eslint` on ^9, `eslint-config-next` on 16.x, all caret-pinned — `next@^16.3.0`, `eslint@^9.39.5`, `eslint-config-next@^16.3.0`, resolving to 16.3.0 / 9.39.5 / 16.3.0. ESLint stayed on 9 by spec even though 10.8.1 is published; `eslint-config-next@16.3.0` declares `eslint: ">=9.0.0"`, so 9.39.5 is inside the supported range and 10 is a separate decision
+- [x] `npm run build` succeeds **on Turbopack** — exit 0, `▲ Next.js 16.3.0 (Turbopack)`, 11 routes, no `--webpack` flag and no custom webpack config introduced
+- [x] `npm run lint` runs through the ESLint CLI against `eslint.config.mjs` and completes — **117 problems across 32 files: 34 errors, 83 warnings.** By rule: `@typescript-eslint/no-unused-vars` 80 (warn), `@typescript-eslint/no-explicit-any` 16 (error), `react-hooks/set-state-in-effect` 8 (error), `react-hooks/refs` 7 (error), `react/display-name` 3 (error), `react-hooks/incompatible-library` 2 (warn), unused `eslint-disable` directive 1 (warn). Not fixed — out of scope by explicit constraint, raised as a follow-up
+- [x] `npx tsc --noEmit` clean — exit 0, run twice: once after install and again after Next 16 rewrote `tsconfig.json`
+- [x] Full suite green at ≥ 1222 tests / 102 files — **1222 tests / 102 files**, identical to the pre-upgrade baseline captured at the start of this task. Nothing dropped, nothing skipped, no test modified
+- [x] `middleware.ts` renamed to `proxy.ts` (via `git mv`, so history follows) and the exported `middleware` function renamed to `proxy`; the `config.matcher` is unchanged. Build output lists `ƒ Proxy (Middleware)`, confirming Next resolves the new file. Auth verified over HTTP against `npm run dev`: `GET /dashboard` with no cookies returns **307 → `http://localhost:3000/login`**. The redirect itself lives in `app/(app)/layout.tsx:15`, not in the proxy — `proxy.ts` only refreshes the session — so this request exercises both halves
+- [x] No `@slot` directories — re-confirmed at implementation time by scanning `app/` for `@*` directories; zero found, so no `default.js` is required
+- [x] `next.config.js` image defaults reviewed — **no change needed, and recorded in the file itself as a comment rather than only here.** Confirmed at implementation time that the repo imports `next/image` nowhere (the only `_next/image` hit is the proxy matcher string, and `next-env.d.ts` carries a type reference). None of the four changed defaults is reachable
+- [x] `npm audit --omit=dev` re-run — **1 high, down from the number REPO-02 was raised on.** It is `ws@8.20.0` (GHSA-58qx-3vcg-4xpx uninitialized memory disclosure, GHSA-96hv-2xvq-fx4p memory-exhaustion DoS), reached only via `@supabase/supabase-js@2.104.0 → @supabase/realtime-js@2.104.0`. Not a Next-chain vulnerability, so **Task 84 cannot close it** — it needs a `@supabase/supabase-js` bump and is a follow-up
 
 **Tests required:** none new; the suite is the regression harness, as in Task 83.
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-12 — all 10 acceptance criteria met. Node **v24.16.0**. `next@16.3.0`, `eslint@9.39.5`, `eslint-config-next@16.3.0`. `tsc` clean, `npm run build` clean on Turbopack (11 routes), **1222 tests / 102 files** — the exact Task 83 baseline.
+
+**The codemod was deliberately not run, same call as Task 83.** `npx @next/codemod@canary upgrade latest` is interactive and its five official transforms have almost no surface here: a repo-wide grep found zero `unstable_` imports, zero `experimental_ppr`, and no turbopack config to move. That left the `next lint` → ESLint CLI swap and the `middleware` → `proxy` rename, both one-liners. Two deterministic hand edits beat an interactive tool whose output would need auditing anyway.
+
+**Next 16 rewrote two generated files on its own during the build, and both changes were kept.** `tsconfig.json` had `jsx` forced from `preserve` to `react-jsx` (mandatory — Next uses the automatic runtime) and `.next/dev/types/**/*.ts` added to `include`; it also reformatted the file's arrays, which is cosmetic and would be reapplied on any future build, so it was not reverted. `next-env.d.ts` moved from a `/// <reference path>` to `import` form and picked up `root-params.d.ts`. `tsc` and the full suite were re-run after both, and both were clean.
+
+**Unrequested side effect found and shut off: Next 16 writes `AGENTS.md` and `CLAUDE.md` into the repo root on every `dev` and `build`.** The generated `CLAUDE.md` contains only `@AGENTS.md`. `CLAUDE.md` is already gitignored, but `AGENTS.md` is not, so the default behaviour would have dropped an untracked file into the repo root on every build and quietly taken over this project's agent context, which the SBDev framework owns. Disabled with `agentRules: false` in `next.config.js`, both generated files deleted, and a clean rebuild confirmed they do not come back.
+
+**`.eslintrc.json` did not exist** — this project has never had any ESLint config, which is why the 117 findings are the first automated CQ-05 signal it has ever produced. `npm run lint` therefore exits 1 today; the criterion was "runs and completes", which it does, but nothing should be wired to that exit code until the follow-up sweep lands.
 
 **Depends on:** Task 83
+
+---
+
+## Task 85: Clear the first ESLint sweep (117 findings)
+
+**Infra task — no `docs/prd.md` entry by design.** Raised by Task 84, which stood up ESLint 9 flat config and deliberately did not fix what it found.
+
+**Why this is not cosmetic:** 80 of the 117 are unused variables and genuinely are cosmetic, but **17 are React correctness rules** — `react-hooks/set-state-in-effect` (8) and `react-hooks/refs` (7) flag render-phase ref reads and effect-driven state writes, which are exactly the patterns React 19's stricter semantics punish. Those 17 should be read as findings, not as lint noise, and each one triaged on its merits before being silenced.
+
+**Files:** whichever of the 32 flagged files the triage keeps. No blanket `--fix` and no rule disabled repo-wide without a written reason.
+
+**Acceptance criteria:**
+- [ ] Every `react-hooks/*` finding individually triaged: fixed, or kept with an inline `eslint-disable-next-line` carrying a one-line reason
+- [ ] `@typescript-eslint/no-explicit-any` (16) resolved with real types, not `unknown` casts that move the problem
+- [ ] `npm run lint` exits 0
+- [ ] Full suite still green at 1222 tests / 102 files
+- [ ] `npx tsc --noEmit` clean
+
+**Tests required:** none new unless a triaged finding turns out to be a real bug — in which case that bug gets a regression test.
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 84
+
+---
+
+## Task 86: Close the last `npm audit --omit=dev` high (ws via Supabase)
+
+**Infra task — no `docs/prd.md` entry by design.** The remaining half of REPO-02's original number that Task 84 structurally could not reach.
+
+**The finding:** `ws@8.20.0` — GHSA-58qx-3vcg-4xpx (uninitialized memory disclosure) and GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS). Reached only through `@supabase/supabase-js@2.104.0 → @supabase/realtime-js@2.104.0`. Nothing in the Next chain pulls it.
+
+**Worth checking before doing the work:** ToteTrack does not use Supabase Realtime anywhere. Confirm that, because if it holds, the exposure is a transitive dependency that is never actually opened as a websocket — which changes this from "patch urgently" to "patch on the next routine bump" and is worth recording either way.
+
+**Files:** `package.json` — bump `@supabase/supabase-js` to a release whose `realtime-js` depends on `ws` ≥ 8.20.2. `npm audit fix` is the fallback only if it produces no breaking change.
+
+**Acceptance criteria:**
+- [ ] Whether Supabase Realtime is used anywhere in the app determined and recorded in the Status line
+- [ ] `npm audit --omit=dev` reports 0 high
+- [ ] Auth still works — `GET /dashboard` signed out returns 307 → `/login` against `npm run dev`
+- [ ] Full suite green at 1222 tests / 102 files
+- [ ] `npm run build` clean
+
+**Tests required:** none new; the suite is the regression harness.
+
+**Status:** [ ] Not started
+
+**Depends on:** Task 84
