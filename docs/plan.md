@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Approved — Phase 3 complete
 **Approved by:** Builder (2026-04-20)
-**Total tasks:** 30 (single file — at threshold)
+**Total tasks:** 82 (single file, 2791 lines — over threshold; a `docs/plan-index.md` split is overdue)
 
 > Every task is one-shot-ready. A developer must be able to execute it without asking clarifying questions.
 > Tasks with `**Specialist:**` fields require reading that skill before implementation — mandatory, not optional.
@@ -2738,3 +2738,52 @@ The highest-risk task in the feature. Every drag and tap payload gains a `group`
 **Status:** [x] Done 2026-08-10 — every drag and tap payload now carries a `group` discriminator; 1184 tests / 99 files (was 1110 / 98), `tsc` clean. **Substantial work was already on disk from an interrupted earlier pass** — the core modules (`calendarDnd.ts`, `armPlacement.ts`, `calendarCollision.ts`, `SortablePickupCard`, `usePickupPlacement`, the action module) had been rewritten with `group` but every consumer and all five test files were unmigrated, leaving 39 `tsc` errors; that work was finished rather than restarted. **The group invariant is enforced at four layers:** collision — `groupedCollisionDetection` filters `droppableContainers` by group *before* `closestCenter` runs, so the other group's list never becomes `over` and the preview never opens a slot the drop would refuse (a UX guarantee, not the security control); drop — `resolveDropTarget` / `resolveUnscheduleTarget` refuse a group mismatch as a last line, and `readDropData` validates `group` rather than trusting it; arm tap — `resolveTapAction` checks `target.group !== armed.group` first and returns `cancel`, and `armed.group` participates in the `isArmed` comparison so cards cannot cross-light; server — `z.literal('pickup')` rejects a crossed payload before any query, auth call or DB touch, with the `pickups`-table status lookup as an independent second guard (both tested, including the crossed-payload case). **INFO-05 is closed:** Task 80's "Remove from calendar" is repointed at `clearPickupPlacement`, which nulls both `pickup_date` and `sort_index`; `@/lib/actions/pickups` is no longer imported by any calendar component and `updatePickup` retains exactly one caller repo-wide (the Pickups tab form), with the old test now asserting it is *not* called. **Two CQ-driven splits on the established `*Parts` idiom:** `CalendarDragOverlay.tsx` (`CalendarDndContext` had reached 201 lines against the 200 cap) and `CalendarOverlays.tsx` (`CalendarLayout`'s body had reached 95 against CONSTRAINT-14's 80). Also: `pickupsByDay` bucketing moved up to `CalendarLayout` so a `+ Add` pickup sizes against the pickups list only; the new-pickup drawer pre-fills the **visible** date field (unlike the order drawer's hidden override) because a pickup's date *is* its placement; `+ Add order` relabelled `+ Add`; `z.literal(..., { errorMap })` is invalid in zod 4, so `{ message }` was used. Known gap, mirroring orders: with zero undated pickups the callout renders nothing and so is not a drop target then — the orders callout has always behaved the same, and the popup's Remove always works. **`@security` verdict: CLEAR**, with three new Low findings, none blocking — T81-L01 (`UUID_RE.test(id)` coerces, so a one-element array id passes the gate at `lib/actions/pickups.calendar.ts:98,157`; fails closed at the driver; repo-wide pattern), T81-L02 (CONSTRAINT-24 baseline stale — 10/28/26 recorded, 11/30/28 actual), T81-L03 (`setProductionPlacement` has no `group` literal, making the *order* action the weaker side — one guard where pickups has two; one line to fix). No crafted payload can renumber another group's or another day's `sort_index` (no bulk update exists; all four write sites are a single `.set()` with `.where(eq(<table>.id, id))`), and mass assignment is impossible (9 injected keys stripped by zod, no `parsed.data` spread); residual stale-index via the Pickups tab form recorded as INFO-07, inert. **The iPad-verified criterion is now met and checked — the builder completed the visual verification on the real iPad, 2026-08-10.** See `docs/session-log.md`.
 
 **Depends on:** Task 80
+
+---
+
+## Task 82: Pin dependency versions and add crash error boundaries
+
+**Infra task — no `docs/prd.md` entry by design.** This changes no product surface and adds no feature; it closes security finding REPO-03 and adds a resilience net. Two unrelated-looking edits are bundled because both are small, both are mechanical, and both are prerequisites for `@launch-prep`.
+
+Two problems, one task. **REPO-03:** fifteen packages are pinned to the literal string `"latest"`, so any reinstall can silently pull software that was never tested here — and `@supabase/ssr`, `postgres` and `drizzle-orm` hold database credentials at runtime while `zod` carries the mass-assignment defence for every server action. **No error boundary:** `app/` contains no `error.tsx`, `global-error.tsx` or `not-found.tsx` anywhere, so any unhandled throw in an authenticated page replaces the entire segment with a blank page and no route back — the operator's only recovery is knowing to retype the URL.
+
+**Files:**
+- `package.json` — modify: replace every `"latest"` with a caret range at the version already resolved in `package-lock.json`
+- `app/(app)/error.tsx` — create (`'use client'`): segment boundary for every authenticated route, rendered inside `AppShell`
+- `app/global-error.tsx` — create (`'use client'`): last-resort boundary for a throw in the root layout; renders its own `<html>`/`<body>`, imports no app chrome
+- `app/(app)/__tests__/error.test.tsx` — create
+
+**Versions to pin** (source of truth: top-level `node_modules/<pkg>` entries in `package-lock.json`, verified 2026-08-11):
+
+`dependencies` — `@hookform/resolvers` ^5.2.2, `@supabase/ssr` ^0.10.2, `@supabase/supabase-js` ^2.104.0, `date-fns` ^4.1.0, `drizzle-orm` ^0.45.2, `framer-motion` ^12.38.0, `postgres` ^3.4.9, `react-hook-form` ^7.73.1, `recharts` ^3.8.1, `zod` ^4.3.6
+
+`devDependencies` — `@types/node` ^25.6.0, `autoprefixer` ^10.5.0, `drizzle-kit` ^0.31.10, `postcss` ^8.5.10, `typescript` ^6.0.3
+
+REPO-03 named the ten production dependencies only; the five devDependencies carry the identical defect and are included on builder approval (2026-08-11).
+
+**Functions to implement:**
+- `AppError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }): JSX.Element` — default export of `app/(app)/error.tsx`
+- `GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }): JSX.Element` — default export of `app/global-error.tsx`
+
+**Acceptance criteria:**
+- [x] No occurrence of the literal `"latest"` remains anywhere in `package.json` — verified, `grep -c '"latest"' package.json` = 0
+- [x] `npm install` after the edit leaves the **installed tree** untouched. *Criterion corrected during implementation:* the original wording demanded a byte-identical `package-lock.json`, which is unachievable by construction — the lockfile mirrors the root manifest's declared ranges in `packages[""]`, so editing `package.json` necessarily rewrites those 15 lines. The real proof is that **zero `version`, `resolved` or `integrity` lines changed** (verified: 0), and npm reported `up to date`. That is what was checked
+- [x] `npm run build` succeeds and `npx tsc --noEmit` is clean — both verified
+- [x] Full suite green — **1222 tests / 102 files**, up from the 1218 / 101 baseline by exactly the four new tests in one new file
+- [x] A thrown error in any `app/(app)/*` page renders the error screen *inside* `AppShell` — sidebar and navigation remain usable, so the operator can always leave the broken route
+- [x] The screen renders a plain-English message ("Something went wrong."), a **Try again** button wired to `reset()`, and a **Back to dashboard** link to `/dashboard`
+- [x] [EH-01] `error` and `error.digest` are written to `console.error` in an effect — the boundary must never swallow the cause silently
+- [x] [SEC-04] The raw `error.message`, stack and `digest` are never rendered into the DOM; they go to the console only — asserted directly against a deliberately leaky message (`connect ECONNREFUSED db.internal:5432 for customer 4821`)
+- [x] Styling uses existing tokens only (`text-muted-foreground`, `bg-card`, `text-destructive`, `--radius`) and `components/ui/button` — no new colours, no new primitives. *(The plan cited CONSTRAINT-20 for this; that constraint is the shared-Supabase-project decision. The binding rule here is the Industrial Slate token palette in `app/globals.css`, which is what was followed.)*
+- [x] `app/global-error.tsx` imports neither `AppShell` nor `ToastProvider` — a root-layout crash means that chrome is exactly what is broken
+- [x] Both files are under the 200-line component cap (CQ-02) and the 80-line JSX-component cap (CONSTRAINT-14) — 58 and 56 lines
+
+**Tests required:**
+- `AppError` → `test: renders the fallback message and a Try again button`
+- `AppError` → `test: clicking Try again invokes reset`
+- `AppError` → `test: does not render the raw error message or digest in the DOM`
+- `AppError` → `test: logs the error and digest to console.error`
+
+**Status:** [x] Done 2026-08-11 — REPO-03 closed and the app has crash boundaries for the first time. **Pins:** all 15 `"latest"` entries replaced with caret ranges at the already-resolved versions; the ten production deps were the finding, the five devDependencies (`@types/node`, `autoprefixer`, `drizzle-kit`, `postcss`, `typescript`) were added on builder approval as the same defect. `npm install` reported `up to date` and changed no `version`/`resolved`/`integrity` line — the tree that was tested is the tree that is pinned. **Boundaries:** `app/(app)/error.tsx` sits inside the authenticated layout so `AppShell` survives the crash and the operator is never stranded; `app/global-error.tsx` renders its own `<html>`/`<body>`, imports `./globals.css` (root-layout styles do not reach it) and offers a hard reload rather than `reset()`, because re-rendering the layout that just threw lands on the same error. **Neither screen renders the error text** — a thrown postgres error can carry a connection string or a customer row, and this was the one surface that would have put internals on a page; the test asserts a deliberately leaky message never reaches the DOM. **Two deviations from the spec, both recorded above as criterion corrections:** the "byte-identical lockfile" criterion was unachievable by construction and was replaced with the check that actually proves the point; and the styling criterion cited CONSTRAINT-20, which is the shared-Supabase decision, not a design rule. **One implementation deviation:** the test was first written against `@testing-library/user-event`, which is not installed — rewritten to `fireEvent`, the established repo precedent, rather than adding a dependency for one click. No icon was used: `lucide-react@1.x` renamed the triangle-alert glyph and no existing file imports it, so the text-only treatment of the four existing empty states was matched instead. 1222 tests / 102 files (was 1218 / 101), `tsc` clean, `npm run build` clean.
+
+**Depends on:** None
