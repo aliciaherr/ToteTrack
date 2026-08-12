@@ -2937,7 +2937,11 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 
 ---
 
-## Task 87: Fix the `/calendar` hydration mismatch (`@dnd-kit` unstable IDs)
+## [~] Task 87: Fix the `/calendar` hydration mismatch (`@dnd-kit` unstable IDs) — superseded: accessibility impact accepted (single-user app, builder decision 2026-08-12)
+
+> **Superseded, not done.** Builder decision 2026-08-12: ToteTrack is single-user (CONSTRAINT-04), the one operator is known, and the only user-facing consequence of this bug is a wrong screen-reader description on drag handles. That impact is accepted.
+>
+> **What the decision does not cover, recorded so it is not lost:** the ~1,500 console lines per `/calendar` load are unaffected by the single-user argument — that cost falls on whoever debugs this screen next, not on the operator. The fix is a single stable `id` prop on `DndContext`. **Revive this task the first time console noise gets in the way of debugging `/calendar`, or the day this app gains a second user.**
 
 **Infra/accessibility task — no `docs/prd.md` entry by design.** Raised by `@qa` 2026-08-12 (NB-1), found the first time `/calendar` was ever rendered in a logged-in browser.
 

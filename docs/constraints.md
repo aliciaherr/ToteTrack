@@ -385,6 +385,8 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 **Current baseline (2026-08-10, after Feature 15 / Tasks 76–81):** **11 directive-bearing modules, 30 exports, 28 guarded** + `signIn`/`signOut` unguarded by design, reconciling exactly against **30 manifest action IDs**.
 
+**Re-verified 2026-08-12 against a real `next@16.3.0` Turbopack build** — first time the manifest half of this reconciliation was actually inspected rather than assumed. `.next/server/server-reference-manifest.json` holds exactly 30 action IDs across 9 route groups, matching the 30 source exports. No internal helper is exposed. **Next 16 did not change the action surface.**
+
 The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-addresses.ts` (3), `customers.ts` (3), `invoices.ts` (1), `leads.ts` (5), `orders.ts` (3), `orders.revert.ts` (1), `pickups.ts` (3), `pickups.calendar.ts` (2), `support.ts` (3). Feature 15 added `pickups.ts` and `pickups.calendar.ts` — 5 exports, 5 guards — and its four helper siblings (`pickups.validation.ts`, `pickups.calendar.validation.ts`, and the query/component modules) correctly carry no directive.
 
 **Count the guards by call site, not with `grep -c`.** `leads.ts`, `invoices.ts` and `support.ts` each define their own local `assertAuthenticated` rather than importing `auth.guard`'s, so a raw match count reads one higher than the number of guarded exports in each of those three files. The reconcilable number is *guarded exports*, not *occurrences of the identifier*.
@@ -433,6 +435,20 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 
 ---
 
+## CONSTRAINT-27: `agentRules: false` stays in `next.config.js`
+
+**Decision:** 2026-08-12, during Task 84. Next.js 16 generates `AGENTS.md` and `CLAUDE.md` into the repo root on **every** `next dev` run and every `next build`, unless `agentRules: false` is set. It stays set.
+
+**Why this is a constraint and not a preference:** the generated `CLAUDE.md` contains only `@AGENTS.md`, i.e. Next intends `AGENTS.md` to hold what `CLAUDE.md` holds — which is precisely why SEC-07 lists `CLAUDE.md` as never-commit. Two consequences follow. First, this project's agent context is owned by the SBDev framework; a file the build tool rewrites on every invocation would silently compete with it and win, because it is regenerated after every edit. Second, `AGENTS.md` was not in `.gitignore`, so the default behaviour dropped an untracked file into the repo root on every build — one `git add -A` from being committed to a public repo.
+
+**Belt and braces, because one config line is a thin defence:** `AGENTS.md` was also added to `.gitignore` (2026-08-12) so that losing this config line during a future upgrade or merge does not immediately become a committed file. **Both must stay.** The `.gitignore` entry is not a reason to drop the config line — an untracked file that regenerates on every build still pollutes `git status` and still overwrites `CLAUDE.md`.
+
+**Verified:** both files deleted, `agentRules: false` set, then a clean `npm run build` and a `next dev` run — neither file returned.
+
+**What this closes off:** nothing, and it is one line to reverse. If Next's agent rules are ever wanted, delete the line **and** add `AGENTS.md` to the SEC-07 review — do not do only the first.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -463,3 +479,4 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 | 24 | `'use server'` marks intended public endpoints only | Helper modules never carry the directive — it is the publication mechanism, and there is no private scope inside such a file; the check is export-level (every exported async fn, guard-counted, reconciled against the build manifest's action IDs), never a file-list diff; baseline **11 modules / 30 exports / 28 guarded / 30 action IDs** as of 2026-08-10, after Feature 15 | Builder | 2026-08-09 |
 | 25 | Pickups are a separate table, never a flag on `orders` | No price/number/invoice; absent from all revenue + dashboard surfaces; `pickup_only` renamed `customer_collects`; calendar day columns hold two independently-ordered lists with a `group` discriminator on every drag payload; no cross-group moves; the two lists split column height by an explicit basis (`COLUMN_LIST_FLEX`), never bare `flex-1`; toggles default Orders-on/Pickups-off and reset each visit; amber cards, plain text; `pickup_date` is the placement and drag rewrites it | Builder | 2026-08-10 |
 | 26 | Cross-vertical primitives live in `components/shared/` | A second consumer in a different vertical forces the move; no vertical imports from or re-exports on behalf of another; shared file is parameterised by a bridge, each vertical keeps a thin adapter; known drift — leads and support each hold their own, different `FORM_INPUT_CLASS` | Builder | 2026-08-10 |
+| 27 | `agentRules: false` stays in `next.config.js` | Next 16 otherwise writes `AGENTS.md` + `CLAUDE.md` into the repo root on every dev run and build; the generated `CLAUDE.md` is just `@AGENTS.md`, so it competes with the SBDev framework for agent context and regenerates after every edit. `AGENTS.md` also added to `.gitignore` as a second line of defence — **both stay**, the ignore entry is not a licence to drop the config line | Builder | 2026-08-12 |

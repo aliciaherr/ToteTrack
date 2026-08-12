@@ -525,3 +525,33 @@ Worth knowing how small this was. Two major version jumps sounds alarming; it pr
 - **Nothing about your data, login, or hosting changed.** This was entirely a change of the tools the app is built from.
 
 **What this closes off:** Nothing — it opens the door to Next.js 16, which is planned as Task 84 and was the whole point. Going backwards to Next 14 would now mean undoing eighteen deliberate edits, so consider this one-way. That is intended.
+
+---
+
+## FB-29 — The App No Longer Holds a Master Key, and the Thing Guarding Your Login Was Never the Guard
+
+**Date:** 2026-08-12
+**Architecture reference:** `docs/architecture.md` → *Security Architecture*, new section "Session refresh — `proxy.ts`" and rewritten "Secrets".
+**Tasks:** 84 — commit `be4a078`; follow-up fixes `7072363`.
+
+**Decided:** Two things, both found by asking "is what this document says still true?" rather than by anything breaking.
+
+**First: the app was storing a master key it never used.** Supabase gives you two keys. The ordinary one respects your security rules — it can only see what a signed-in user is allowed to see. The other, the `service_role` key, ignores every rule by design; it is the master key, meant for admin tooling. ToteTrack was set up with both back on day one, and the master key was written into the setup docs, the README, and your local environment file. **No line of code has ever read it.** It sat there for four months being a liability with no job.
+
+It is now deleted from all four places. The app is unaffected — it talks to the database directly with a different credential and uses the ordinary key for logins, exactly as it always did.
+
+> **The one thing this brief cannot do for you:** deleting the key from your computer does not un-expose it. It was on disk for months. **Rotate it in the Supabase dashboard.** That is a two-minute job and it is the only part of this nobody can do on your behalf.
+
+**Second: a file was renamed, and renaming it revealed a misunderstanding worth writing down.** Next.js 16 renamed the file that runs on every request from `middleware.ts` to `proxy.ts`. Mechanical. But the file carried a comment claiming that errors inside it were "non-fatal" — and the code did not implement that. If Supabase had a hiccup, that file would have failed *every single page*, including the login page. A brief outage at Supabase would have locked your salesperson out of an app that was otherwise working perfectly.
+
+The reason it is safe to fix rather than dangerous: **that file was never the thing keeping strangers out.** People assume it is, because it runs first and touches the session. It does not. It only refreshes the session so it does not expire while someone is working. The actual gate is a check on every authenticated page that asks "who is this?" and sends you to the login screen if it cannot tell. So a failed refresh is genuinely survivable — the page-level check still refuses to show anything.
+
+That fact is now written into the architecture document in bold, because it is exactly the kind of thing a future change gets wrong by assuming the opposite.
+
+**Means for your product:** Nothing you can see. Same screens, same logins. What changed is that a Supabase blip now degrades the app instead of killing it, and you are carrying one fewer credential that could hurt you.
+
+**Check before approving:**
+- **Rotate the `service_role` key in Supabase.** The single action item in this brief.
+- **You do not need it back.** If a future feature ever seems to want admin database access, treat that as a question to ask, not a key to paste — the app already reaches the database through a route that is not restricted by those rules, so a second bypass buys nothing.
+
+**What this closes off:** Nothing. Both changes are reversible in a line. The `service_role` key can be reintroduced by whatever task genuinely needs it — but that task should have to justify itself, which is the point of removing it now.
