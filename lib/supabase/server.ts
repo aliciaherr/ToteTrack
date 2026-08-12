@@ -4,7 +4,9 @@ import { cookies } from 'next/headers'
 /**
  * Server Supabase client — reads the user's session from cookies.
  * Call from Server Components, Server Actions, and Route Handlers only.
- * SUPABASE_SERVICE_ROLE_KEY lives in this file only — never in client.ts or any client component.
+ * Uses the `anon` key, same as the browser client: RLS plus the session cookie
+ * are the access control. This file holds no privileged credential — the
+ * `service_role` key was never read here and was removed on 2026-08-12.
  *
  * Async since Next 15: `cookies()` returns a promise there, so every caller
  * must `await createClient()`. The `try` still guards the same failure — a

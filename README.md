@@ -4,16 +4,18 @@ Single-user sales operations CRM for an IBC tote salesperson. Tracks customers, 
 
 ## Stack
 
-Next.js 14 (App Router) · Supabase (PostgreSQL + Auth + Storage) · Drizzle ORM · shadcn/ui · Tailwind CSS · Framer Motion · Recharts · Vercel (free tier).
+Next.js 16 (App Router, Turbopack) · React 19 · Supabase (PostgreSQL + Auth + Storage) · Drizzle ORM · shadcn/ui · Tailwind CSS · Framer Motion · Recharts · Vercel (free tier).
 
 ## Local Development
 
 ```bash
-cp .env.example .env.local
-# Fill in real values in .env.local — see "Environment Variables" below
+cp .env.example .env
+# Fill in real values in .env — see "Environment Variables" below
 npm install
 npm run dev
 ```
+
+Requires **Node.js ≥ 20.9** (Next 16's floor).
 
 Build / start in production mode:
 
@@ -30,20 +32,29 @@ npm test
 
 Runs the full Vitest suite (unit tests only — no external services required).
 
+## Lint
+
+```bash
+npm run lint
+```
+
+Runs ESLint 9 against `eslint.config.mjs`. **This currently reports findings and exits non-zero** — the config was added in Task 84 and the backlog it surfaced is tracked as Task 85. Do not wire CI or a pre-commit hook to this exit code until that task lands.
+
 ## Environment Variables
 
-All six variables must be set in `.env.local` for local dev and in the Vercel project settings for production.
+All five variables must be set in `.env` for local dev and in the Vercel project settings for production.
 
 | Variable | Source | Used by |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project settings → API → Project URL | Browser + server Supabase clients |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project settings → API → `anon` public key | Browser + server Supabase clients |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase project settings → API → `service_role` secret | Server-only (`lib/supabase/server.ts`) — never exposed to the browser |
 | `DATABASE_URL` | Supabase project settings → Database → Connection string (URI) | `db/index.ts` + Drizzle CLI (`db:generate` / `db:migrate`) |
 | `ADMIN_EMAIL` | Fixed value: `admin@totetrack.app` | `signIn` server action — never shown in UI (per CONSTRAINT-04). Must match the email of the single Supabase Auth user you create below. |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` locally · your deployed URL in production | Reserved for app-wide URL references |
 
 See `.env.example` for placeholder values. Do not commit `.env` or `.env.local` — both are in `.gitignore`.
+
+> **No `service_role` key is required.** The app reaches Postgres directly through `DATABASE_URL` and uses the `anon` key for Supabase Auth, so the `service_role` secret is never read by any code. Do not add it "just in case" — it bypasses every Row Level Security policy.
 
 ## Supabase Setup (First-Time)
 
@@ -52,11 +63,11 @@ Do this once per Supabase project. The migrations and auth user are persistent �
 ### 1. Create the project
 
 1. Go to [supabase.com/dashboard](https://supabase.com/dashboard) and create a new project on the free tier.
-2. Copy the values listed above (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`) into your `.env.local` and into the Vercel project environment.
+2. Copy the values listed above (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DATABASE_URL`) into your `.env` and into the Vercel project environment.
 
 ### 2. Apply the database migrations
 
-There are **thirteen** migration files under `db/migrations/`. They must **all** run, **in numerical order**, on a fresh Supabase project. Skipping any of them leaves the schema behind the application code and screens will fail at query time.
+There are **fifteen** migration files under `db/migrations/`. They must **all** run, **in numerical order**, on a fresh Supabase project. Skipping any of them leaves the schema behind the application code and screens will fail at query time.
 
 - `0001_initial_schema.sql` — tables, enums, foreign keys (generated from the Drizzle schema)
 - `0002_rls_policies.sql` — enables Row Level Security on all eight tables (CONSTRAINT-05 — mandatory, never disable)
@@ -71,14 +82,16 @@ There are **thirteen** migration files under `db/migrations/`. They must **all**
 - `0011_backfill_production_date.sql` — **data migration, no schema change.** Writes a starting `production_date` for existing rows. Must run *after* `0010`. Idempotent, and a no-op on a genuinely fresh database with no orders.
 - `0012_customer_addresses.sql` — the `customer_addresses` table (saved delivery addresses, Feature 14), backfilled from `customers.default_delivery_address`, with RLS enabled
 - `0013_customer_addresses_unique.sql` — collapses any duplicate saved addresses, then adds a `UNIQUE (customer_id, address)` index. Must run *after* `0012`.
+- `0014_rename_pickup_only.sql` — renames the pickup-only order flag ahead of the pickups table
+- `0015_pickups.sql` — the `pickups` table (Feature 15), with RLS enabled in the same file (CONSTRAINT-05)
 
 There is **no CLI migration runner** in this repo. Apply each file by pasting it into the Supabase SQL Editor and running them in sequence:
 
 1. Open the Supabase Dashboard → SQL Editor → New query.
 2. Paste the contents of `db/migrations/0001_initial_schema.sql` → Run.
-3. Repeat for each remaining file **in numerical order**, through `0013`.
+3. Repeat for each remaining file **in numerical order**, through `0015`.
 
-Verify the result by running `SELECT tablename FROM pg_tables WHERE schemaname = 'public';` — you should see `customers`, `customer_contacts`, `customer_addresses`, `orders`, `leads`, `lead_notes`, `invoices`, `support_tickets`, and `support_attachments`.
+Verify the result by running `SELECT tablename FROM pg_tables WHERE schemaname = 'public';` — you should see all ten: `customers`, `customer_contacts`, `customer_addresses`, `orders`, `pickups`, `leads`, `lead_notes`, `invoices`, `support_tickets`, and `support_attachments`.
 
 ### 3. Create the single Auth user
 
@@ -99,7 +112,7 @@ Lost password: reset it via Supabase Dashboard → Authentication → Users → 
 
 1. Push the repo to GitHub (`main` branch).
 2. Import the repo in the Vercel dashboard.
-3. Set all six env vars from the table above in **Settings → Environment Variables** (apply to Production + Preview).
+3. Set all five env vars from the table above in **Settings → Environment Variables** (apply to Production + Preview).
 4. Trigger a deploy. Subsequent pushes to `main` auto-deploy.
 
 ## Keep-Alive Cron (Required for Production)

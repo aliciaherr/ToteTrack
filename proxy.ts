@@ -26,8 +26,22 @@ export async function proxy(request: NextRequest) {
   )
 
   // Refreshes the session on every request so it never expires mid-use.
-  // Must not block the response — errors here are non-fatal.
-  await supabase.auth.getUser()
+  //
+  // A failure here is logged and swallowed deliberately. This is a top-level
+  // request boundary, and it is not the access control: `app/(app)/layout.tsx`
+  // re-checks the user with its own `getUser()` and redirects to `/login` on
+  // every authenticated render. Letting this throw would 500 every route the
+  // matcher covers — including `/login` — so a Supabase blip would lock the
+  // operator out of an app that is otherwise working. An unrefreshed session
+  // still fails closed at the layout.
+  try {
+    await supabase.auth.getUser()
+  } catch (cause) {
+    console.error('proxy: session refresh failed — continuing unrefreshed', {
+      pathname: request.nextUrl.pathname,
+      cause,
+    })
+  }
 
   return supabaseResponse
 }

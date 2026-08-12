@@ -465,8 +465,15 @@ Both storage buckets (`po-documents`, `support-attachments`) are private. Files 
 - Server-side: Zod validation in every Server Action before any DB write — client validation is not trusted
 - UUIDs: all ID parameters validated as UUID format before DB queries
 
+### Session refresh — `proxy.ts`
+`proxy.ts` at the repo root runs on every request the matcher covers (everything except `_next/static`, `_next/image` and `favicon.ico`) and calls `supabase.auth.getUser()` to refresh the session so it never expires mid-use. It was named `middleware.ts` until Task 84; Next 16 renamed the concept, and `proxy` is **Node-runtime only — there is no edge option.**
+
+**It is not an access control, and must not be treated as one.** A refresh failure is caught, logged with the pathname and cause, and swallowed on purpose: the real gate is the `redirect('/login')` in `app/(app)/layout.tsx`, which re-checks the user on every authenticated render and fails closed on an unrefreshed session. If `proxy` were allowed to throw, a Supabase outage would 500 every matched route including `/login`, locking the operator out of an otherwise working app. Pinned by `__tests__/proxy.test.ts`.
+
 ### Secrets
-`SUPABASE_SERVICE_ROLE_KEY` used server-side only (lib/supabase/server.ts). Never imported in any client component. Never exposed via `NEXT_PUBLIC_` prefix. All secrets in environment variables only — never in source.
+All secrets live in environment variables only — never in source, never exposed via a `NEXT_PUBLIC_` prefix except for the two values that are public by design (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
+
+**No `service_role` key is used.** It was specified during scaffolding (Task 1) and documented here and in the README, but `process.env.SUPABASE_SERVICE_ROLE_KEY` was never read by any code. It was removed on 2026-08-12 after `@security` flagged it as an unused credential that bypasses every RLS policy. Server-side database access goes through `DATABASE_URL` (`db/index.ts`); Supabase Auth uses the `anon` key. **Do not reintroduce the service_role key without a task that actually needs it** — see INFO-01 in `docs/security-report.md`, which notes the `postgres` role already bypasses RLS, so a second bypass buys nothing and costs a credential to protect.
 
 ---
 

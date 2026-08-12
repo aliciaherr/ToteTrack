@@ -1,5 +1,9 @@
 # Claude framework — never commit
 CLAUDE.md
+# Next 16 generates AGENTS.md (and a CLAUDE.md pointing at it) unless
+# `agentRules: false` is set in next.config.js. Ignored as a second line
+# of defence in case that config line is ever dropped.
+AGENTS.md
 manifest.md
 profile.md
 content/
