@@ -2926,15 +2926,22 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Files:** `package.json` — bump `@supabase/supabase-js` to a release whose `realtime-js` depends on `ws` ≥ 8.20.2. `npm audit fix` is the fallback only if it produces no breaking change.
 
 **Acceptance criteria:**
-- [ ] Whether Supabase Realtime is used anywhere in the app determined and recorded in the Status line
-- [ ] `npm audit --omit=dev` reports 0 high
-- [ ] Auth still works — `GET /dashboard` signed out returns 307 → `/login` against `npm run dev`
-- [ ] Full suite green at **1254 tests / 106 files** — baseline updated 2026-08-16; the 1222 / 102 figure this task was written with was stale (see Task 85's corrected criterion)
-- [ ] `npm run build` clean
+- [x] Whether Supabase Realtime is used anywhere in the app determined and recorded in the Status line — **not used.** Zero hits for `realtime`, `.channel(`, `subscribe(`, `postgres_changes` or `broadcast` across `components/`, `lib/`, `app/`, `db/`. The websocket was never opened; the vulnerable code shipped and never ran
+- [x] `npm audit --omit=dev` reports 0 high — **reports 0 vulnerabilities of any severity**, exit 0
+- [x] Auth still works — `GET /dashboard` signed out returns **307 → `http://localhost:3000/login`** against `npm run dev`, and `/login` returns 200
+- [x] Full suite green at **1254 tests / 106 files** — verified, identical to the post-Task-85 baseline. Nothing dropped
+- [x] `npm run build` clean — 11 routes, Turbopack, `ƒ Proxy (Middleware)` resolving
+- [x] `npx tsc --noEmit` clean and `npm run lint` exit 0 (not required by the spec; run because the bump touches a runtime dependency)
 
 **Tests required:** none new; the suite is the regression harness.
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-16 — `@supabase/supabase-js` `^2.104.0` → `^2.109.0`. **The fix is stronger than the spec anticipated:** the spec expected a bump to a `realtime-js` depending on `ws ≥ 8.20.2`, but `realtime-js@2.106.0+` **drops the `ws` dependency entirely** in favour of the platform WebSocket, so the vulnerable package is gone from the tree rather than patched — `npm ls ws` now finds nothing under the production graph.
+
+**Why 2.109.0 and not 2.112.3 (latest).** `@supabase/supabase-js@2.110.0` raises `engines.node` from `>=20.0.0` to `>=22.0.0`. There is no `vercel.json` and no `engines` field in `package.json`, so the deployed Node version is whatever the Vercel project setting says — not verifiable from the repo. 2.109.0 is the newest release that removes `ws` while leaving the Node floor untouched, so it closes the advisory with zero build-environment risk. Local Node is v24.16.0, so the floor is not a local constraint; this is purely about the unverified deploy target. **To move to 2.112.x later, first confirm the Vercel project's Node version is 22.x or higher** — then it is a one-line bump.
+
+**Realtime confirmed unused, so the original exposure was latent.** `ws@8.20.0` carried GHSA-58qx-3vcg-4xpx (uninitialized memory disclosure) and GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS), both reachable only through an open websocket. ToteTrack fetches in Server Components and mutates through Server Actions; it never opens one. Recorded here because the next person to read the advisory should know the difference between "shipped" and "reachable" for this repo.
+
+**Note on the remaining audit noise:** `npm audit` without `--omit=dev` still reports 15 findings (2 low, 7 moderate, 6 high). All are devDependency-only — build and test tooling that never ships to a user. REPO-02 was raised on the production graph, which is now clean.
 
 **Depends on:** Task 84
 
@@ -2964,6 +2971,6 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 
 **Tests required:** none new — hydration is not observable from jsdom. The proof is the browser console, so record what was observed in the Status line.
 
-**Status:** [ ] Not started
+**Status:** [~] Superseded 2026-08-12 by builder decision — see the note at the top of this task. The accessibility impact is accepted on single-user grounds (CONSTRAINT-04); the ~1,500-lines-per-load console noise is **not** covered by that argument and is the reason to revive this. Status line corrected 2026-08-16: the header was marked `[~]` on 2026-08-12 but this line still read `[ ] Not started`, which made the plan look incomplete to every subsequent `@session-start` scan.
 
 **Depends on:** —
