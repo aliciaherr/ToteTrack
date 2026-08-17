@@ -71,8 +71,9 @@ const pickupBaseSchema = z.object({
   // calendar's callout. The form may submit "" before a date is chosen;
   // `nullIfBlank` normalizes that to NULL on write. `calendarDateSchema`
   // rejects impossible days (2026-02-31) with a message instead of letting
-  // Postgres reject them as an opaque driver error; it carries NO weekday
-  // rule — that belongs to production dates, and a pickup is not production.
+  // Postgres reject them as an opaque driver error; it carries NO
+  // production-day rule — that belongs to production dates, and a pickup is
+  // not production.
   pickup_date: calendarDateSchema.or(z.literal('')).nullable().optional(),
   // Optional. Unlike an order there is no "required unless…" rule — a pickup
   // from the customer's usual site needs no address at all. When present it is

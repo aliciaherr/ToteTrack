@@ -24,8 +24,8 @@ interface ProductionWidgetProps {
  * `Tomorrow`.
  *
  * Relative labels were removed deliberately. They only hold for one of the two
- * columns and only on some days — on a Friday the second column is Monday, and
- * over a weekend neither column is today or tomorrow — so the label had to
+ * columns and only on some days — on a Saturday the second column is Monday,
+ * and on a Sunday neither column is today or tomorrow — so the label had to
  * switch formats depending on when you looked at it. A date that always reads
  * the same way is quicker to scan than one that sometimes doesn't.
  */
@@ -119,10 +119,10 @@ function UnscheduledPill({ count }: { count: number }) {
  * Dashboard widget showing what is being built over the next two business days,
  * as two side-by-side columns of up to `PRODUCTION_WIDGET_ROWS_PER_DAY` orders.
  *
- * Business days, not calendar days: on a Friday this shows Friday and Monday,
- * and over a weekend it shows Monday and Tuesday. Nothing is ever built on a
- * Saturday (CONSTRAINT-19), so a "next 2 days" window that included one would
- * show an empty column half the week.
+ * Business days, not calendar days: on a Friday this shows Friday and Saturday,
+ * on a Saturday it shows Saturday and Monday, and on a Sunday it shows Monday
+ * and Tuesday. Nothing is ever built on a Sunday (CONSTRAINT-19), so a "next 2
+ * days" window that included one would show an empty column every week.
  *
  * The outer height is set by the dashboard grid, which stretches row items to
  * match — so this sits flush with the widget beside it regardless of how many

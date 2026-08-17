@@ -4,10 +4,10 @@ import { ISO_DATE_RE } from './actions/orders.validation'
 import { DB_DATE_FORMAT, startOfBusinessWeek } from './dates'
 import type { CalendarRange } from '@/db/queries/calendar'
 
-// Offset from a week's Monday to its Friday — the last day the calendar
-// renders. There are no weekend columns (CONSTRAINT-19), so the fetch window
-// closes on a Friday rather than a Sunday.
-const MONDAY_TO_FRIDAY_OFFSET = 4
+// Offset from a week's Monday to its Saturday — the last day the calendar
+// renders. There is no Sunday column (CONSTRAINT-19), so the fetch window
+// closes on a Saturday rather than a Sunday.
+const MONDAY_TO_SATURDAY_OFFSET = 5
 
 /**
  * Resolves the `/calendar` route's anchor week from an optional
@@ -24,9 +24,11 @@ const MONDAY_TO_FRIDAY_OFFSET = 4
  * string as UTC midnight, which lands on the previous calendar day in any
  * negative-offset timezone and would open the wrong week for a US user.
  *
- * A weekend value resolves *forward* to the coming Monday
- * (`startOfBusinessWeek`) — someone opening the calendar on Sunday is planning
- * the week ahead, not reviewing the one that just ended.
+ * A Sunday value — and only a Sunday — resolves *forward* to the coming Monday
+ * (`startOfBusinessWeek`), because someone opening the calendar on the one
+ * non-production day is planning the week ahead, not reviewing the one that
+ * just ended. A Saturday resolves *back* to its own week's Monday: Saturday is
+ * a production day and its column lives in the week it falls in.
  *
  * A repeated `?week=a&week=b` arrives as an **array**, which is why the
  * parameter is typed for one: the shape check is `typeof value === 'string'`
@@ -56,9 +58,9 @@ export function parseCalendarWeek(value: string | string[] | undefined, today: D
  */
 export function buildCalendarRange(weekStart: Date): CalendarRange {
   const firstMonday = subWeeks(weekStart, CALENDAR_WEEKS_BUFFER)
-  const lastFriday = addDays(addWeeks(weekStart, CALENDAR_WEEKS_BUFFER), MONDAY_TO_FRIDAY_OFFSET)
+  const lastSaturday = addDays(addWeeks(weekStart, CALENDAR_WEEKS_BUFFER), MONDAY_TO_SATURDAY_OFFSET)
   return {
     from: format(firstMonday, DB_DATE_FORMAT),
-    to: format(lastFriday, DB_DATE_FORMAT),
+    to: format(lastSaturday, DB_DATE_FORMAT),
   }
 }

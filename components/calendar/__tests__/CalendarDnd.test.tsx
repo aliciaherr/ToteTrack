@@ -622,9 +622,9 @@ describe('DayColumn drag wiring', () => {
     expect(within(column).getByText('Nothing scheduled.')).toBeInTheDocument()
   })
 
-  it('renders no weekend column to drop onto — the column is the only target', () => {
-    // The strip emits Mon–Fri only (CONSTRAINT-19), so a weekend drop target
-    // cannot exist; a column's droppable id is always its own weekday key.
+  it('renders no Sunday column to drop onto — the column is the only target', () => {
+    // The strip emits Mon–Sat only (CONSTRAINT-19), so a Sunday drop target
+    // cannot exist; a column's droppable id is always its own day key.
     renderColumn([makeRow()])
 
     expect(screen.getByTestId('day-column')).toHaveAttribute('data-date', MONDAY)

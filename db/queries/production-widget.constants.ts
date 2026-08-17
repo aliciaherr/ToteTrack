@@ -46,7 +46,7 @@ export interface ProductionWidgetData {
  */
 export const PRODUCTION_WIDGET_ROWS_PER_DAY = 4
 
-/** Business days the widget covers. Today (if a weekday) plus the next one. */
+/** Business days the widget covers. Today (if Mon–Sat) plus the next one. */
 const PRODUCTION_WIDGET_DAYS = 2
 
 /**
@@ -54,8 +54,10 @@ const PRODUCTION_WIDGET_DAYS = 2
  *
  * `nextBusinessDay` is strictly *after* its argument and never returns it, so
  * today has to be handled separately — otherwise a Tuesday would show
- * Wednesday and Thursday rather than Tuesday and Wednesday. On a Saturday or
- * Sunday there is no "today" to show and the window starts at Monday.
+ * Wednesday and Thursday rather than Tuesday and Wednesday. Saturday is a
+ * production day (Task 88), so a Friday shows Fri + Sat and a Saturday shows
+ * Sat + Mon. Sunday is the only day with no "today" to show, and its window
+ * starts at Monday.
  */
 export function productionWidgetDays(today: Date): string[] {
   const first = isBusinessDay(today) ? today : nextBusinessDay(today)

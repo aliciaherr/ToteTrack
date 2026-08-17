@@ -64,23 +64,23 @@ describe('productionWidgetDays', () => {
     expect(productionWidgetDays(MONDAY)).toEqual(['2026-07-27', '2026-07-28'])
   })
 
-  it('on Friday the second day is Monday, not Saturday', () => {
-    expect(productionWidgetDays(FRIDAY)).toEqual(['2026-07-31', '2026-08-03'])
+  it('on Friday the second day is Saturday, a production day since Task 88', () => {
+    expect(productionWidgetDays(FRIDAY)).toEqual(['2026-07-31', '2026-08-01'])
   })
 
-  it.each([
-    ['Saturday', SATURDAY],
-    ['Sunday', SUNDAY],
-  ])('on %s the window starts at Monday', (_label, weekend) => {
-    expect(productionWidgetDays(weekend)).toEqual(['2026-07-27', '2026-07-28'])
+  it('on Saturday the window starts at that Saturday and skips to Monday', () => {
+    expect(productionWidgetDays(SATURDAY)).toEqual(['2026-07-25', '2026-07-27'])
   })
 
-  it('never returns a weekend date', () => {
+  it('on Sunday — the only day with no "today" — the window starts at Monday', () => {
+    expect(productionWidgetDays(SUNDAY)).toEqual(['2026-07-27', '2026-07-28'])
+  })
+
+  it('never returns a Sunday date', () => {
+    const SUNDAY_INDEX = 0
     for (const today of [MONDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]) {
       for (const day of productionWidgetDays(today)) {
-        const dayOfWeek = new Date(`${day}T12:00:00`).getDay()
-        expect(dayOfWeek).not.toBe(0)
-        expect(dayOfWeek).not.toBe(6)
+        expect(new Date(`${day}T12:00:00`).getDay()).not.toBe(SUNDAY_INDEX)
       }
     }
   })

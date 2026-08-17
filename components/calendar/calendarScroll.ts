@@ -58,7 +58,8 @@ export function useWeekScroll(weekStart: string, shouldReduceMotion: boolean) {
     if (stripRef.current === null) return
     // Recomputed on click, not memoised: the tab can sit open past midnight,
     // and `Current week` must mean the current week at the moment it is pressed.
-    // On a Saturday or Sunday this resolves to the *following* Mon–Fri.
+    // On a Saturday this resolves to that Saturday's own week; only a Sunday
+    // resolves to the *following* Mon–Sat.
     const currentWeek = format(startOfBusinessWeek(new Date()), DB_DATE_FORMAT)
     scrollWeekIntoView(stripRef.current, currentWeek, shouldReduceMotion)
   }, [shouldReduceMotion])

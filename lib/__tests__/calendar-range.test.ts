@@ -30,14 +30,17 @@ describe('parseCalendarWeek', () => {
     expect(iso(parseCalendarWeek(MONDAY, asDate(MONDAY)))).toBe(MONDAY)
   })
 
-  it.each([SATURDAY, SUNDAY])(
-    'resolves the weekend date %s forward to the coming Monday',
-    (weekend) => {
-      // Someone opening the calendar over the weekend is planning the week
-      // ahead, not reviewing the one that just ended.
-      expect(iso(parseCalendarWeek(weekend, asDate(PRIOR_MONDAY)))).toBe(MONDAY)
-    },
-  )
+  it('resolves a Saturday param BACK to its own week Monday', () => {
+    // Saturday is a production day (Task 88), so its column lives in the week
+    // it falls in — a `?week=` bookmark on a Saturday must open that week.
+    expect(iso(parseCalendarWeek(SATURDAY, asDate(PRIOR_MONDAY)))).toBe(PRIOR_MONDAY)
+  })
+
+  it('resolves a Sunday param forward to the coming Monday', () => {
+    // Someone opening the calendar on the one non-production day is planning
+    // the week ahead, not reviewing the one that just ended.
+    expect(iso(parseCalendarWeek(SUNDAY, asDate(PRIOR_MONDAY)))).toBe(MONDAY)
+  })
 
   it('falls back to the current business week when the param is absent', () => {
     expect(iso(parseCalendarWeek(undefined, asDate(WEDNESDAY)))).toBe(MONDAY)
@@ -63,7 +66,7 @@ describe('parseCalendarWeek', () => {
     expect(iso(parseCalendarWeek([], asDate(WEDNESDAY)))).toBe(MONDAY)
   })
 
-  it('never returns a weekend, whatever it is given', () => {
+  it('always returns a Monday, whatever it is given', () => {
     const inputs = [MONDAY, WEDNESDAY, SATURDAY, SUNDAY, 'garbage', undefined]
     for (const input of inputs) {
       expect(getDay(parseCalendarWeek(input, asDate(SUNDAY)))).toBe(DAY_OF_WEEK_MONDAY)
@@ -76,16 +79,16 @@ describe('buildCalendarRange', () => {
     const range = buildCalendarRange(asDate(MONDAY))
 
     // 4 weeks back from Mon 2026-07-27 is Mon 2026-06-29; 4 weeks forward is
-    // Mon 2026-08-24, whose Friday is 2026-08-28.
-    expect(range).toEqual({ from: '2026-06-29', to: '2026-08-28' })
+    // Mon 2026-08-24, whose Saturday is 2026-08-29.
+    expect(range).toEqual({ from: '2026-06-29', to: '2026-08-29' })
   })
 
-  it('opens on a Monday and closes on a Friday — never a weekend boundary', () => {
+  it('opens on a Monday and closes on a Saturday — never on a Sunday', () => {
     const range = buildCalendarRange(asDate(MONDAY))
-    const FRIDAY = 5
+    const DAY_OF_WEEK_SATURDAY = 6
 
     expect(getDay(parseISO(range.from))).toBe(DAY_OF_WEEK_MONDAY)
-    expect(getDay(parseISO(range.to))).toBe(FRIDAY)
+    expect(getDay(parseISO(range.to))).toBe(DAY_OF_WEEK_SATURDAY)
   })
 
   it('covers the anchor week itself', () => {
@@ -99,16 +102,16 @@ describe('buildCalendarRange', () => {
     const range = buildCalendarRange(asDate('2026-12-28'))
 
     expect(range.from).toBe('2026-11-30')
-    expect(range.to).toBe('2027-01-29')
+    expect(range.to).toBe('2027-01-30')
   })
 
   it('stays consistent with the CALENDAR_WEEKS_BUFFER constant', () => {
     const DAYS_PER_WEEK = 7
-    const MONDAY_TO_FRIDAY = 4
+    const MONDAY_TO_SATURDAY = 5
     const range = buildCalendarRange(asDate(MONDAY))
     const spanDays =
       (parseISO(range.to).getTime() - parseISO(range.from).getTime()) / (1000 * 60 * 60 * 24)
 
-    expect(spanDays).toBe(CALENDAR_WEEKS_BUFFER * 2 * DAYS_PER_WEEK + MONDAY_TO_FRIDAY)
+    expect(spanDays).toBe(CALENDAR_WEEKS_BUFFER * 2 * DAYS_PER_WEEK + MONDAY_TO_SATURDAY)
   })
 })

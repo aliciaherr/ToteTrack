@@ -22,10 +22,13 @@ import { SORT_INDEX_MAX } from './calendar.validation'
  * touches the database. The UI preventing the mistake is not the guarantee; the
  * literal is.
  *
- * `calendarDateSchema`, not `productionDateSchema`: a pickup carries no weekday
- * rule. The calendar only renders Mon–Fri, so a dragged pickup lands on a
- * weekday in practice, but a collection is not production and the server must
- * not invent a business-day invariant the entity does not have.
+ * `calendarDateSchema`, not `productionDateSchema`: a pickup carries no
+ * production-day rule. The calendar only renders Mon–Sat, so a dragged pickup
+ * lands on a Mon–Sat in practice, but a collection is not production and the
+ * server must not invent a business-day invariant the entity does not have.
+ * This is also why pre-existing Saturday-dated pickups needed no write-side
+ * change when Saturday became a production column (Task 88) — they were always
+ * legal, merely unrenderable.
  */
 export const setPickupPlacementInputSchema = z.object({
   group: z.literal('pickup', { message: 'That card is not a pickup.' }),

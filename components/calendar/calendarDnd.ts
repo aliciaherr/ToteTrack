@@ -84,7 +84,7 @@ export interface DropTarget {
   group: CardGroup
   /** Id of the moved card — an order id or a pickup id, never mixed. */
   cardId: string
-  /** Target day, `yyyy-MM-dd`. Always a weekday — no weekend column exists. */
+  /** Target day, `yyyy-MM-dd`. Always Mon–Sat — no Sunday column exists. */
   dateKey: string
   /** Exact released position within the target list. */
   index: number
@@ -175,8 +175,8 @@ export function readDroppableGroup(data: unknown): CardGroup | null {
  * on a list's empty space is the one case that appends, because there is no
  * neighbouring card to position against.
  *
- * There is no weekend branch: `dateKey` can only ever be a rendered column, and
- * the calendar renders Mon–Fri only (CONSTRAINT-19). The server rejects weekend
+ * There is no Sunday branch: `dateKey` can only ever be a rendered column, and
+ * the calendar renders Mon–Sat only (CONSTRAINT-19). The server rejects Sunday
  * dates independently.
  */
 export function resolveDropTarget(event: DragEndEvent): DropTarget | null {

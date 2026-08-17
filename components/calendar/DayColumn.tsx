@@ -83,7 +83,7 @@ function ColumnBody({
 }
 
 /**
- * One weekday of the production calendar.
+ * One production day (Mon–Sat) of the production calendar.
  *
  * Reuses the `OpenOrdersWidget` skeleton — rounded card, tinted header band,
  * link-styled footer action — so the calendar reads as the same product as the
@@ -103,7 +103,7 @@ function ColumnBody({
  * is still the record of what was built, and dimming it would make the
  * calendar's left half unreadable.
  *
- * @param date The weekday this column represents.
+ * @param date The production day this column represents.
  * @param rows Order cards for this day, pre-sorted into column order.
  * @param pickups Pickup cards for this day, in their own order.
  * @param isToday Fills the header with `bg-primary`.

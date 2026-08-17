@@ -250,7 +250,7 @@ export const createOrderInputSchema = orderBaseSchema
     // over the delivery-date default, whatever delivery date the form carries
     // (CONSTRAINT-19: position is stored, never derived). Omitted everywhere
     // else, which leaves `normalizeCreate`'s existing default untouched.
-    // Shares the calendar's no-weekend rule via `productionDateSchema`.
+    // Shares the calendar's no-Sunday rule via `productionDateSchema`.
     production_date: productionDateSchema.optional(),
   })
   .superRefine(requireDeliveryAddressWhenNotCollected)

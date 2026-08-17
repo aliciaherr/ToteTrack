@@ -12,9 +12,9 @@ export const DAY_OF_MONTH_FORMAT = 'd'
 export interface WeekGroup {
   /** The week's Monday as `yyyy-MM-dd`. Stable React key and scroll target. */
   key: string
-  /** Range label shown above the week's own columns, e.g. `Jul 27 – 31`. */
+  /** Range label shown above the week's own columns, e.g. `Jul 27 – Aug 1`. */
   label: string
-  /** The five Mon–Fri dates. Never contains a weekend (CONSTRAINT-19). */
+  /** The six Mon–Sat dates. Never contains a Sunday (CONSTRAINT-19). */
   days: Date[]
 }
 
@@ -46,14 +46,19 @@ export function buildWeekGroups(weekStartKey: string): WeekGroup[] {
 }
 
 /**
- * Formats a week's Mon–Fri span. The month is repeated only when the week
- * straddles a boundary (`Jun 29 – Jul 3`), so the common case stays short
+ * Formats a week's Mon–Sat span. The month is repeated only when the week
+ * straddles a boundary (`Jun 29 – Jul 4`), so the common case stays short
  * enough to sit above a 176px column without wrapping.
+ *
+ * @param monday The week's first column.
+ * @param lastDay The week's last column — the Saturday since Task 88, but the
+ * function reads it as "whatever day closes the week" rather than assuming one,
+ * so the caller's `days` array stays the single source of the week's length.
  */
-export function formatWeekRange(monday: Date, friday: Date): string {
+export function formatWeekRange(monday: Date, lastDay: Date): string {
   const start = format(monday, 'MMM d')
-  const sameMonth = format(monday, 'MMM') === format(friday, 'MMM')
-  const end = sameMonth ? format(friday, 'd') : format(friday, 'MMM d')
+  const sameMonth = format(monday, 'MMM') === format(lastDay, 'MMM')
+  const end = sameMonth ? format(lastDay, 'd') : format(lastDay, 'MMM d')
   return `${start} – ${end}`
 }
 

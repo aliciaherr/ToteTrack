@@ -73,8 +73,8 @@ function isUniqueViolation(cause: unknown): boolean {
  * updated after it (see `orders.addresses.ts`).
  * @param input Order data including `initial_status` (defaults to 'scheduled')
  *   and an optional `production_date` build-day override — supplied when the PO
- *   is created from a calendar day column, rejected when it names a Saturday or
- *   Sunday, and otherwise defaulted from the delivery date by `normalizeCreate`.
+ *   is created from a calendar day column, rejected when it names a Sunday, and
+ *   otherwise defaulted from the delivery date by `normalizeCreate`.
  */
 export async function createOrder(
   input: CreateOrderInput,

@@ -26,16 +26,16 @@ interface WeekStripProps {
   onSelectPickup: (pickup: CalendarPickupRow) => void
 }
 
-/** Everything one week's five columns need, forwarded verbatim from the strip. */
+/** Everything one week's six columns need, forwarded verbatim from the strip. */
 type WeekColumnsProps = Omit<WeekStripProps, 'weeks'> & { week: WeekGroup }
 
 const NO_ROWS: CalendarOrderRow[] = []
 const NO_PICKUPS: CalendarPickupRow[] = []
 
 /**
- * The 2px rule marking a Fri│Mon boundary. The strip scrolls continuously
+ * The 2px rule marking a Sat│Mon boundary. The strip scrolls continuously
  * rather than snapping week to week, so without a hard divider the eye reads
- * ten columns as one long fortnight and loses the week as a unit of planning.
+ * twelve columns as one long fortnight and loses the week as a unit of planning.
  */
 function WeekDivider() {
   return <div aria-hidden="true" className="w-0.5 shrink-0 bg-border mx-2 my-1 rounded-full" />
@@ -78,13 +78,15 @@ function WeekColumns({
 /**
  * The horizontally scrolling run of week groups.
  *
- * Each week carries its own range label above its own five columns, so a
+ * Each week carries its own range label above its own six columns, so a
  * partially scrolled strip still tells you which week you are looking at —
  * a single header pinned above the whole strip would go stale the moment the
  * viewer scrolls past its week.
  *
- * Renders Mon–Fri only. There are no weekend columns anywhere in this product
- * (CONSTRAINT-19); `businessWeekDays` guarantees the five dates it hands over.
+ * Renders Mon–Sat only. There is no Sunday column anywhere in this product
+ * (CONSTRAINT-19); `businessWeekDays` guarantees the six dates it hands over.
+ * Six fixed-width columns no longer fit an iPad landscape viewport — the strip
+ * scrolls to reach the rest of the week rather than shrinking a column.
  *
  * @param weeks Week groups from `buildWeekGroups`, in chronological order.
  * @param rowsByDay Order cards bucketed by `yyyy-MM-dd`, from `groupRowsByDay`.

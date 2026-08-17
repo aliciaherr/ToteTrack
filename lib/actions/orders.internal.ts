@@ -104,8 +104,11 @@ function buildOrderWriteBase(data: ValidatedCreate | ValidatedUpdate) {
  * which is correct: nobody has decided when to build it. Adding a delivery date
  * later does not place it — that stays a deliberate act.
  *
- * `prevBusinessDay` guarantees a weekday, so the no-weekend invariant holds
- * without a separate check.
+ * `prevBusinessDay` guarantees a Mon–Sat day, so the no-Sunday invariant holds
+ * without a separate check. Since Task 88 a Monday delivery date therefore
+ * defaults the build day to the preceding **Saturday**, not the Friday before
+ * it — Saturday is a full production day and skipping it would silently push
+ * every Monday-promise build a day earlier than needed.
  */
 export function defaultProductionDate(deliveryDate: string | null): string | null {
   if (deliveryDate === null) return null
@@ -122,8 +125,8 @@ export function defaultProductionDate(deliveryDate: string | null): string | nul
  * calendar day column — is stored verbatim and beats the delivery-date default
  * outright, whatever delivery date the form carried. The salesperson picked
  * that column; deriving a different day from the promise would silently move
- * the card away from where they asked for it (CONSTRAINT-19). Its weekday and
- * calendar validity are already guaranteed by `createOrderInputSchema`.
+ * the card away from where they asked for it (CONSTRAINT-19). Its production
+ * day and calendar validity are already guaranteed by `createOrderInputSchema`.
  */
 export function normalizeCreate(data: ValidatedCreate) {
   const base = buildOrderWriteBase(data)

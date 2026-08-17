@@ -12,10 +12,8 @@ export const DB_DATE_FORMAT = 'yyyy-MM-dd'
 const SUNDAY = 0
 /** `date-fns` day-of-week index for Monday — also `weekStartsOn` for a business week. */
 const MONDAY = 1
-/** `date-fns` day-of-week index for Saturday. */
-const SATURDAY = 6
-/** Mon–Fri: the number of columns the production calendar renders. */
-const BUSINESS_DAYS_PER_WEEK = 5
+/** Mon–Sat: the number of columns the production calendar renders. */
+const BUSINESS_DAYS_PER_WEEK = 6
 /** Offset from any Monday to the following Monday. */
 const DAYS_IN_WEEK = 7
 
@@ -40,17 +38,22 @@ export function parseDbDate(helper: string, value: string): Date {
 }
 
 /**
- * True for Monday–Friday. Weekends only — there is no holiday calendar in this
- * project and none is planned (CONSTRAINT-19).
+ * True for Monday–Saturday. Sunday is the only non-production day — there is no
+ * holiday calendar in this project and none is planned (CONSTRAINT-19).
+ *
+ * Saturday became a full production day in Task 88; the name is kept because
+ * "business day" is what every caller and every stored comment means by it, and
+ * the set it denotes is the thing that changed, not the concept.
  */
 export function isBusinessDay(date: Date): boolean {
   const day = getDay(date)
-  return day !== SATURDAY && day !== SUNDAY
+  return day !== SUNDAY
 }
 
 /**
- * The last Mon–Fri strictly before `date`. Monday, Saturday and Sunday all
- * resolve to the prior Friday. Crosses month and year boundaries naturally.
+ * The last Mon–Sat strictly before `date`. Monday and Sunday both resolve to
+ * the prior Saturday; every other day resolves to the previous calendar day.
+ * Crosses month and year boundaries naturally.
  *
  * Called from exactly one place: order creation, where it sets the initial
  * `production_date` so a new PO lands on the calendar without being dragged
@@ -66,9 +69,9 @@ export function prevBusinessDay(date: Date): Date {
 }
 
 /**
- * The next Mon–Fri strictly after `date`. Friday, Saturday and Sunday all
- * resolve to the following Monday. Used by the dashboard Production widget's
- * "next 2 business days" window.
+ * The next Mon–Sat strictly after `date`. Saturday and Sunday both resolve to
+ * the following Monday; every other day resolves to the next calendar day.
+ * Used by the dashboard Production widget's "next 2 business days" window.
  */
 export function nextBusinessDay(date: Date): Date {
   let candidate = addDays(date, 1)
@@ -81,10 +84,16 @@ export function nextBusinessDay(date: Date): Date {
 /**
  * The Monday that opens `date`'s business week.
  *
- * On a weekday this is the Monday of the current week. On a Saturday or Sunday
- * it is the *following* Monday, not the preceding one — a salesperson opening
- * the calendar over the weekend is planning the week ahead, so "Current week"
- * must land on the next Mon–Fri rather than the week that already ended.
+ * On Mon–Sat this is the Monday of the current week: Saturday is a production
+ * day and belongs to the week it falls in, so "Current week" on a Saturday must
+ * land on that Saturday's own week.
+ *
+ * On a Sunday it is the *following* Monday, not the preceding one — a
+ * salesperson opening the calendar on the one non-production day is planning
+ * the week ahead, not reviewing the one that already ended.
+ *
+ * The Mon–Sat / Sunday split is exactly `isBusinessDay`, so the branch reuses it
+ * rather than re-testing the day index and risking the two drifting apart.
  */
 export function startOfBusinessWeek(date: Date): Date {
   const monday = startOfWeek(date, { weekStartsOn: MONDAY })
@@ -92,11 +101,12 @@ export function startOfBusinessWeek(date: Date): Date {
 }
 
 /**
- * The 5 weekday Dates (Mon–Fri) of the week opened by `monday`.
+ * The 6 production Dates (Mon–Sat) of the week opened by `monday`.
  *
- * @throws {InvalidDateError} when `monday` is not a Monday — accepting any
- * other day would silently emit weekend columns, which the calendar must never
- * render (CONSTRAINT-19). Callers pass the result of `startOfBusinessWeek`.
+ * @throws {InvalidDateError} when `monday` is not a Monday — a Saturday
+ * included. Accepting any other day would silently emit a Sunday column, which
+ * the calendar must never render (CONSTRAINT-19), and would slide every week
+ * group off its boundary. Callers pass the result of `startOfBusinessWeek`.
  */
 export function businessWeekDays(monday: Date): Date[] {
   if (!isValid(monday)) {

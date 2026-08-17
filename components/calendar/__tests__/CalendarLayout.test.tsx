@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { getDay, parseISO } from 'date-fns'
+import { format, getDay, parseISO } from 'date-fns'
 import { forwardRef } from 'react'
 
 const mockUseReducedMotion = vi.hoisted(() => vi.fn().mockReturnValue(false))
@@ -147,13 +147,16 @@ import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
-// 2026-07-27 is a Monday; 2026-07-26 the Sunday before it.
+// 2026-07-27 is a Monday; 2026-07-26 the Sunday before it. The anchor week
+// straddles a month boundary, so its Saturday is 2026-08-01.
 const ANCHOR_MONDAY = '2026-07-27'
 const ANCHOR_FRIDAY = '2026-07-31'
-const SATURDAY = 6
+const ANCHOR_SATURDAY = '2026-08-01'
+/** `date-fns` day-of-week index for Sunday — the only day with no column. */
 const SUNDAY = 0
 
-const BUSINESS_DAYS_PER_WEEK = 5
+/** Mon–Sat. Must track `BUSINESS_DAYS_PER_WEEK` in `lib/dates.ts` (Task 88). */
+const BUSINESS_DAYS_PER_WEEK = 6
 const EXPECTED_WEEK_COUNT = CALENDAR_WEEKS_BUFFER * 2 + 1
 
 let scrollToSpy: ReturnType<typeof vi.fn>
@@ -269,18 +272,24 @@ describe('buildWeekGroups', () => {
     expect(weeks[CALENDAR_WEEKS_BUFFER].key).toBe(ANCHOR_MONDAY)
   })
 
-  it('emits five weekdays per week and never a weekend', () => {
+  it('emits six days per week, Mon–Sat, and never a Sunday', () => {
     for (const week of buildWeekGroups(ANCHOR_MONDAY)) {
       expect(week.days).toHaveLength(BUSINESS_DAYS_PER_WEEK)
       for (const day of week.days) {
-        expect(getDay(day)).not.toBe(SATURDAY)
         expect(getDay(day)).not.toBe(SUNDAY)
       }
     }
   })
 
+  it('closes the anchor week on its Saturday', () => {
+    const anchorWeek = buildWeekGroups(ANCHOR_MONDAY)[CALENDAR_WEEKS_BUFFER]
+    const lastDay = anchorWeek.days[anchorWeek.days.length - 1]
+
+    expect(format(lastDay, 'yyyy-MM-dd')).toBe(ANCHOR_SATURDAY)
+  })
+
   it('rejects an anchor that is not a Monday', () => {
-    // Accepting one would silently emit weekend columns (CONSTRAINT-19).
+    // Accepting one would silently emit a Sunday column (CONSTRAINT-19).
     expect(() => buildWeekGroups('2026-07-29')).toThrow(InvalidDateError)
   })
 
@@ -291,11 +300,16 @@ describe('buildWeekGroups', () => {
 
 describe('formatWeekRange', () => {
   it('omits the repeated month within a single month', () => {
-    expect(formatWeekRange(parseISO(ANCHOR_MONDAY), parseISO(ANCHOR_FRIDAY))).toBe('Jul 27 – 31')
+    // Mon 2026-07-06 – Sat 2026-07-11 sits entirely inside July.
+    expect(formatWeekRange(parseISO('2026-07-06'), parseISO('2026-07-11'))).toBe('Jul 6 – 11')
   })
 
   it('repeats the month when the week straddles a boundary', () => {
-    expect(formatWeekRange(parseISO('2026-06-29'), parseISO('2026-07-03'))).toBe('Jun 29 – Jul 3')
+    // The anchor week now straddles: its Saturday fell into August once the
+    // week grew a sixth column (Task 88).
+    expect(formatWeekRange(parseISO(ANCHOR_MONDAY), parseISO(ANCHOR_SATURDAY))).toBe(
+      'Jul 27 – Aug 1',
+    )
   })
 })
 
@@ -365,7 +379,7 @@ describe('groupPickupsByDay', () => {
 })
 
 describe('CalendarLayout', () => {
-  it('renders five weekday columns per week — Mon–Fri only, no Sat/Sun', () => {
+  it('renders six columns per week — Mon–Sat, no Sunday', () => {
     renderLayout()
 
     const weekGroups = screen.getAllByTestId('week-group')
@@ -377,10 +391,21 @@ describe('CalendarLayout', () => {
 
       for (const column of columns) {
         const day = getDay(parseISO(column.getAttribute('data-date') ?? ''))
-        expect(day).not.toBe(SATURDAY)
         expect(day).not.toBe(SUNDAY)
       }
     }
+  })
+
+  it('renders a Saturday column that accepts a card', () => {
+    // The regression this guards: before Task 88 a Saturday-dated row was
+    // fetched but had no column to land in, so it vanished from the calendar.
+    renderLayout({ rows: [makeRow({ production_date: ANCHOR_SATURDAY })] })
+
+    const saturdayColumn = document.querySelector(
+      `[data-date="${ANCHOR_SATURDAY}"]`,
+    ) as HTMLElement
+    expect(saturdayColumn).not.toBeNull()
+    expect(within(saturdayColumn).getByText('PO-1000')).toBeInTheDocument()
   })
 
   it('opens scrolled to the anchor week', () => {

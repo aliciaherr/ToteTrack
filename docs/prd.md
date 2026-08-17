@@ -540,11 +540,11 @@ Salesperson never hand-keys totals; PO total always equals Σ(qty × unit price)
 Orders carry only `requested_delivery_date` — a customer-facing promise, not a build instruction. Deciding which orders the production team builds on which day happens entirely outside the app, so the schedule lives in one person's head and the floor works from verbal direction.
 
 ### User Story
-As the production director, I want a weekday calendar of active orders positioned on their build day, with drag-and-drop to move and sequence them, so the production team knows exactly what to build each day without me telling them.
+As the production director, I want a Mon–Sat calendar of active orders positioned on their build day, with drag-and-drop to move and sequence them, so the production team knows exactly what to build each day without me telling them.
 
 ### User Flow
 1. Nav drawer → **Calendar** (`/calendar`). Opens on the current week.
-2. Each Mon–Fri column lists that day's order cards, top-to-bottom in build sequence.
+2. Each Mon–Sat column lists that day's order cards, top-to-bottom in build sequence.
 3. Drag a card to another day → sets its `production_date`. Drag within a day → sets its build sequence.
 4. Click a card → read-only popup with full PO details, a same-day-delivery toggle, and `Remove from calendar`.
 5. Top-right callout shows the count of active orders that have no date at all. Click → dropdown of those cards; drag one onto a day to schedule it, or drag a card back onto the callout to clear its date.
@@ -563,9 +563,9 @@ As the production director, I want a weekday calendar of active orders positione
 
 **Positioning** — a card's column **is** its `production_date`. Nothing is derived at read time. An order with no production date is not on the calendar; it sits in the unscheduled callout, whatever its delivery date. The delivery date seeds `production_date` **once**, at order creation (`prevBusinessDay(requested_delivery_date)`), so new POs appear without being dragged in.
 
-**`prevBusinessDay(d)`** — the last Mon–Fri strictly before `d`. Sat, Sun, and Mon delivery dates all resolve to the prior Friday. Weekends only; holidays are not modelled.
+**`prevBusinessDay(d)`** — the last Mon–Sat strictly before `d`. A Monday or Sunday delivery date resolves to the prior Saturday; every other day resolves to the previous calendar day. Sundays only; holidays are not modelled. Revised 2026-08-17 (Task 88) — Saturday became a full production day, so the Friday landing it used to produce for Mon/Sat/Sun is now Saturday.
 
-**Invariant** — no production date ever falls on a weekend. There are no Sat/Sun columns and nothing can be dropped there.
+**Invariant** — no production date ever falls on a Sunday. There is no Sunday column and nothing can be dropped there. Saturday is a full production day with its own column.
 
 **Delivery date is never written by this feature.** `requested_delivery_date` remains editable only in the Orders tab. Once `production_date` is explicitly set, later changes to `requested_delivery_date` do not move the card and produce no warning.
 
@@ -587,7 +587,7 @@ As the production director, I want a weekday calendar of active orders positione
 
 **The page never scrolls as a page.** The screen is exactly one viewport tall — `h-[calc(100vh-0.75rem)]` with `overflow-hidden`, the same idiom `OrderLayout` already uses — and only the horizontal strip and individual day columns scroll. This holds on every supported device.
 
-**Layout** — 176px weekday columns. Five columns plus four gaps, the 80px pill gutter, and 16px of right padding total 1008px, so a full Mon–Fri fits inside iPad landscape's 1024px. Continuous smooth horizontal scroll (not week-snapped), with a 2px rule at every Fri│Mon boundary and a week-range label above each week's own columns. Today's column header is filled with `bg-primary`. `Current week` scrolls to the Mon–Fri week containing today; on Sat/Sun it targets the next Mon–Fri. Both the strip and each column must render a visible scrollbar — overlay scrollbars hide the fact that they scroll at all. Day column headers show weekday and date only, with no order count.
+**Layout** — 176px day columns, six per week (Mon–Sat). Columns are **fixed-width and never shrink to fit a viewport**: a full week no longer fits inside iPad landscape's 1024px, and the strip scrolls horizontally to reach the rest of the week rather than compressing a card to the point where the product-mix line stops being readable on a shop floor. Revised 2026-08-17 (Task 88) — the previous five-column arithmetic (1008px, sized to fit 1024px without scrolling) no longer holds and was deliberately not re-tuned. Continuous smooth horizontal scroll (not week-snapped), with a 2px rule at every Sat│Mon boundary and a week-range label above each week's own columns. Today's column header is filled with `bg-primary`. `Current week` scrolls to the Mon–Sat week containing today — including when today is that Saturday; on a Sunday it targets the next Mon–Sat. Both the strip and each column must render a visible scrollbar — overlay scrollbars hide the fact that they scroll at all. Day column headers show weekday and date only, with no order count.
 
 **Card height scales to the viewport; the visible count does not.** The target is fixed — **4 cards always visible without scrolling** — and the card shrinks to honour it: `--card-h: clamp(80px, calc(25vh - 70px), 104px)`, derived from `(viewportHeight − 281px) ÷ 4` where 281px is the fixed chrome above and below the stack. That yields 104px from ~700px of viewport height upward, 92px at 650px, and 80px at 600px. Every other card metric (padding, the four row heights, and their font sizes) interpolates linearly between the 80px floor and the 104px ceiling, so the rows always sum to exactly `--card-h` and all cards stay uniform at any size.
 
@@ -595,15 +595,15 @@ As the production director, I want a weekday calendar of active orders positione
 
 **Per-day `+`** — sits in the column footer, in the same slot and `text-primary` link style as the widgets' "View all". Hidden until column hover **only** on devices matching `(hover: hover) and (pointer: fine)`; always visible otherwise, so it is permanently present on iPad and any touch device.
 
-**Dashboard widget** — the next 2 business days as **two side-by-side columns**, up to **4 rows each** (an 8-order snapshot), plus the unscheduled count and a link to `/calendar`. Column widths and the widget's outer height match the neighbouring dashboard widgets. Each column is headed with the **real weekday and date** — `Today` / `Tomorrow` are deliberately not used, because the label would hold for at most one column and on a Friday or weekend for neither. Friday shows Fri + Mon; Sat/Sun shows Mon + Tue. Rows put the `B` / `SD` tags immediately after the customer name, mirroring how Open Orders places them after the PO number; long customer names truncate. Revised 2026-07-27 after the first visual review — the original stacked single-column list read as one continuous list with no clear break between the two days.
+**Dashboard widget** — the next 2 business days as **two side-by-side columns**, up to **4 rows each** (an 8-order snapshot), plus the unscheduled count and a link to `/calendar`. Column widths and the widget's outer height match the neighbouring dashboard widgets. Each column is headed with the **real weekday and date** — `Today` / `Tomorrow` are deliberately not used, because the label would hold for at most one column and on a Friday or weekend for neither. Friday shows Fri + Sat; Saturday shows Sat + Mon; Sunday shows Mon + Tue. Rows put the `B` / `SD` tags immediately after the customer name, mirroring how Open Orders places them after the PO number; long customer names truncate. Revised 2026-07-27 after the first visual review — the original stacked single-column list read as one continuous list with no clear break between the two days.
 
 **Drag-and-drop** — `@dnd-kit/core` + `@dnd-kit/sortable`, **desktop mouse and keyboard only**. Touch drag was cut after failing on a real iPad (A-05 contingency fired 2026-07-27). On touch devices a ≈350ms still-finger long-press instead **arms** the card (shake + bold outline), and a tap then places it: tap another card to insert at its position (cards below shift down), tap empty column space to append to that day, tap the unscheduled callout to unschedule, tap anything else — including the armed card — to cancel. The strip stays freely scrollable while armed, so any week is reachable before placing. A plain tap still opens the popup; a swipe still scrolls. Spec: Feature 13, Task 68. All drag/arm affordances respect `useReducedMotion()`. `@dnd-kit` is client-only and therefore falls under CONSTRAINT-03 alongside `framer-motion` and `recharts`.
 
 ### Acceptance Criteria
 - [ ] Migration `0010` adds the 3 columns; existing rows get `production_date` NULL, `same_day_delivery` false, `production_sort_index` NULL
-- [ ] `/calendar` renders 5 weekday columns and opens scrolled to the current week
+- [ ] `/calendar` renders 6 columns per week — Mon–Sat — and opens scrolled to the current week
 - [ ] An order with a delivery date and no production date appears on `prevBusinessDay(delivery_date)`
-- [ ] Mon, Sat, and Sun delivery dates all place the card on the prior Friday
+- [ ] Mon and Sun delivery dates both place the card on the prior Saturday; a Sat delivery date places it on the prior Friday
 - [ ] Dragging a card to another day writes `production_date` and leaves `requested_delivery_date` unchanged
 - [ ] Dragging within a day persists the new sequence across a page reload
 - [ ] `completed` and `invoiced` cards render dimmed and cannot be dragged
@@ -611,7 +611,7 @@ As the production director, I want a weekday calendar of active orders positione
 - [ ] Card shows PO#, customer (≤2 lines, truncated), ≤4 combos over 2 lines with `+N more`, and delivery date or `—`
 - [ ] Every card renders at an identical height regardless of name length or combo count
 - [ ] The `/calendar` page never scrolls vertically as a page at any tested size (1440×900, 1280×720, 1024×768, 1280×620)
-- [ ] A full Mon–Fri is visible without horizontal scrolling at 1024px wide
+- [ ] Columns hold their 176px width at every tested size; a full Mon–Sat does **not** fit at 1024px wide and the strip scrolls to reach the rest of the week
 - [ ] 4 whole cards are visible without scrolling at every viewport height down to 600px, the card shrinking as needed
 - [ ] Card height never drops below 80px; below 600px viewport height the column scrolls rather than shrinking further
 - [ ] Day column header shows weekday and date only — no order count
@@ -628,8 +628,8 @@ As the production director, I want a weekday calendar of active orders positione
 - [ ] Dragging a card out of the callout dropdown onto a day sets its `production_date`
 - [ ] Callout dropdown shows 4 cards then scrolls
 - [ ] Per-day `+` lists exactly the unscheduled set and is permanently visible on touch devices
-- [ ] `Current week` returns to today's week; on Sat/Sun it lands on the next Mon–Fri
-- [ ] Week-range labels and Fri│Mon dividers make the week boundary unambiguous while free-scrolling
+- [ ] `Current week` returns to today's week, including on a Saturday; on a Sunday it lands on the next Mon–Sat
+- [ ] Week-range labels and Sat│Mon dividers make the week boundary unambiguous while free-scrolling
 - [ ] Dashboard widget shows the next 2 business days, ≤3 rows each, plus the unscheduled count
 - [ ] ~~Touch drag works on a tablet without hijacking horizontal scroll~~ **Superseded 2026-07-27:** touch drag failed on a real iPad (A-05); touch now uses long-press-to-arm + tap-to-place — acceptance moved to Task 68
 - [ ] Nav drawer shows **Calendar** between Orders and Leads with correct active state
@@ -645,7 +645,7 @@ As the production director, I want a weekday calendar of active orders positione
 - **6-combo order** — 4 combos shown plus `+2 more`; full mix in the popup.
 - **Order with NULL unit prices** (legacy multi-combo, per Feature 10) — popup grid falls back to bare quantities for those cells; the card is unaffected since it never shows prices.
 - **Customer name longer than 2 lines** — truncated with an ellipsis; full name in the popup.
-- **Weekend visit** — calendar still opens on the current Mon–Fri week; `Current week` targets the next one.
+- **Sunday visit** — the calendar opens on the *following* Mon–Sat week; `Current week` targets that same next week. A Saturday visit is an ordinary working day and opens on its own week.
 - **Viewport shorter than 600px** — card stays at its 80px floor, fewer than 4 are visible, column scrolls. Page still does not scroll.
 - **Scrolled into the past** — past columns look identical to future ones and accept drops; nothing is blocked or dimmed by date.
 
@@ -767,7 +767,7 @@ No page title row is added to chrome. Authenticated screens orient the user via:
 | D13 | Optional `requested_delivery_date` (Bundle E, 2026-04-22) → CONSTRAINT-16 | Date column is nullable; new-order form marks it (optional); Mark-as-Complete on an undated order auto-sets `CURRENT_DATE` via `COALESCE`; all sorts use `NULLS LAST`; period-window filters naturally exclude NULL-dated rows |
 | D14 | Invoice model v3 (Bundle H, 2026-04-22) → CONSTRAINT-17 | One invoice per calendar month covers all customers; no `customer_id` column on invoices; no status column (no draft/paid); "Mark as Paid" removed; existing-month invoice creation triggers `OverwriteInvoiceDialog`; retired invoice numbers never reused; ledger is flat chronological. Migration `0007` |
 | D15 | PO multi-combo restructure (2026-04-24) → Feature 9 | Single-combo PO model replaced with 6-quantity wide-row schema. Drop `container_size`, `container_type`, `quantity` columns; add 6 typed quantity columns (`qty_275_recon`, `qty_275_rebot`, `qty_275_new`, `qty_330_recon`, `qty_330_rebot`, `qty_330_new`). Total `price` stays as user-entered single value (no per-unit pricing, no settings, no per-PO overrides). Mark Complete remains atomic at PO level. New 2×3 grid display in PO detail (reuses Customer Volume Overview component); orders table shows `275` / `330` totals + compact `B` backhaul tag. Edit lock: `scheduled`/`completed` editable; `invoiced`/`cancelled` locked. Affects Feature 4 (Order Table, Detail Panel, Form, Error States) |
-| D16 | Production Calendar (2026-07-26) → Feature 11, CONSTRAINT-19 | Build day is a **separate** concept from the customer promise: new nullable `production_date` column, never `requested_delivery_date`. Default position = `prevBusinessDay(requested_delivery_date)` (Mon/Sat/Sun → prior Friday); weekends-only business-day math, no holiday calendar. Mon–Fri 176px columns sized so a full work week fits iPad landscape; page never scrolls, card height scales via `clamp()` to keep 4 visible. All non-cancelled orders shown; `completed`/`invoiced` dimmed and locked. Manual intra-day sequence persisted in `production_sort_index`. New `same_day_delivery` boolean toggled only from a read-only calendar popup — order editing stays exclusive to the Orders tab. Orders with neither date surfaced via a top-right unscheduled callout that doubles as a drop target. `@dnd-kit/core` + `@dnd-kit/sortable` added (approved by Builder without `@cto` review); desktop + tablet only. Migration `0010` |
+| D16 | Production Calendar (2026-07-26) → Feature 11, CONSTRAINT-19 | Build day is a **separate** concept from the customer promise: new nullable `production_date` column, never `requested_delivery_date`. Default position = `prevBusinessDay(requested_delivery_date)` (~~Mon/Sat/Sun → prior Friday~~); ~~weekends-only business-day math~~, no holiday calendar. ~~Mon–Fri 176px columns sized so a full work week fits iPad landscape~~; page never scrolls, card height scales via `clamp()` to keep 4 visible. All non-cancelled orders shown; `completed`/`invoiced` dimmed and locked. Manual intra-day sequence persisted in `production_sort_index`. New `same_day_delivery` boolean toggled only from a ~~read-only~~ calendar popup — order editing stays exclusive to the Orders tab. Orders with neither date surfaced via a top-right unscheduled callout that doubles as a drop target. `@dnd-kit/core` + `@dnd-kit/sortable` added (approved by Builder without `@cto` review); desktop + tablet only. Migration `0010`. — **PARTIALLY SUPERSEDED by Task 88 (2026-08-17):** the week is Mon–Sat, six 176px columns; `prevBusinessDay` is Sundays-only so Mon/Sun → prior **Saturday**; a full week no longer fits iPad landscape's 1024px and the strip scrolls instead — columns never shrink. **And by Feature 12 (2026-07-27):** the popup is no longer read-only — it writes the `backhaul` and `same_day_delivery` flags and the PO's status |
 | D17 | Dashboard revenue metric (2026-07-29) → FB-18 | "Total Invoiced" hero card + invoice trend chart replaced by **"Total Revenue"**: `SUM(orders.price)` over all non-cancelled orders (bookings semantics — scheduled orders count), month-bucketed by `COALESCE(production_date, requested_delivery_date, created_at)`, recomputed at query time so production-date edits re-bucket. `InvoiceChart` → `RevenueChart`. Invoiced totals no longer shown anywhere on the dashboard |
 
 ---
@@ -790,7 +790,7 @@ As the salesperson, I want to find any PO instantly, and to plan a whole week �
 
 ### Business Logic
 - **Search:** case-insensitive partial match on `po_number` OR customer `company_name`, ANDed with the active status tab. URL-driven (`?search=`) like the customers tab, debounced 250ms because the result set is now unbounded.
-- **Day wins over delivery date:** a PO created from a day column takes that day as its `production_date`, whatever delivery date the form carries. Clicking a day is a deliberate placement and outranks the creation-time default (CONSTRAINT-19). Weekends are rejected on write.
+- **Day wins over delivery date:** a PO created from a day column takes that day as its `production_date`, whatever delivery date the form carries. Clicking a day is a deliberate placement and outranks the creation-time default (CONSTRAINT-19). Sundays are rejected on write.
 - **What the calendar still cannot edit:** quantities, prices, customer, address, notes, and `requested_delivery_date`. Those stay Orders-tab only.
 - **Cancel is one-way from the calendar.** The calendar excludes cancelled orders, so the card leaves the board and the popup closes. Reverting requires the Orders tab. Completing is not one-way — the card dims in place and can be reverted from the popup.
 - **Flag toggles are permitted on invoiced/cancelled orders** — CONSTRAINT-18's edit lock covers only quantity and price.

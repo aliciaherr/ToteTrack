@@ -48,10 +48,10 @@ describe('getProductionWidgetData', () => {
     expect(params).toEqual(['2026-07-27', '2026-07-28'])
   })
 
-  it('on Friday the second parameter is the following Monday', async () => {
+  it('on Friday the second parameter is the following Saturday', async () => {
     await getProductionWidgetData(FRIDAY)
 
-    expect(compiledCall(0).params).toEqual(['2026-07-31', '2026-08-03'])
+    expect(compiledCall(0).params).toEqual(['2026-07-31', '2026-08-01'])
   })
 
   it('reads production_date directly, exactly as the calendar does', async () => {

@@ -502,18 +502,27 @@ describe('createOrder', () => {
     expect(lastInsertValues).toMatchObject({ production_date: '2026-04-30' })
   })
 
-  it('rejects a Saturday production_date with the shared no-weekend message', async () => {
-    // 2026-05-23 is a Saturday. The calendar has no column to draw it in.
-    const result = await createOrder({ ...VALID_CREATE, production_date: '2026-05-23' })
-    expect(result).toEqual({ error: 'Production dates must fall on a weekday.' })
+  it('accepts a Saturday production_date — Saturday is a production day', async () => {
+    // 2026-05-23 is a Saturday. Rejected before Task 88; the calendar now
+    // draws a sixth column for it.
+    stubInsertReturning(ORDER_ID)
+    await createOrder({ ...VALID_CREATE, production_date: '2026-05-23' })
+    expect(lastInsertValues).toMatchObject({ production_date: '2026-05-23' })
+  })
+
+  it('rejects a Sunday production_date with the shared no-Sunday message', async () => {
+    // 2026-05-24 is a Sunday — the one day the calendar has no column for.
+    const result = await createOrder({ ...VALID_CREATE, production_date: '2026-05-24' })
+    expect(result).toEqual({ error: 'Production dates must fall on Monday through Saturday.' })
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
-  it('rejects a Sunday production_date', async () => {
-    // 2026-05-24 is a Sunday.
-    const result = await createOrder({ ...VALID_CREATE, production_date: '2026-05-24' })
-    expect(result).toEqual({ error: 'Production dates must fall on a weekday.' })
-    expect(mockInsert).not.toHaveBeenCalled()
+  it('defaults a Monday delivery date to the preceding Saturday', async () => {
+    // Mon 2026-05-25 → Sat 2026-05-23, not the Fri 2026-05-22 it would have
+    // been before Saturday became a production day (Task 88).
+    stubInsertReturning(ORDER_ID)
+    await createOrder({ ...VALID_CREATE, requested_delivery_date: '2026-05-25' })
+    expect(lastInsertValues).toMatchObject({ production_date: '2026-05-23' })
   })
 
   it('rejects a production_date that is not a real calendar day', async () => {
@@ -934,20 +943,27 @@ describe('defaultProductionDate', () => {
   })
 
   it.each([
-    ['Monday', '2026-07-27', '2026-07-24'],
-    ['Sunday', '2026-07-26', '2026-07-24'],
-    ['Saturday', '2026-07-25', '2026-07-24'],
-  ])('resolves a %s delivery to the prior Friday', (_label, delivery, expected) => {
+    ['Monday', '2026-07-27', '2026-07-25'],
+    ['Sunday', '2026-07-26', '2026-07-25'],
+  ])('resolves a %s delivery to the prior Saturday', (_label, delivery, expected) => {
+    // Task 88: Saturday is a production day, so Mon/Sun no longer skip back
+    // over it to the Friday.
     expect(defaultProductionDate(delivery)).toBe(expected)
   })
 
-  it('never returns a weekend', () => {
+  it('resolves a Saturday delivery to the prior Friday', () => {
+    // Sat 2026-07-25 → Fri 2026-07-24: an ordinary previous-calendar-day step
+    // now that Saturday is itself a production day.
+    expect(defaultProductionDate('2026-07-25')).toBe('2026-07-24')
+  })
+
+  it('never returns a Sunday', () => {
+    const SUNDAY = 0
     for (let day = 1; day <= 28; day += 1) {
       const delivery = `2026-07-${String(day).padStart(2, '0')}`
       const result = defaultProductionDate(delivery)
       const dayOfWeek = new Date(`${result}T12:00:00`).getDay()
-      expect(dayOfWeek, `${delivery} → ${result}`).not.toBe(0)
-      expect(dayOfWeek, `${delivery} → ${result}`).not.toBe(6)
+      expect(dayOfWeek, `${delivery} → ${result}`).not.toBe(SUNDAY)
     }
   })
 
