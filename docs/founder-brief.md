@@ -555,3 +555,46 @@ That fact is now written into the architecture document in bold, because it is e
 - **You do not need it back.** If a future feature ever seems to want admin database access, treat that as a question to ask, not a key to paste — the app already reaches the database through a route that is not restricted by those rules, so a second bypass buys nothing.
 
 **What this closes off:** Nothing. Both changes are reversible in a line. The `service_role` key can be reintroduced by whatever task genuinely needs it — but that task should have to justify itself, which is the point of removing it now.
+
+---
+
+## FB-30 — The Address of Your Database Matters More Than the Password, and Three Popups Could Freeze
+
+**Date:** 2026-08-16
+**Architecture reference:** `docs/architecture.md` → *Infrastructure* → "Database connection" (new "Never use the direct connection string" block); *Security Architecture* → "Secrets" (publishable-key note); `components/shared/` listing (two new hooks).
+**Constraint added:** CONSTRAINT-28.
+**Tasks:** 85 — commit `0ee4322`; 86 — commit `b79b028`.
+
+**Decided:** Your database connection string is locked to one specific form, and three confirmation popups that could freeze permanently now recover with an error message instead.
+
+**First: rotating the database password took the live app down, and the password was never the problem.**
+
+You reset the password and pasted in a new connection string. The deploy went green. Then every page except the login screen broke.
+
+Here is the part worth keeping. Supabase offers you **three** different connection strings and they are not interchangeable — only one of them can physically work with the way Vercel runs your app. The one the dashboard steers you toward by default is the one that cannot. It is not slower or less reliable; it is a street address in a format the delivery van cannot read. Your app never got as far as offering a password.
+
+Two things made this hard to see, and both are worth recognising if it ever happens again:
+
+- **The build succeeded.** The connection string is only used when a real person loads a real page, so nothing checks it until then. A green deploy is not evidence the database works.
+- **The login page kept working perfectly.** Logging in doesn't touch the database — it goes to a different Supabase service entirely. So you get an app where you can sign in, and then everything behind the sign-in is broken. That reads like a broken page. It was a broken address.
+
+The rule is now written into three places, including the setup instructions, which had been pointing at the wrong one all along.
+
+**Second: three popups could freeze with no way out.**
+
+"Delete customer", "Convert lead to customer" and "Generate invoice" each showed a confirmation popup. While the app was working, the popup correctly disabled its buttons so you couldn't click twice. But it only re-enabled them when the server answered.
+
+If your internet dropped at that exact moment, the server never answered. So the buttons stayed disabled, the Escape key stayed switched off, and clicking outside the popup did nothing — all three exits are controlled by the same "still working…" flag that never got switched off. No error message, because nothing had gone wrong as far as the popup knew. The only way out was reloading the page.
+
+This is now caught properly: you get a plain "Something went wrong. Please try again.", the buttons come back, and the real cause is written to the logs where it can be diagnosed.
+
+**Worth knowing:** the same flaw is still present in three more places, including the login screen itself. They were found while fixing these and are recorded as the next thing to do. Nobody has hit them, but the login one is the one I would fix first — being locked out of the front door is worse than being stuck in a popup you can reload away from.
+
+**Means for your product:** Nothing looks different. What changed is that a dropped connection now shows a message instead of stranding the person using the app, and the single most confusing failure mode you have hit — "the site is up but nothing loads" — now has a written diagnosis so it takes minutes rather than an evening.
+
+**Check before approving:**
+- **Deactivate the old Supabase keys.** Settings → API Keys → Legacy API Keys. The only step left from the rotation, and nothing depends on them any more.
+- **Do you want the three remaining freeze-bugs fixed before launch, or after?** The login one is a 15-minute fix. The other two are lower stakes.
+- **If a page ever 500s again while login still works**, the connection string is the first suspect, not the password and not the page.
+
+**What this closes off:** Nothing you would want. Locking the connection string to one form removes an option that never worked. The popup fix adds an error path where there was none — the only thing it "costs" is that a failed action now says so out loud, which is the point.

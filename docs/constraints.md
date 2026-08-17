@@ -435,6 +435,28 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 
 ---
 
+## CONSTRAINT-28: `DATABASE_URL` is always the Session pooler string
+
+**Decision:** 2026-08-16, after a live production outage during the database-password rotation.
+
+**The three strings.** Supabase's **Connect** dialog offers Direct connection, Transaction pooler and Session pooler. Only the last works for this project:
+
+| Tab | Host / user | Verdict |
+|---|---|---|
+| Session pooler | `aws-0-[region].pooler.supabase.com:5432`, user `postgres.[project-ref]` | **the only correct one** |
+| Transaction pooler | same host, port `6543` | loses/misroutes query responses on this project (FB-20) — hangs every authenticated page |
+| Direct connection | `db.[project-ref].supabase.co:5432`, user `postgres` | **structurally impossible from Vercel** |
+
+**Why Direct connection can never work, as opposed to merely being discouraged:** that hostname resolves over **IPv6 only**, and Vercel's runtime is IPv4-only. The failure is `getaddrinfo ENOTFOUND` — DNS, before a TCP connection is opened and long before any credential is checked. No password, pool size or timeout setting changes this. It is not a configuration to tune; it is a wrong address.
+
+**Why this became a constraint rather than a note.** The Direct string is what Supabase's generic "Database → Connection string (URI)" path yields, and `README.md` pointed a fresh setup straight at it until 2026-08-16. The outage it caused was hard to read from the symptoms: the build went green (the variable is read at runtime only), and `/login` kept working throughout — auth runs through Supabase Auth on the publishable key and never touches `DATABASE_URL`. Every authenticated page 500'd while the login page looked healthy, which reads as a page bug, not a connection-string one.
+
+**Two tells that the wrong string is in place:** the host is `db.…supabase.co` instead of `…pooler.supabase.com`, and the username is a bare `postgres` instead of `postgres.[project-ref]`. **Swapping only the hostname does not fix it** — the username differs too.
+
+**Recorded in three places on purpose:** here, `docs/architecture.md` → Database connection, and a three-row table in `README.md` beside the env-var list, because the README is what a fresh setup actually follows.
+
+---
+
 ## CONSTRAINT-27: `agentRules: false` stays in `next.config.js`
 
 **Decision:** 2026-08-12, during Task 84. Next.js 16 generates `AGENTS.md` and `CLAUDE.md` into the repo root on **every** `next dev` run and every `next build`, unless `agentRules: false` is set. It stays set.
@@ -480,3 +502,4 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 | 25 | Pickups are a separate table, never a flag on `orders` | No price/number/invoice; absent from all revenue + dashboard surfaces; `pickup_only` renamed `customer_collects`; calendar day columns hold two independently-ordered lists with a `group` discriminator on every drag payload; no cross-group moves; the two lists split column height by an explicit basis (`COLUMN_LIST_FLEX`), never bare `flex-1`; toggles default Orders-on/Pickups-off and reset each visit; amber cards, plain text; `pickup_date` is the placement and drag rewrites it | Builder | 2026-08-10 |
 | 26 | Cross-vertical primitives live in `components/shared/` | A second consumer in a different vertical forces the move; no vertical imports from or re-exports on behalf of another; shared file is parameterised by a bridge, each vertical keeps a thin adapter; known drift — leads and support each hold their own, different `FORM_INPUT_CLASS` | Builder | 2026-08-10 |
 | 27 | `agentRules: false` stays in `next.config.js` | Next 16 otherwise writes `AGENTS.md` + `CLAUDE.md` into the repo root on every dev run and build; the generated `CLAUDE.md` is just `@AGENTS.md`, so it competes with the SBDev framework for agent context and regenerates after every edit. `AGENTS.md` also added to `.gitignore` as a second line of defence — **both stay**, the ignore entry is not a licence to drop the config line | Builder | 2026-08-12 |
+| 28 | `DATABASE_URL` is always the **Session pooler** string | Supabase's Connect dialog offers three and only one works here. **Direct connection** (`db.[ref].supabase.co:5432`, user `postgres`) is IPv6-only and Vercel's runtime is IPv4-only — it fails as `getaddrinfo ENOTFOUND` before auth is ever attempted, and it took prod down on 2026-08-16. **Transaction pooler** (`:6543`) misroutes query responses on this project (FB-20). Correct string: `aws-0-[region].pooler.supabase.com:5432`, user `postgres.[project-ref]`. Swapping only the hostname is not enough — the username differs too. `ENOTFOUND` means wrong string, not wrong password | Builder | 2026-08-16 |
