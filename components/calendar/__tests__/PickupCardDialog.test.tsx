@@ -6,17 +6,18 @@ const mockUpdatePickupStatus = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
 const mockToast = vi.hoisted(() => vi.fn())
 
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   motion: {
-    div: forwardRef<HTMLDivElement, any>(
-      ({ children, initial, animate, exit, variants, transition, ...rest }, ref) => (
-        <div ref={ref} {...rest}>
-          {children}
-        </div>
-      ),
-    ),
+    div: forwardRef<HTMLDivElement, MotionMockProps>(function MotionDiv(
+      { children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps,
+      ref,
+    ) {
+      return <div ref={ref} {...rest}>{children}</div>
+    }),
   },
 }))
 

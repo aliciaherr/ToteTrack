@@ -62,14 +62,12 @@ function FormFooter({
 }
 
 function FormBody({
-  mode,
   form,
   customers,
   lockedCustomerId,
   serverError,
   qtyError,
 }: {
-  mode: 'create' | 'edit'
   form: UseFormReturn<OrderFormValues>
   customers: CustomerSelectOption[]
   lockedCustomerId: string | null
@@ -85,7 +83,6 @@ function FormBody({
         </div>
       )}
       <OrderFormFields
-        mode={mode}
         customers={customers}
         lockedCustomerId={lockedCustomerId}
         register={register}
@@ -134,7 +131,6 @@ export default function OrderForm({
     >
       <FormHeader title={title} />
       <FormBody
-        mode={mode}
         form={form}
         customers={customers}
         lockedCustomerId={lockedCustomerId}

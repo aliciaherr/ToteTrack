@@ -18,7 +18,6 @@ const iso = (date: Date) => format(date, DB_DATE_FORMAT)
 // Reference week — verified weekdays, used across the suite:
 // Fri 2026-05-29 | Mon 2026-06-01 | Tue 2026-06-02 | Wed 2026-06-03
 // Thu 2026-06-04 | Fri 2026-06-05 | Sat 2026-06-06 | Sun 2026-06-07 | Mon 2026-06-08
-const FRI_MAY_29 = localDate(2026, 5, 29)
 const MON_JUN_1 = localDate(2026, 6, 1)
 const TUE_JUN_2 = localDate(2026, 6, 2)
 const WED_JUN_3 = localDate(2026, 6, 3)

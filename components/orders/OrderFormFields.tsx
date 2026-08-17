@@ -14,7 +14,6 @@ import OrderContainerFields from './OrderContainerFields'
 import OrderLogisticsFields from './OrderLogisticsFields'
 
 interface OrderFormFieldsProps {
-  mode: 'create' | 'edit'
   customers: CustomerSelectOption[]
   lockedCustomerId: string | null
   register: UseFormRegister<OrderFormValues>
@@ -77,7 +76,6 @@ function CustomerDropdown({
  * keeps each file under CONSTRAINT-14's 80-line JSX cap.
  */
 export default function OrderFormFields({
-  mode,
   customers,
   lockedCustomerId,
   register,

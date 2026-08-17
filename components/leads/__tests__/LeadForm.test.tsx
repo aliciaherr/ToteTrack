@@ -141,4 +141,30 @@ describe('LeadForm', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/server rejected the request/i)
     expect(onSaved).not.toHaveBeenCalled()
   })
+
+  // Regression, Task 85: `onClose` was declared, passed by both LeadLayout call
+  // sites and never rendered — the form had no Cancel affordance at all, unlike
+  // CustomerForm, OrderForm and PickupForm. Found via an unused-variable lint
+  // warning, which was the symptom rather than the defect.
+  it('closes without submitting when Cancel is clicked in create mode', () => {
+    const onClose = vi.fn()
+    const onSaved = vi.fn()
+    render(<LeadForm mode="create" onClose={onClose} onSaved={onSaved} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(mockCreateLead).not.toHaveBeenCalled()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('closes without submitting when Cancel is clicked in edit mode', () => {
+    const onClose = vi.fn()
+    render(<LeadForm mode="edit" initialDetail={sampleDetail} onClose={onClose} onSaved={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(mockUpdateLead).not.toHaveBeenCalled()
+  })
 })

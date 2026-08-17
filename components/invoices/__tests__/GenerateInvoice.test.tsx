@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { InvoiceableOrder } from '@/db/queries/invoices'
 
 const mockPush = vi.hoisted(() => vi.fn())
@@ -52,6 +52,13 @@ function makeOrder(overrides: Partial<InvoiceableOrder> = {}): InvoiceableOrder 
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// The rejection test spies on `console.error`. Restoring only at the end of
+// that test body would leave the spy installed if the test failed mid-way,
+// silencing `console.error` for every test that runs after it in this file.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('GenerateInvoice', () => {
@@ -131,7 +138,7 @@ describe('GenerateInvoice', () => {
     await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalledOnce())
   })
 
-  it('surfaces the server error inline when createInvoice rejects', async () => {
+  it('surfaces the server error inline when createInvoice returns { error }', async () => {
     mockCreateInvoice.mockResolvedValueOnce({ error: 'Order PO-3002 is already invoiced.' })
     const orders = [makeOrder({ id: 'a', po_number: 'PO-3001', price: '250.00' })]
     render(<GenerateInvoice orders={orders} billingMonth="2026-04" />)
@@ -139,6 +146,37 @@ describe('GenerateInvoice', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/already invoiced/i)
     expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  // Regression, EH-01. Found by @code-review 2026-08-16. The test above covers
+  // a *resolved* `{ error }` — the handled path. `submit` / `confirmOverwrite`
+  // are called from onClick handlers that discard the returned promise, so
+  // before the `catch` in `runSubmit` a transport-level rejection (offline,
+  // stale action id after a deploy) vanished entirely: nothing logged, no
+  // inline error, and the Create Invoice button silently re-enabling —
+  // indistinguishable from a no-op to the salesperson.
+  it('surfaces a generic inline error and logs the cause when createInvoice rejects in transit (EH-01)', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateInvoice.mockRejectedValueOnce(new Error('network down'))
+    const orders = [makeOrder({ id: 'a', po_number: 'PO-3001', price: '250.00' })]
+    render(<GenerateInvoice orders={orders} billingMonth="2026-04" />)
+    fireEvent.click(screen.getByRole('button', { name: /create invoice/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    // The success path refreshes the route; a rejection must not.
+    expect(mockRefresh).not.toHaveBeenCalled()
+    // The cause must reach the console — never swallowed (EH-01). The message
+    // wording is not the contract, so it is matched loosely; the context object
+    // is, so it is matched explicitly. `afterEach` restores the spy.
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('createInvoice failed'),
+      expect.objectContaining({
+        billingMonth: '2026-04',
+        orderCount: 1,
+        overwrite: false,
+        cause: expect.any(Error),
+      }),
+    )
   })
 
   it('renders one row per order with PO number, customer name, and formatted price visible', () => {

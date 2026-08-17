@@ -104,7 +104,6 @@ const TICKET_TITLES = [
   { title: 'Add SMS reminder for follow-ups', category: 'feature_request', priority: 'low' },
 ] as const
 
-const LEAD_STATUSES = ['hot', 'warm', 'cold'] as const
 const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const
 
 type SeedSize = '275' | '330'

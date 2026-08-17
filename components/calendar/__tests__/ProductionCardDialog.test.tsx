@@ -24,6 +24,10 @@ vi.mock('@/lib/hooks/useToast', () => ({
   useToast: () => ({ toast: vi.fn() }),
 }))
 
+// The motion-only props are named so they are stripped from `rest` and never
+// reach a real DOM node. A `type` is erased, so the hoisted factory can use it.
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 vi.mock('framer-motion', () => ({
   useReducedMotion: () => false,
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -31,18 +35,25 @@ vi.mock('framer-motion', () => ({
     // `forwardRef`, not a plain function: the dialog attaches `panelRef` to its
     // panel and the focus trap is dead without it. A non-forwarding mock made
     // the focus tests pass against nothing.
-    div: forwardRef<HTMLDivElement, any>(
-      ({ children, initial, animate, exit, variants, transition, ...rest }, ref) => (
-        <div ref={ref} {...rest}>
-          {children}
-        </div>
-      ),
-    ),
+    div: forwardRef<HTMLDivElement, MotionMockProps>(function MotionDiv(
+      { children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps,
+      ref,
+    ) {
+      return <div ref={ref} {...rest}>{children}</div>
+    }),
   },
 }))
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, className }: any) => (
+  default: ({
+    href,
+    children,
+    className,
+  }: {
+    href: string
+    children: React.ReactNode
+    className?: string
+  }) => (
     <a href={href} className={className}>
       {children}
     </a>

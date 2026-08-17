@@ -50,7 +50,7 @@ describe('getLeads', () => {
   it("filters by status='hot' when requested", async () => {
     mockExecute.mockResolvedValueOnce([])
     await getLeads({ status: 'hot' })
-    const { sql, params } = compileLastCall()
+    const { params } = compileLastCall()
     expect(params).toContain('hot')
     // Should NOT include a warm or cold param
     expect(params).not.toContain('warm')

@@ -13,19 +13,22 @@ const mockCreatePickup = vi.hoisted(() => vi.fn())
 const mockSetPickupPlacement = vi.hoisted(() => vi.fn())
 const mockClearPickupPlacement = vi.hoisted(() => vi.fn())
 
+// The motion-only props are named so they are stripped from `rest` and never
+// reach a real DOM node. A `type` is erased, so the hoisted factory can use it.
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 // The dialog added by Task 58 pulls `motion` + `AnimatePresence` into this
 // tree, so the mock has to cover them too. Same shape as NavDrawer.test.tsx.
 vi.mock('framer-motion', () => ({
   useReducedMotion: mockUseReducedMotion,
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   motion: {
-    div: forwardRef<HTMLDivElement, any>(
-      ({ children, initial, animate, exit, variants, transition, ...rest }, ref) => (
-        <div ref={ref} {...rest}>
-          {children}
-        </div>
-      ),
-    ),
+    div: forwardRef<HTMLDivElement, MotionMockProps>(function MotionDiv(
+      { children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps,
+      ref,
+    ) {
+      return <div ref={ref} {...rest}>{children}</div>
+    }),
   },
 }))
 

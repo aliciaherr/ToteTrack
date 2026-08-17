@@ -50,11 +50,6 @@ export default function LeadLayout({
     router.refresh()
   }, [router])
 
-  const handleConverted = useCallback(() => {
-    // ConvertLeadDialog redirects to /customers on success — nothing to clean up here.
-    setShowConvertDialog(false)
-  }, [])
-
   const renderRightPanel = () => {
     if (mode === 'new-lead') {
       return <LeadForm mode="create" onClose={closeForm} onSaved={handleSaved} />

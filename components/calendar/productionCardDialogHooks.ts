@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useResetOnClose } from '@/components/shared/useResetOnChange'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 
 // Behavioural hooks for `ProductionCardDialog`, split out to keep it — and this
@@ -177,9 +178,7 @@ export function useNestedDialog(open: boolean, panelRef: React.RefObject<HTMLDiv
     setNestedOpen(next)
   }, [])
 
-  useEffect(() => {
-    if (!open) setNestedOpen(false)
-  }, [open])
+  useResetOnClose(open, () => setNestedOpen(false))
 
   useEffect(() => {
     if (nestedOpen) return

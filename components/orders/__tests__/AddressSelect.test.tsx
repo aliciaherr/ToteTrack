@@ -50,6 +50,7 @@ function Harness({
     defaultValues: { ...EMPTY_FORM_VALUES, ...initialValues },
   })
   useMruAddressPreselect(form, mode, customers)
+  // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form's mutable store is opaque to the React Compiler, so it skips optimising this harness. The library is fixed by the stack table in docs/architecture.md; the notice is expected, not actionable.
   const selected = customers.find((c) => c.id === form.watch('customer_id'))
   return (
     <>

@@ -43,6 +43,7 @@ export function useWeekScroll(weekStart: string, shouldReduceMotion: boolean) {
   const [todayKey, setTodayKey] = useState<string | null>(null)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate, see the hook doc above: the viewer's local "today" cannot be resolved during render without a hydration mismatch, so post-mount is the only correct time to set it.
     setTodayKey(format(new Date(), DB_DATE_FORMAT))
   }, [])
 

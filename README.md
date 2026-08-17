@@ -47,14 +47,26 @@ All five variables must be set in `.env` for local dev and in the Vercel project
 | Variable | Source | Used by |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project settings → API → Project URL | Browser + server Supabase clients |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project settings → API → `anon` public key | Browser + server Supabase clients |
-| `DATABASE_URL` | Supabase project settings → Database → Connection string (URI) | `db/index.ts` + Drizzle CLI (`db:generate` / `db:migrate`) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project settings → API Keys → **publishable** key (`sb_publishable_…`) | Browser + server Supabase clients |
+| `DATABASE_URL` | **Connect** (top bar) → **Session pooler** tab — see the warning below | `db/index.ts` + Drizzle CLI (`db:generate` / `db:migrate`) |
 | `ADMIN_EMAIL` | Fixed value: `admin@totetrack.app` | `signIn` server action — never shown in UI (per CONSTRAINT-04). Must match the email of the single Supabase Auth user you create below. |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` locally · your deployed URL in production | Reserved for app-wide URL references |
 
 See `.env.example` for placeholder values. Do not commit `.env` or `.env.local` — both are in `.gitignore`.
 
-> **No `service_role` key is required.** The app reaches Postgres directly through `DATABASE_URL` and uses the `anon` key for Supabase Auth, so the `service_role` secret is never read by any code. Do not add it "just in case" — it bypasses every Row Level Security policy.
+> **⚠ `DATABASE_URL` must be the Session pooler string.** Supabase's **Connect** dialog offers three, and only one works here:
+>
+> | Tab | Host | Verdict |
+> |---|---|---|
+> | Session pooler | `aws-0-[region].pooler.supabase.com:5432`, user `postgres.[project-ref]` | ✅ **use this one** |
+> | Transaction pooler | same host, port `6543` | ❌ loses/misroutes query responses on this project (FB-20) — hangs every authenticated page |
+> | Direct connection | `db.[project-ref].supabase.co:5432`, user `postgres` | ❌ **IPv6-only host; Vercel's runtime is IPv4-only.** Fails as `getaddrinfo ENOTFOUND` before it ever reaches auth |
+>
+> The direct string took production down on 2026-08-16. The build stayed green and `/login` kept working — auth runs on the publishable key and never touches `DATABASE_URL` — so it looked like a page bug rather than a connection-string one. `ENOTFOUND` means wrong string, not wrong password. Full detail in `docs/architecture.md` → Database connection.
+
+> **On the key name.** `NEXT_PUBLIC_SUPABASE_ANON_KEY` now holds a **publishable** key (`sb_publishable_…`), not a legacy JWT `anon` key. The variable name was kept so no code had to change — `@supabase/ssr` passes the string through without inspecting it. Supabase is retiring the legacy `anon`/`service_role` pair at the end of 2026. Read the name as "the public client key".
+
+> **No `service_role` key is required.** The app reaches Postgres directly through `DATABASE_URL` and uses the publishable key for Supabase Auth, so the `service_role` secret is never read by any code. Do not add it "just in case" — it bypasses every Row Level Security policy.
 
 ## Supabase Setup (First-Time)
 
@@ -135,7 +147,7 @@ The fix is a free external cron that pings the database on a schedule (every 5 d
    | **Request method** | `GET` |
    | **Headers** | `apikey: [NEXT_PUBLIC_SUPABASE_ANON_KEY]` |
 
-   Replace `[NEXT_PUBLIC_SUPABASE_URL]` and `[NEXT_PUBLIC_SUPABASE_ANON_KEY]` with the real values from your Supabase project settings — do **not** use the `service_role` key here (the anon key is correct; RLS protects the data).
+   Replace `[NEXT_PUBLIC_SUPABASE_URL]` and `[NEXT_PUBLIC_SUPABASE_ANON_KEY]` with the real values from your Supabase project settings — do **not** use the `service_role` key here (the publishable key is correct; RLS protects the data).
 
 4. Save and enable the cronjob. The execution history tab confirms each ping returned `200 OK`.
 

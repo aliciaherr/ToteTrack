@@ -43,9 +43,12 @@ function FormHeader({ title }: { title: string }) {
   )
 }
 
-function FormFooter({ isSubmitting }: { isSubmitting: boolean }) {
+function FormFooter({ isSubmitting, onClose }: { isSubmitting: boolean; onClose: () => void }) {
   return (
-    <div className="px-6 py-4 border-t border-border flex justify-end">
+    <div className="px-6 py-4 border-t border-border flex justify-end items-center gap-2">
+      <Button type="button" variant="ghost" onClick={onClose} className="min-h-[44px]">
+        Cancel
+      </Button>
       <Button type="submit" disabled={isSubmitting} className="min-h-[44px] bg-primary text-primary-foreground">
         {isSubmitting ? 'Saving…' : 'Save Lead'}
       </Button>
@@ -56,7 +59,12 @@ function FormFooter({ isSubmitting }: { isSubmitting: boolean }) {
 /**
  * Right-panel form for creating or editing a lead. Mirrors the CustomerForm
  * and OrderForm modal-animation pattern (scale 0.97→1 + fade, 180ms ease-out).
- * Success toast is wired in Task 29.
+ * @param mode `'create'` renders an empty form and calls `createLead`;
+ *   `'edit'` pre-fills from `initialDetail` and calls `updateLead`.
+ * @param initialDetail The lead being edited. Required in edit mode.
+ * @param onClose Invoked by the Cancel button. Discards the form without
+ *   saving — it does not submit and does not fire `onSaved`.
+ * @param onSaved Invoked after a successful create or update.
  */
 export default function LeadForm({ mode, initialDetail, onClose, onSaved }: LeadFormProps) {
   const shouldReduceMotion = useReducedMotion()
@@ -108,7 +116,7 @@ export default function LeadForm({ mode, initialDetail, onClose, onSaved }: Lead
         <StatusSourceRow register={register} />
         <FollowUpRow register={register} />
       </div>
-      <FormFooter isSubmitting={isSubmitting} />
+      <FormFooter isSubmitting={isSubmitting} onClose={onClose} />
     </motion.form>
   )
 }

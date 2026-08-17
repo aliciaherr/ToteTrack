@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, parse, isValid } from 'date-fns'
+import { useResetOnChange } from '@/components/shared/useResetOnChange'
 import type { InvoiceableOrder } from '@/db/queries/invoices'
 import {
   DraftTotalsBar,
@@ -29,6 +30,35 @@ function billingMonthLabel(billingMonth: string): string {
 }
 
 /**
+ * Owns which PO rows are ticked. Every row starts checked; the salesperson
+ * unticks the ones to leave off this month's invoice (e.g. a disputed PO).
+ * @param orders The month's invoiceable orders, straight from the server
+ *   component. A change in the array's *identity* — month navigation, or the
+ *   refresh after generating — re-checks every row.
+ * @returns The checked set and a per-row toggle.
+ */
+function useCheckedOrderIds(orders: InvoiceableOrder[]) {
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(
+    () => new Set(orders.map((order) => order.id)),
+  )
+
+  useResetOnChange(orders, () => {
+    setCheckedIds(new Set(orders.map((order) => order.id)))
+  })
+
+  const toggle = useCallback((id: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  return { checkedIds, toggle }
+}
+
+/**
  * Left-panel Generate Invoice workflow. v3: one invoice per (calendar)
  * month covers every customer's eligible POs. The salesperson picks the
  * billing month; the server component fetches all completed, uninvoiced
@@ -43,9 +73,7 @@ function billingMonthLabel(billingMonth: string): string {
 export default function GenerateInvoice({ orders, billingMonth }: GenerateInvoiceProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(
-    () => new Set(orders.map((order) => order.id)),
-  )
+  const { checkedIds, toggle } = useCheckedOrderIds(orders)
   const {
     isSubmitting,
     error: submitError,
@@ -57,19 +85,6 @@ export default function GenerateInvoice({ orders, billingMonth }: GenerateInvoic
     clearSignal: orders,
     onSuccess: () => router.refresh(),
   })
-
-  useEffect(() => {
-    setCheckedIds(new Set(orders.map((order) => order.id)))
-  }, [orders])
-
-  const toggle = useCallback((id: string) => {
-    setCheckedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
 
   const navigate = useCallback(
     (nextBillingMonth: string) => {

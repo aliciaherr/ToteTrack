@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
+import { useResetOnClose } from '@/components/shared/useResetOnChange'
+import { useFocusOnOpen } from '@/components/shared/useFocusOnOpen'
 import { modalVariants } from '@/lib/animations'
 
 interface CancelOrderDialogProps {
@@ -118,14 +120,12 @@ export default function CancelOrderDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (!open) {
-      setServerError(null)
-      setIsSubmitting(false)
-      return
-    }
-    cancelRef.current?.focus()
-  }, [open])
+  useResetOnClose(open, () => {
+    setServerError(null)
+    setIsSubmitting(false)
+  })
+
+  useFocusOnOpen(open, cancelRef)
   useEscapeClose(open, onCancel, isSubmitting)
 
   async function handleConfirm() {

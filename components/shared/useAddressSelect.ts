@@ -112,10 +112,14 @@ export function useAddressSelect({
   bridge: AddressFieldBridge
 }) {
   const { customerId, address, addressId } = bridge
-  // Captured once at mount; anchors the edit-mode "Current:" option.
-  const initialRef = useRef<InitialValues | null>(null)
-  initialRef.current ??= { customerId, address, addressId }
-  const initial = initialRef.current
+  // Captured once at mount; anchors the edit-mode "Current:" option. Held in
+  // never-updated state rather than a ref because every consumer below reads it
+  // *during render* (the snapshot, the handlers, the effect's dep array). A ref
+  // read during render is what `react-hooks/refs` flags: React cannot see the
+  // read, so it cannot know the render depends on it. A lazy `useState`
+  // initialiser captures the same mount-time value and is render-safe — the
+  // setter is deliberately not destructured, so the value can never change.
+  const [initial] = useState<InitialValues>(() => ({ customerId, address, addressId }))
   const [isCustom, setIsCustom] = useState(
     addresses.length === 0 && initial.address.trim() === '',
   )

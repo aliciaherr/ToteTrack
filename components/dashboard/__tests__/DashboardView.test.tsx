@@ -12,14 +12,18 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams.value,
 }))
 
+// The motion-only props are named so they are stripped from `rest` and never
+// reach a real DOM node. A `type` is erased, so the hoisted factory can use it.
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 vi.mock('framer-motion', () => ({
   motion: new Proxy(
     {},
     {
       get:
         () =>
-        ({ children, layoutId, transition, ...rest }: any) => (
-          <span data-layout-id={layoutId} {...rest}>
+        ({ children, layoutId, transition, ...rest }: MotionMockProps) => (
+          <span data-layout-id={layoutId as string | undefined} {...rest}>
             {children}
           </span>
         ),

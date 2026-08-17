@@ -26,14 +26,14 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, initial, animate, exit, variants, transition, ...rest }: any) => (
-      <div {...rest}>{children}</div>
-    ),
-    nav: ({ children, initial, animate, exit, variants, transition, ...rest }: any) => (
-      <nav {...rest}>{children}</nav>
-    ),
+    div: ({ children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps) =>
+      <div {...rest}>{children}</div>,
+    nav: ({ children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps) =>
+      <nav {...rest}>{children}</nav>,
   },
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useReducedMotion: () => false,

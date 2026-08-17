@@ -121,6 +121,7 @@ export function usePickupForm(options: PickupFormOptions) {
   })
 
   useMruAddressPreselect({
+    // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form's mutable store is opaque to the React Compiler, so it skips optimising this hook. The library is fixed by the stack table in docs/architecture.md; the notice is expected, not actionable.
     customerId: form.watch('customer_id'),
     customers,
     mode,

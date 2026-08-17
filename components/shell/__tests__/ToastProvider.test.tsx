@@ -8,9 +8,13 @@ import {
   TOAST_SUCCESS_DURATION_MS,
 } from '@/lib/toast-animation'
 
+// The motion-only props are named so they are stripped from `rest` and never
+// reach a real DOM node. A `type` is erased, so the hoisted factory can use it.
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, variants, initial, animate, exit, ...rest }: any) => (
+    div: ({ children, variants, initial, animate, exit, ...rest }: MotionMockProps) => (
       <div
         data-testid="toast-card"
         data-has-variants={variants ? 'yes' : 'no'}

@@ -9,7 +9,15 @@ import {
 } from '@/db/queries/production-widget.constants'
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, className }: any) => (
+  default: ({
+    href,
+    children,
+    className,
+  }: {
+    href: string
+    children: React.ReactNode
+    className?: string
+  }) => (
     <a href={href} className={className}>
       {children}
     </a>

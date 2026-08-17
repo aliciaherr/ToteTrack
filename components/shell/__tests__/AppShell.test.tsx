@@ -19,14 +19,16 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// The motion-only props are named so they are stripped from `rest` and never
+// reach a real DOM node. A `type` is erased, so the hoisted factory can use it.
+type MotionMockProps = Record<string, unknown> & { children?: React.ReactNode }
+
 vi.mock('framer-motion', () => ({
   motion: {
-    div: ({ children, initial, animate, exit, variants, transition, ...rest }: any) => (
-      <div {...rest}>{children}</div>
-    ),
-    nav: ({ children, initial, animate, exit, variants, transition, ...rest }: any) => (
-      <nav {...rest}>{children}</nav>
-    ),
+    div: ({ children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps) =>
+      <div {...rest}>{children}</div>,
+    nav: ({ children, initial, animate, exit, variants, transition, ...rest }: MotionMockProps) =>
+      <nav {...rest}>{children}</nav>,
   },
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useReducedMotion: () => false,

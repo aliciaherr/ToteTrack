@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
+import ConvertLeadDialogBody from './ConvertLeadDialogBody'
+import { useResetOnClose } from '@/components/shared/useResetOnChange'
+import { useFocusOnOpen } from '@/components/shared/useFocusOnOpen'
 import { convertLeadToCustomer } from '@/lib/actions/leads'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 import { modalVariants } from '@/lib/animations'
 
 interface ConvertLeadDialogProps {
@@ -14,8 +17,53 @@ interface ConvertLeadDialogProps {
   onCancel: () => void
 }
 
-// Design spec: 300ms ease-in-out shake on the destructive confirm button.
-const SHAKE_KEYFRAMES = [0, -6, 6, -4, 4, 0]
+/** What `runConvert` writes through, so it can live outside the component. */
+interface ConvertDeps {
+  setWarning: (value: string | null) => void
+  setServerError: (value: string | null) => void
+  setIsSubmitting: (value: boolean) => void
+  navigate: (customerId: string) => void
+}
+
+// Hoisted out of the component: nested function bodies count toward the
+// enclosing component's length, and the try/catch below took it over the cap.
+async function runConvert(
+  leadId: string,
+  force: boolean,
+  { setWarning, setServerError, setIsSubmitting, navigate }: ConvertDeps,
+): Promise<void> {
+  setServerError(null)
+  setIsSubmitting(true)
+  try {
+    const result = await convertLeadToCustomer(leadId, force)
+    if ('customerId' in result) {
+      // Success deliberately leaves `isSubmitting` true — navigating away is
+      // the exit, and re-enabling first would let a second click fire a second
+      // conversion.
+      navigate(result.customerId)
+    } else if ('warning' in result) {
+      setWarning(result.warning)
+      setIsSubmitting(false)
+    } else {
+      setServerError(result.error)
+      setIsSubmitting(false)
+    }
+  } catch (cause) {
+    // This dialog calls the server action directly — unlike the order dialogs,
+    // nothing wraps it. A transport-level rejection (offline, stale action id
+    // after a deploy) would otherwise escape into a floating promise, leaving
+    // `isSubmitting` stuck true: Cancel, Escape and backdrop-close are all
+    // gated on it, and `LeadLayout` only clears `showConvertDialog` via
+    // `onCancel`, so the modal would be unclosable without a reload (EH-01).
+    console.error('ConvertLeadDialog: convert failed in transit', {
+      leadId,
+      force,
+      cause,
+    })
+    setServerError(GENERIC_FAILURE_MESSAGE)
+    setIsSubmitting(false)
+  }
+}
 
 function useEscapeClose(open: boolean, onCancel: () => void, disabled: boolean) {
   useEffect(() => {
@@ -28,80 +76,6 @@ function useEscapeClose(open: boolean, onCancel: () => void, disabled: boolean) 
   }, [open, onCancel, disabled])
 }
 
-function DialogBody({
-  leadName,
-  warning,
-  serverError,
-  isSubmitting,
-  shouldReduceMotion,
-  cancelRef,
-  onCancel,
-  onConfirm,
-}: {
-  leadName: string
-  warning: string | null
-  serverError: string | null
-  isSubmitting: boolean
-  shouldReduceMotion: boolean
-  cancelRef: React.RefObject<HTMLButtonElement | null>
-  onCancel: () => void
-  onConfirm: (force: boolean) => void
-}) {
-  const shake = shouldReduceMotion
-    ? undefined
-    : { x: SHAKE_KEYFRAMES, transition: { duration: 0.3, ease: 'easeInOut' as const } }
-
-  return (
-    <motion.div
-      className="bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4"
-      variants={shouldReduceMotion ? undefined : modalVariants.panel}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-    >
-      <div className="space-y-2">
-        <h2 id="convert-lead-title" className="text-lg font-semibold text-foreground">
-          Convert {leadName} to a customer?
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          This will create a new customer record and archive this lead.
-        </p>
-      </div>
-      {warning && (
-        <div role="alert" className="rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2">
-          {warning}
-        </div>
-      )}
-      {serverError && (
-        <div role="alert" className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2">
-          {serverError}
-        </div>
-      )}
-      <div className="flex items-center justify-end gap-2 pt-2">
-        <Button
-          ref={cancelRef}
-          type="button"
-          variant="ghost"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="min-h-[44px]"
-        >
-          Cancel
-        </Button>
-        <motion.div animate={shake}>
-          <Button
-            type="button"
-            onClick={() => onConfirm(Boolean(warning))}
-            disabled={isSubmitting}
-            className="min-h-[44px] bg-primary text-primary-foreground"
-          >
-            {isSubmitting ? 'Converting…' : warning ? 'Convert Anyway' : 'Confirm'}
-          </Button>
-        </motion.div>
-      </div>
-    </motion.div>
-  )
-}
 
 /**
  * Overlay dialog for converting a lead to a customer. On first confirm, calls
@@ -122,32 +96,26 @@ export default function ConvertLeadDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (!open) {
-      setWarning(null)
-      setServerError(null)
-      setIsSubmitting(false)
-      return
-    }
-    cancelRef.current?.focus()
-  }, [open])
+  // `warning` in particular must not survive a close: the confirm button
+  // derives its force-flag from it, so a stale warning would leave a reopened
+  // dialog pre-armed to force-convert past the duplicate-customer gate.
+  useResetOnClose(open, () => {
+    setWarning(null)
+    setServerError(null)
+    setIsSubmitting(false)
+  })
+
+  useFocusOnOpen(open, cancelRef)
 
   useEscapeClose(open, onCancel, isSubmitting)
 
-  async function handleConfirm(force: boolean) {
-    setServerError(null)
-    setIsSubmitting(true)
-    const result = await convertLeadToCustomer(leadId, force)
-    if ('customerId' in result) {
-      router.push(`/customers?id=${result.customerId}`)
-    } else if ('warning' in result) {
-      setWarning(result.warning)
-      setIsSubmitting(false)
-    } else {
-      setServerError(result.error)
-      setIsSubmitting(false)
-    }
-  }
+  const handleConfirm = (force: boolean) =>
+    runConvert(leadId, force, {
+      setWarning,
+      setServerError,
+      setIsSubmitting,
+      navigate: (customerId) => router.push(`/customers?id=${customerId}`),
+    })
 
   return (
     <AnimatePresence>
@@ -166,7 +134,7 @@ export default function ConvertLeadDialog({
           aria-modal="true"
           aria-labelledby="convert-lead-title"
         >
-          <DialogBody
+          <ConvertLeadDialogBody
             leadName={leadName}
             warning={warning}
             serverError={serverError}

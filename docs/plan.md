@@ -2898,15 +2898,18 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Files:** whichever of the 32 flagged files the triage keeps. No blanket `--fix` and no rule disabled repo-wide without a written reason.
 
 **Acceptance criteria:**
-- [ ] Every `react-hooks/*` finding individually triaged: fixed, or kept with an inline `eslint-disable-next-line` carrying a one-line reason
-- [ ] `@typescript-eslint/no-explicit-any` (16) resolved with real types, not `unknown` casts that move the problem
-- [ ] `npm run lint` exits 0
-- [ ] Full suite still green at 1222 tests / 102 files
-- [ ] `npx tsc --noEmit` clean
+- [x] Every `react-hooks/*` finding individually triaged: fixed, or kept with an inline `eslint-disable-next-line` carrying a one-line reason — **14 fixed, 3 kept.** All 7 `react-hooks/refs` were one root cause (`useAddressSelect.ts` read a mount-captured ref during render; replaced with a lazy `useState` initialiser). 7 of the 8 `set-state-in-effect` became React's documented render-phase adjustment — 5 dialog "reset on close" effects and 2 derived-state-by-effect. Kept: `calendarScroll.ts` (post-mount local "today" is deliberate; computing it in render is a hydration mismatch — the hook's own doc says so) and both `incompatible-library` notices (React Compiler bail-outs on `react-hook-form`'s `form.watch()`, locked in by the stack table in `docs/architecture.md` — **not** CONSTRAINT-01, which does not list react-hook-form; the original comments cited it wrongly and were corrected by `@code-review`)
+- [x] `@typescript-eslint/no-explicit-any` (16) resolved with real types, not `unknown` casts that move the problem — all 16 were `vi.mock` doubles. Typed with the existing house pattern `Record<string, unknown> & { children?: React.ReactNode }`; 2 turned out to be `next/link` mocks and got a real prop type. No `as any`, no `@ts-expect-error`
+- [x] `npm run lint` exits 0 — verified, exit 0, zero output
+- [x] ~~Full suite still green at 1222 tests / 102 files~~ **Criterion corrected: the recorded baseline was already stale when this task was written.** Commit `7072363` (the `@code-review` pass after Task 84) added `__tests__/proxy.test.ts` — 6 tests, 1 file — without updating it. True HEAD baseline was **1228 / 103**. Final after Task 85 and its three `@code-review` rounds: **1254 tests / 106 files**, all passing — 1228, plus 2 `LeadForm` Cancel regression tests, plus 10 from review round one (9 in the new `DeleteCustomerDialog.test.tsx`, 2 reopen tests in `ConvertLeadDialog.test.tsx`, minus one vacuous test split), plus 8 from round two (7 in the new `components/shared/__tests__/useResetOnChange.test.tsx`, 1 splitting a partly-vacuous reopen assertion into a genuinely in-flight case). Nothing dropped, nothing skipped. **Future tasks should compare against 1254 / 106**
+- [x] `npx tsc --noEmit` clean — verified, exit 0
 
 **Tests required:** none new unless a triaged finding turns out to be a real bug — in which case that bug gets a regression test.
+→ **One real bug surfaced, so 2 tests were added.** `LeadForm` declared `onClose`, both `LeadLayout` call sites passed it, and no Cancel button was ever rendered — New Lead / Edit Lead had no way to back out, while `CustomerForm`, `OrderForm` and `PickupForm` all render an identical ghost Cancel. Fixed on builder approval (restore parity, not delete the prop) with a create-mode and an edit-mode regression test, each asserting the server action is not called.
 
-**Status:** [ ] Not started
+**Status:** [x] Done 2026-08-16 — 117 → 0. **73 of the 117 were never dead code:** typescript-eslint defaults `ignoreRestSiblings` to **false**, and `eslint-config-next` registers `@typescript-eslint/no-unused-vars` as a bare `'warn'`, so that default applied. The repo's `framer-motion` test mocks strip props via rest-destructuring, where the discarded names *are* the mechanism — so the default was overridden in `eslint.config.mjs` with the reasoning in the file. This narrows what the rule reports rather than disabling it. (An earlier version of this note claimed a bare `'warn'` "discards the rule's option defaults" — that is false, and `@code-review` caught it. The defaults applied; they were simply not the wanted ones.) Dead code genuinely removed: `LeadLayout.handleConverted` (orphaned — `ConvertLeadDialog` has no `onConverted` prop), `OrderFormFields.mode` (threaded down through `FormBody` and never read; removed at all three levels), 4 test-local bindings, and a stale `no-control-regex` disable whose rule is not enabled under flat config. **No blanket `--fix` was run and no rule was disabled repo-wide**; all **3** remaining inline disables (`calendarScroll.ts`, `usePickupForm.ts`, `AddressSelect.test.tsx`) carry a one-line reason at the call site.
+
+**Follow-up `@code-review` pass (same day) found 8 violations, all fixed before this task was considered closed.** The render-phase guard had been pasted into 5 files across 4 verticals, which pushed `productionCardDialogHooks.ts` to 205 lines (over CQ-02's 200 cap, in a file whose own header says it was split to stay under) and `ConvertLeadDialog` to 81 lines (over CONSTRAINT-14's 80). Extracted to `components/shared/useResetOnChange.ts` per CONSTRAINT-26, exporting `useResetOnChange` (identity-compare) and `useResetOnClose` (the true→false case); all 7 call sites now use it and both caps are clear. Also fixed: two disable comments citing CONSTRAINT-01 for react-hook-form, which it does not list; the false eslint-config rationale above; a 4-vs-3 miscount of inline disables; missing `@param` docs on `useInvoiceSubmit.clearSignal` (now compared by reference identity, a caller contract that was undocumented) and on `LeadForm`; and `README.md`, which still told a fresh setup to use the **Direct connection** string — the exact string that took prod down on 2026-08-16.
 
 **Depends on:** Task 84
 
@@ -2926,7 +2929,7 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 - [ ] Whether Supabase Realtime is used anywhere in the app determined and recorded in the Status line
 - [ ] `npm audit --omit=dev` reports 0 high
 - [ ] Auth still works — `GET /dashboard` signed out returns 307 → `/login` against `npm run dev`
-- [ ] Full suite green at 1222 tests / 102 files
+- [ ] Full suite green at **1254 tests / 106 files** — baseline updated 2026-08-16; the 1222 / 102 figure this task was written with was stale (see Task 85's corrected criterion)
 - [ ] `npm run build` clean
 
 **Tests required:** none new; the suite is the regression harness.
@@ -2956,7 +2959,7 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 - [ ] `/calendar` loads signed in with **zero** hydration errors in the browser console, both with the Orders group active and with Pickups active
 - [ ] Console on `/calendar` is clean apart from the known `favicon.ico` 404
 - [ ] Drag/drop and long-press-to-arm still work — verified in `npm run dev`, and on iPad for the touch path, since this touches the same components Task 68 device-validated
-- [ ] Full suite green at ≥ 1228 tests / 103 files
+- [ ] Full suite green at ≥ **1254 tests / 106 files** — baseline updated 2026-08-16 (see Task 85's corrected criterion)
 - [ ] `npx tsc --noEmit` clean
 
 **Tests required:** none new — hydration is not observable from jsdom. The proof is the browser console, so record what was observed in the Status line.

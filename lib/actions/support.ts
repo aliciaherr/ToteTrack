@@ -100,7 +100,10 @@ export async function createTicket(
 // for display.
 function sanitizeFilename(name: string): string {
   const base = name
-    // eslint-disable-next-line no-control-regex -- intentional: strip NUL/C0 from hostile filenames (LOW-03 fix).
+    // Intentional control-character class: strips NUL/C0 from hostile
+    // filenames (LOW-03 fix). `no-control-regex` is not enabled under the
+    // ESLint 9 flat config, so the disable directive this used to carry was
+    // itself reported as unused — the intent is kept as a comment instead.
     .replace(/[\x00-\x1F]/g, '')
     .replace(/[/\\]/g, '_')
     .replace(/\.\./g, '_')

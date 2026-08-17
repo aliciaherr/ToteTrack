@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Button } from '@/components/ui/button'
+import DeleteCustomerDialogBody from './DeleteCustomerDialogBody'
+import { useResetOnClose } from '@/components/shared/useResetOnChange'
+import { useFocusOnOpen } from '@/components/shared/useFocusOnOpen'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 import { modalVariants } from '@/lib/animations'
 
 interface DeleteCustomerDialogProps {
@@ -12,11 +15,50 @@ interface DeleteCustomerDialogProps {
   onConfirm: () => Promise<{ success: true } | { error: string }>
 }
 
-// Design spec: destructive action confirm — 300ms ease-in-out shake on the
-// element. Applied to the confirm button on mount to emphasize the gravity
-// of the action.
-const SHAKE_KEYFRAMES = [0, -6, 6, -4, 4, 0]
-const SHAKE_DURATION = 0.3
+/** What `runDelete` writes through, so it can live outside the component. */
+interface DeleteDeps {
+  setServerError: (value: string | null) => void
+  setIsSubmitting: (value: boolean) => void
+}
+
+// Hoisted out of the component: nested function bodies count toward the
+// enclosing component's length, and the try/catch below took it over the cap.
+async function runDelete(
+  onConfirm: () => Promise<{ success: true } | { error: string }>,
+  companyName: string,
+  { setServerError, setIsSubmitting }: DeleteDeps,
+): Promise<void> {
+  setServerError(null)
+  setIsSubmitting(true)
+  try {
+    const result = await onConfirm()
+    // Success deliberately leaves `isSubmitting` true. `CustomerForm.handleDelete`
+    // closes the dialog and calls `onDeleted()` in the same batch, which swings
+    // the right panel back to the detail view and unmounts this dialog outright
+    // — the flag dies with it, so nothing here needs to clear it, and clearing
+    // it would briefly re-enable a destructive button on a dialog already on its
+    // way out. (`useResetOnClose` above covers the Cancel/Escape path, where the
+    // dialog closes without unmounting.)
+    if ('error' in result) {
+      setServerError(result.error)
+      setIsSubmitting(false)
+    }
+  } catch (cause) {
+    // A transport-level rejection (offline, stale action id after a deploy)
+    // must surface as a normal inline error. Escape and backdrop-close are both
+    // gated on `isSubmitting`, so an escaping rejection would wedge this dialog
+    // open with no message and no way out but a reload (EH-01).
+    // `useStatusActions.makeConfirmHandler` absorbs this for the order dialogs;
+    // `CustomerForm` has no equivalent, so it is handled here — which also
+    // means no future caller can reintroduce the wedge.
+    console.error('DeleteCustomerDialog: delete failed in transit', {
+      companyName,
+      cause,
+    })
+    setServerError(GENERIC_FAILURE_MESSAGE)
+    setIsSubmitting(false)
+  }
+}
 
 function useEscapeClose(open: boolean, onCancel: () => void, disabled: boolean) {
   useEffect(() => {
@@ -29,76 +71,6 @@ function useEscapeClose(open: boolean, onCancel: () => void, disabled: boolean) 
   }, [open, onCancel, disabled])
 }
 
-function DialogBody({
-  companyName,
-  onCancel,
-  cancelRef,
-  onConfirm,
-  isSubmitting,
-  serverError,
-  shouldReduceMotion,
-}: {
-  companyName: string
-  onCancel: () => void
-  cancelRef: React.RefObject<HTMLButtonElement | null>
-  onConfirm: () => void
-  isSubmitting: boolean
-  serverError: string | null
-  shouldReduceMotion: boolean
-}) {
-  const shake = shouldReduceMotion
-    ? undefined
-    : {
-        x: SHAKE_KEYFRAMES,
-        transition: { duration: SHAKE_DURATION, ease: 'easeInOut' as const },
-      }
-  return (
-    <motion.div
-      className="bg-card rounded-xl shadow-lg max-w-md w-full p-6 space-y-4"
-      variants={shouldReduceMotion ? undefined : modalVariants.panel}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-    >
-      <div className="space-y-2">
-        <h2 id="delete-customer-title" className="text-lg font-semibold text-foreground">
-          Delete {companyName}?
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          This permanently removes the customer and all contacts. This cannot be undone.
-        </p>
-      </div>
-      {serverError && (
-        <div role="alert" className="rounded-md bg-destructive/10 text-destructive text-sm px-3 py-2">
-          {serverError}
-        </div>
-      )}
-      <div className="flex items-center justify-end gap-2 pt-2">
-        <Button
-          ref={cancelRef}
-          type="button"
-          variant="ghost"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="min-h-[44px]"
-        >
-          Cancel
-        </Button>
-        <motion.div animate={shake}>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={isSubmitting}
-            className="min-h-[44px]"
-          >
-            {isSubmitting ? 'Deleting…' : 'Yes, Delete'}
-          </Button>
-        </motion.div>
-      </div>
-    </motion.div>
-  )
-}
 
 /**
  * Two-step delete confirmation. Renders an overlay modal on top of the
@@ -117,25 +89,16 @@ export default function DeleteCustomerDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const cancelRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (!open) {
-      setServerError(null)
-      setIsSubmitting(false)
-      return
-    }
-    cancelRef.current?.focus()
-  }, [open])
+  useResetOnClose(open, () => {
+    setServerError(null)
+    setIsSubmitting(false)
+  })
+
+  useFocusOnOpen(open, cancelRef)
   useEscapeClose(open, onCancel, isSubmitting)
 
-  async function handleConfirm() {
-    setServerError(null)
-    setIsSubmitting(true)
-    const result = await onConfirm()
-    if ('error' in result) {
-      setServerError(result.error)
-      setIsSubmitting(false)
-    }
-  }
+  const handleConfirm = () =>
+    runDelete(onConfirm, companyName, { setServerError, setIsSubmitting })
 
   return (
     <AnimatePresence>
@@ -154,7 +117,7 @@ export default function DeleteCustomerDialog({
           aria-modal="true"
           aria-labelledby="delete-customer-title"
         >
-          <DialogBody
+          <DeleteCustomerDialogBody
             companyName={companyName}
             onCancel={onCancel}
             cancelRef={cancelRef}
