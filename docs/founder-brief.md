@@ -598,3 +598,44 @@ This is now caught properly: you get a plain "Something went wrong. Please try a
 - **If a page ever 500s again while login still works**, the connection string is the first suspect, not the password and not the page.
 
 **What this closes off:** Nothing you would want. Locking the connection string to one form removes an option that never worked. The popup fix adds an error path where there was none — the only thing it "costs" is that a failed action now says so out loud, which is the point.
+
+---
+
+## FB-31 — Saturday Became a Working Day, and the Reordering You Asked For Was Already Built and Broken
+
+**Date:** 2026-08-17
+**Architecture reference:** `docs/architecture.md` → *Business rules* → "Production week" (rewritten Mon–Sat); *Server Actions* → `lib/actions/` listing (new `placement.renumber.ts` entry); stack table corrected to Next 16.3+.
+**Constraint added:** CONSTRAINT-29. CONSTRAINT-19 substantially revised.
+**Tasks:** 88 — commit `a624843`; 89 — commit `8fba2a7`; CONSTRAINT-29 — commit `88d38a4`.
+
+**Decided:** Saturday is now a normal production day with its own calendar column, and dragging orders into a different order within one day now actually sticks.
+
+**First: the second request was not a feature request.**
+
+You asked to "allow ordering the orders of a single day, right now the ordering is not allowed." Reordering had been built months ago. It was broken, and broken in a way that looks exactly like a missing feature.
+
+Here is what was happening. Each card can carry a position number within its day. When you dragged a card, the app wrote a position number onto **that card only** and left every other card in the day with no number at all. The rule for sorting says cards without a number go last — so a single card with a number always jumped to the **top** of the day, no matter where you dropped it. And if the card was already at the top, nothing appeared to happen at all.
+
+That is why moving a card to a different day seemed to work while reordering within a day did not: moving to another day changes the day, which is obvious, so you never noticed that its position *within* that new day was also wrong.
+
+The fix renumbers every card in the affected day, every time, so positions are always a complete `1, 2, 3, 4` with no gaps. Cards that never had a number get one the first time you touch their day.
+
+**Second: Saturday cost almost nothing, but it does change two things you'll see.**
+
+The whole Monday-to-Friday rule lived in one line of code, so widening the week was small. Two consequences reach outside the calendar, and both are intended:
+
+- **A Monday delivery now defaults to being built on Saturday**, where before it defaulted to Friday. That follows directly from Saturday being a real working day.
+- **The dashboard's Friday panel now shows Friday and Saturday**, where before it showed Friday and Monday.
+
+You also made a deliberate trade: the columns stay their current width and the calendar scrolls sideways, rather than squeezing six columns into the screen. That means a full week no longer fits on the iPad screen at once — you scroll to see Saturday. That was your call and it is recorded, because the original design had "a whole week fits on the iPad" written down as a goal.
+
+**Worth knowing: there is a small inconsistency between finger and mouse, and you chose to keep it.** When you move a card *downward* within a day, long-press-and-tap puts it just above the card you tapped, while mouse-dragging puts it just below. Both are defensible and the two original specs actually disagree with each other. Mouse can't be the one to change, because it shows you a live preview of where the card will land — changing it would make the preview lie. You use touch daily, so changing that would rewrite your muscle memory for no real gain. Recorded as CONSTRAINT-29 so nobody files it as a bug next month.
+
+**Means for your product:** Saturday production is schedulable, which it was not before. Day sequencing works, which means the build order you set is the build order the team sees — the whole point of the calendar. Neither changes how anything looks.
+
+**Check before approving:**
+- **Open the calendar on your iPad.** This is the one thing that could not be tested here — the six columns, the sideways scroll, and dragging a card onto the new Saturday column. Five checks are waiting on you and they gate the quality sign-off.
+- **Is Saturday defaulting correct for Monday deliveries?** A Monday delivery will now be scheduled to build on Saturday rather than Friday. If your team does not want Monday work landing on the weekend by default, say so — that is a separate decision from Saturday existing.
+- **Is the sideways scroll acceptable in practice?** If it turns out to be annoying, the alternative is narrower columns, which was rejected because it would make the cards too small to read.
+
+**What this closes off:** Sunday production is now the awkward one. Adding Saturday was cheap because Monday stayed the unambiguous start of the week; adding Sunday would leave no non-production day at all, and the week-boundary logic would need rethinking rather than widening. Nothing else is foreclosed — the Saturday change is one line to reverse, and the reordering fix has no way back worth wanting.
