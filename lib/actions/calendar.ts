@@ -12,6 +12,11 @@ import {
   setProductionPlacementInputSchema,
   type SetProductionPlacementInput,
 } from './calendar.validation'
+import {
+  clearAndRenumber,
+  placeAndRenumber,
+  type PlacementTable,
+} from './placement.renumber'
 
 // Statuses whose cards are not draggable on the production calendar, and so
 // may not have their placement changed by any route. Cancelled orders are
@@ -44,6 +49,22 @@ const BACKHAUL_BLOCKED_MESSAGES: Partial<Record<PoStatus, string>> = {
 // screen shows stale placement (CONSTRAINT-02 — no optimistic-only state).
 const CALENDAR_REVALIDATE_PATHS = ['/calendar', '/dashboard'] as const
 
+// The order half of the shared column renumberer. `tiebreakColumn` is
+// `po_number` because that is the read query's last ORDER BY term
+// (`db/queries/calendar.ts`) — a column of untouched NULL indices must renumber
+// into the order already on screen, not a different one. Pickups declare their
+// own config against their own table, so the two lists sharing a day can never
+// renumber each other (CONSTRAINT-25).
+const PRODUCTION_PLACEMENT_TABLE: PlacementTable = {
+  label: 'orders',
+  table: orders,
+  idColumn: orders.id,
+  dateColumn: orders.production_date,
+  sortIndexColumn: orders.production_sort_index,
+  tiebreakColumn: orders.po_number,
+  updatedAtColumn: orders.updated_at,
+}
+
 /**
  * Loads the order's status and rejects it against the supplied block list.
  * Returns null when the mutation may proceed.
@@ -70,25 +91,33 @@ function revalidateCalendarSurfaces(): void {
 }
 
 /**
- * Places a PO on the production calendar: writes `production_date` and
- * `production_sort_index` in a single statement.
+ * Places a PO on the production calendar: writes `production_date`, splices the
+ * card in at the released position, and renumbers the whole destination column
+ * — plus the origin column on a cross-day move — to a dense `0..n-1` sequence.
+ * All of it in one transaction, so a mid-write failure leaves every index as it
+ * was rather than half-renumbered.
+ *
+ * Renumbering is the placement, not an extra: the read query orders by
+ * `production_sort_index ASC NULLS LAST`, so writing one row's index and
+ * leaving its siblings `NULL` sorts the card above all of them whatever
+ * position it was released at.
  *
  * **Never writes `requested_delivery_date`** (CONSTRAINT-19). The production
  * date is the day the order is built; the delivery date is the promise made to
  * the customer. Dragging a card must never silently rewrite that promise.
  *
- * Weekend dates are rejected — the calendar has no Saturday or Sunday column
- * and nothing downstream re-homes a stored weekend date.
+ * Sunday dates are rejected — the calendar has no Sunday column and nothing
+ * downstream re-homes a stored one. Saturday places like any other day (Task 88).
  *
  * The payload's `group: 'order'` literal is checked server-side, mirroring
  * `setPickupPlacement` (CONSTRAINT-25): a crossed payload is refused here rather
  * than relying on the id simply not existing in `orders`.
  *
  * @param id UUID of the order to place.
- * @param input `group: 'order'`, target `productionDate` (`yyyy-MM-dd`, weekday)
+ * @param input `group: 'order'`, target `productionDate` (`yyyy-MM-dd`, Mon–Sat)
  * and `sortIndex`.
  * @returns `{ success: true }`, or `{ error }` carrying a user-facing message —
- * not signed in, invalid id, a Zod rejection (crossed group, weekend, impossible
+ * not signed in, invalid id, a Zod rejection (crossed group, Sunday, impossible
  * date, out-of-range sort index), a blocked status, or `GENERIC_FAILURE_MESSAGE`
  * when the write itself fails (the real cause is logged, never returned).
  */
@@ -108,14 +137,15 @@ export async function setProductionPlacement(
     const statusError = await assertMutable(id, PLACEMENT_BLOCKED_MESSAGES)
     if (statusError) return statusError
 
-    await db
-      .update(orders)
-      .set({
-        production_date: parsed.data.productionDate,
-        production_sort_index: parsed.data.sortIndex,
-        updated_at: new Date(),
-      })
-      .where(eq(orders.id, id))
+    await db.transaction((tx) =>
+      placeAndRenumber(
+        tx,
+        PRODUCTION_PLACEMENT_TABLE,
+        id,
+        parsed.data.productionDate,
+        parsed.data.sortIndex,
+      ),
+    )
 
     revalidateCalendarSurfaces()
     return { success: true }
@@ -132,8 +162,9 @@ export async function setProductionPlacement(
 
 /**
  * Removes a PO's explicit calendar placement by nulling both production
- * columns. Backs the `Remove from calendar` menu item and the
- * drag-onto-callout gesture.
+ * columns, then renumbers the day it left so the remaining cards close the gap.
+ * Backs the `Remove from calendar` menu item and the drag-onto-callout gesture.
+ * Transactional, so the clear and the renumber land together.
  *
  * The order **leaves the calendar** and appears in the unscheduled callout,
  * whatever its delivery date — a card's day is its `production_date` and
@@ -158,14 +189,7 @@ export async function clearProductionPlacement(
     const statusError = await assertMutable(id, PLACEMENT_BLOCKED_MESSAGES)
     if (statusError) return statusError
 
-    await db
-      .update(orders)
-      .set({
-        production_date: null,
-        production_sort_index: null,
-        updated_at: new Date(),
-      })
-      .where(eq(orders.id, id))
+    await db.transaction((tx) => clearAndRenumber(tx, PRODUCTION_PLACEMENT_TABLE, id))
 
     revalidateCalendarSurfaces()
     return { success: true }

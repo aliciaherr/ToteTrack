@@ -12,6 +12,11 @@ import {
   type SetPickupPlacementInput,
 } from './pickups.calendar.validation'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
+import {
+  clearAndRenumber,
+  placeAndRenumber,
+  type PlacementTable,
+} from './placement.renumber'
 
 // The pickup half of the calendar's placement writes — the deliberate sibling
 // of `lib/actions/calendar.ts`, which owns the order half. Two modules rather
@@ -41,6 +46,22 @@ const PLACEMENT_BLOCKED_MESSAGES: Partial<Record<PickupStatus, string>> = {
 // the PRD keeps them off every revenue and dashboard surface (CONSTRAINT-25).
 const PICKUP_CALENDAR_REVALIDATE_PATHS = ['/calendar', '/pickups', '/customers'] as const
 
+// The pickup half of the shared column renumberer. `tiebreakColumn` is
+// `created_at` because that is the read query's last ORDER BY term
+// (`db/queries/pickups.calendar.ts`) — a pickup has no PO number to fall back
+// on — so a column of untouched NULL indices renumbers into the order already
+// on screen. The orders config names `orders` and only `orders`, so the two
+// lists sharing a day can never renumber each other (CONSTRAINT-25).
+const PICKUP_PLACEMENT_TABLE: PlacementTable = {
+  label: 'pickups',
+  table: pickups,
+  idColumn: pickups.id,
+  dateColumn: pickups.pickup_date,
+  sortIndexColumn: pickups.sort_index,
+  tiebreakColumn: pickups.created_at,
+  updatedAtColumn: pickups.updated_at,
+}
+
 /**
  * Loads the pickup's status and rejects it against the placement block list.
  * Returns null when the mutation may proceed.
@@ -69,8 +90,16 @@ function revalidatePickupCalendarSurfaces(): void {
 }
 
 /**
- * Places a pickup on the calendar: writes `pickup_date` and `sort_index` in a
- * single statement.
+ * Places a pickup on the calendar: writes `pickup_date`, splices the card in at
+ * the released position, and renumbers the whole destination column — plus the
+ * origin column on a cross-day move — to a dense `0..n-1` sequence. All of it
+ * in one transaction, so a mid-write failure leaves every index as it was.
+ *
+ * Renumbering is the placement, not an extra: the read query orders by
+ * `sort_index ASC NULLS LAST`, so writing one row's index and leaving its
+ * siblings `NULL` sorts the card above all of them whatever position it was
+ * released at. Only pickups are renumbered — orders sharing the day are a
+ * separate table and a separate list (CONSTRAINT-25).
  *
  * A pickup has **one** date and it *is* the placement (CONSTRAINT-25), unlike
  * an order where the delivery promise and the build day are separate columns
@@ -108,14 +137,15 @@ export async function setPickupPlacement(
     const statusError = await assertPlaceable(id)
     if (statusError) return statusError
 
-    await db
-      .update(pickups)
-      .set({
-        pickup_date: parsed.data.pickupDate,
-        sort_index: parsed.data.sortIndex,
-        updated_at: new Date(),
-      })
-      .where(eq(pickups.id, id))
+    await db.transaction((tx) =>
+      placeAndRenumber(
+        tx,
+        PICKUP_PLACEMENT_TABLE,
+        id,
+        parsed.data.pickupDate,
+        parsed.data.sortIndex,
+      ),
+    )
 
     revalidatePickupCalendarSurfaces()
     return { success: true }
@@ -133,7 +163,8 @@ export async function setPickupPlacement(
 
 /**
  * Removes a pickup's calendar placement by nulling `pickup_date` **and**
- * `sort_index`. Backs the popup's `Remove from calendar` item, the
+ * `sort_index`, then renumbers the day it left so the remaining cards close the
+ * gap. Backs the popup's `Remove from calendar` item, the
  * drag-onto-callout gesture and the armed tap on the callout — three entry
  * points, one operation.
  *
@@ -164,10 +195,7 @@ export async function clearPickupPlacement(
     const statusError = await assertPlaceable(id)
     if (statusError) return statusError
 
-    await db
-      .update(pickups)
-      .set({ pickup_date: null, sort_index: null, updated_at: new Date() })
-      .where(eq(pickups.id, id))
+    await db.transaction((tx) => clearAndRenumber(tx, PICKUP_PLACEMENT_TABLE, id))
 
     revalidatePickupCalendarSurfaces()
     return { success: true }

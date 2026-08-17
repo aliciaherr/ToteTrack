@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Approved — Phase 3 complete
 **Approved by:** Builder (2026-04-20)
-**Total tasks:** 87 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
+**Total tasks:** 89 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
 
 > Every task is one-shot-ready. A developer must be able to execute it without asking clarifying questions.
 > Tasks with `**Specialist:**` fields require reading that skill before implementation — mandatory, not optional.
@@ -2972,5 +2972,108 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Tests required:** none new — hydration is not observable from jsdom. The proof is the browser console, so record what was observed in the Status line.
 
 **Status:** [~] Superseded 2026-08-12 by builder decision — see the note at the top of this task. The accessibility impact is accepted on single-user grounds (CONSTRAINT-04); the ~1,500-lines-per-load console noise is **not** covered by that argument and is the reason to revive this. Status line corrected 2026-08-16: the header was marked `[~]` on 2026-08-12 but this line still read `[ ] Not started`, which made the plan look incomplete to every subsequent `@session-start` scan.
+
+**Depends on:** —
+
+---
+
+## Task 88: Add Saturday as a production day
+
+**PRD deviation, approved by builder 2026-08-17.** `docs/prd.md:568` currently states the invariant "no production date ever falls on a weekend". This task reverses that for Saturday only; Sunday remains excluded. The PRD edit is criterion 1 rather than a prior `@cpo` cycle because the builder specified the full semantics at brainstorm.
+
+**Layout is already correct and needs no change.** `DayColumn.tsx:158` is `w-44 shrink-0` (fixed 176px) and `CalendarBoard.tsx:70` is `overflow-x-auto` free scroll over 9 weeks. A 6th column widens a week 912px → 1104px and the strip scrolls. `calendarScroll.ts:24` measures real `offsetLeft`, so it survives untouched. Builder decision: do NOT shrink columns to fit — scrolling is preferred.
+
+**Files:**
+- `docs/prd.md` — modify. Feature 11: the `:568` invariant, `prevBusinessDay` at `:566`, the `:590` layout paragraph (the 1008px/iPad-landscape arithmetic no longer holds and is replaced by "columns are fixed-width and the strip scrolls"), and criteria `:604`, `:606`, `:631`
+- `lib/dates.ts` — modify. `isBusinessDay` (`:46`), `BUSINESS_DAYS_PER_WEEK` (`:18`) 5 → 6, `startOfBusinessWeek` (`:89`), `businessWeekDays` (`:101`) doc comment
+- `lib/calendar-range.ts` — modify. `MONDAY_TO_FRIDAY_OFFSET` (`:10`) 4 → 5, renamed `MONDAY_TO_SATURDAY_OFFSET`; weekend forward-resolution (`:42`) now Sunday only
+- `lib/actions/dates.validation.ts` — modify. Error message at `:65` reads "weekday"
+- `components/calendar/calendarWeeks.ts` — modify. Week-range label (`:53`)
+- `db/queries/production-widget.constants.ts` — modify. Business-day window (`:61`)
+- `lib/__tests__/dates.test.ts`, `components/calendar/__tests__/CalendarLayout.test.tsx:156` — modify
+- `db/migrations/0011_backfill_production_date.sql` and its test — **verify only, do not edit.** It is a historical backfill; its `ISODOW > 5` assertion describes what was true in April 2026
+
+**No migration.** `db/schema/orders.ts:27` is a plain nullable `date` with no CHECK constraint. Existing Friday-dated rows are untouched and stay valid.
+
+**Acceptance criteria:**
+- [x] `docs/prd.md` updated first, in the same commit — the `:568` invariant rewritten to "no production date falls on a Sunday", `:590` layout claim corrected, and the three acceptance-criteria lines changed from 5 columns / Mon–Fri to 6 columns / Mon–Sat. **Four more lines were edited than this criterion names** — the User Story, User Flow 2, the dashboard-widget sentence, the "Weekend visit" edge case, and `:614` ("A full Mon–Fri is visible without horizontal scrolling at 1024px") — because the spec cited `:631` but `:614` was the line actually carrying the obsolete iPad arithmetic. Leaving a self-contradicting PRD was the worse option
+- [x] `isBusinessDay(sat) === true`, `isBusinessDay(sun) === false` — implemented as `day !== SUNDAY`; the now-unused `SATURDAY` constant was deleted
+- [ ] `/calendar` renders 6 columns per week, Mon–Sat, at the unchanged 176px width; the strip scrolls horizontally and no column shrinks — **column count and the Saturday column accepting a card are covered in jsdom; real layout and scroll need the builder's device**
+- [x] `startOfBusinessWeek(saturday)` returns **that week's Monday**, not the following Monday — Saturday now belongs to its own week. `startOfBusinessWeek(sunday)` still returns the following Monday. **Its body needed no change:** `isBusinessDay(date) ? monday : addDays(monday, 7)` produced both cases for free once `isBusinessDay` widened. Documented in place so the two cannot drift
+- [ ] "Current week" on a Saturday scrolls to the week containing that Saturday — **scroll-target computation is unit-tested; the real scroll needs the builder's device**
+- [x] `prevBusinessDay(monday)` returns **Saturday**, and `prevBusinessDay(sunday)` returns Saturday — so an order with a Monday delivery date auto-defaults its production date to Saturday (`lib/actions/orders.internal.ts:110`). This is the intended consequence of "full production day", confirmed by builder
+- [x] A Saturday `production_date` passes `productionDateSchema`; a Sunday one is still rejected, with the message updated to name Saturday as allowed — now reads `'Production dates must fall on Monday through Saturday.'`
+- [ ] Existing Saturday-dated pickups become visible in the new column with no write-side change — `pickups.calendar.validation.ts:32` already uses `calendarDateSchema`. **No write-side change was needed, as predicted; visibility itself needs the builder's device**
+- [ ] Drag/drop and long-press-to-arm still work on the 6th column, verified on iPad
+- [x] Full suite green at ≥ **1254 tests / 106 files**; `npx tsc --noEmit` and `npm run lint` clean — **1287 tests / 108 files**, both clean
+
+**Tests required:**
+- `lib/__tests__/dates.test.ts` → `isBusinessDay` accepts Sat, rejects Sun
+- `lib/__tests__/dates.test.ts` → `businessWeekDays(monday)` returns 6 dates ending Saturday
+- `lib/__tests__/dates.test.ts` → `businessWeekDays(saturday)` still throws (Monday-only arg)
+- `lib/__tests__/dates.test.ts` → `startOfBusinessWeek` — Sat maps back, Sun maps forward
+- `lib/__tests__/dates.test.ts` → `prevBusinessDay(monday) === saturday`
+- `lib/actions/__tests__/` → `productionDateSchema` accepts Sat, rejects Sun
+- `CalendarLayout.test.tsx` → 6 columns rendered per week
+
+**Status:** [x] Done 2026-08-17 — business week is now Mon–Sat, Sunday still excluded. All seven spec'd tests written plus a new `lib/actions/__tests__/dates.validation.test.ts`; suite **1254 → 1287 tests / 106 → 108 files**, `tsc` and `lint` clean. **No layout change was needed or made** — columns were already `w-44 shrink-0` and the strip already `overflow-x-auto`, so a week widened 912px → 1104px and scrolls, per the builder's explicit choice of scrolling over narrower columns. **Two consequences reached beyond the calendar, both intended:** a Monday delivery date now seeds a Saturday `production_date`, and the dashboard production widget's Friday window changed Fri+Mon → **Fri+Sat** (no code change in `productionWidgetDays` — it followed from the widened predicate — but its two test files were updated, which the spec's file list did not anticipate). Saturday pickups were already storable and had simply been rendering into a column that did not exist. `db/migrations/0011` and its test were verified untouched as historical records. **CONSTRAINT-19 was stale in seven places** (weekends-only math, the no-weekend write invariant twice, the 176px/1024px fit claim, the widget window, the summary-table row) and has been corrected with a dated revision note. **Four criteria remain unchecked**, all device-dependent and none code-blocking: the 6-column render and horizontal scroll, "Current week" on a real Saturday, drag/long-press on the 6th column, and Saturday pickups appearing.
+
+**Depends on:** —
+
+---
+
+## Task 89: Renumber the column on placement so intra-day reordering persists
+
+**Defect against existing spec — no PRD entry needed.** `docs/prd.md:576` already requires "Cards land at the exact index released, not appended" and `:608` "Dragging within a day persists the new sequence across a page reload". Neither holds today.
+
+**Root cause.** `setProductionPlacement` (`lib/actions/calendar.ts:111`) writes only the dragged row's `production_sort_index` and never renumbers its siblings, which stay `NULL`. The read sort is `production_sort_index ASC NULLS LAST` (`db/queries/calendar.ts:117`), so one card holding index `1` among `NULL` siblings sorts **above all of them**. Consequence: the first same-day reorder always sends the card to the top of the day regardless of the released position, and if it was already top, nothing visibly changes — which reads as "reordering doesn't work". Cross-day moves look fine only because `production_date` is the primary sort key; their landing position within the destination day is equally wrong. Identical bug in `setPickupPlacement` (`lib/actions/pickups.calendar.ts:114`, `sort_index`).
+
+**Index contract to preserve — do not change the client.** Both input paths already send the desired index into the destination list *with the moved card removed*: the touch path compensates at `armPlacement.ts:96` (`insertionIndex`) and the drag path resolves at `calendarDnd.ts:191`. That is exactly splice semantics. Verify this holds for the drag path during implementation; if `resolveDropTarget` proves off by one for a same-day downward drag, fix it there and add a regression test rather than compensating server-side.
+
+**Files:**
+- `lib/actions/placement.renumber.ts` — create. Shared, table-agnostic helper
+- `lib/actions/calendar.ts` — modify `setProductionPlacement` (`:95`) and `clearProductionPlacement` (`:149`)
+- `lib/actions/pickups.calendar.ts` — modify `setPickupPlacement` (`:94`) and `clearPickupPlacement`
+- `lib/actions/__tests__/calendar.test.ts`, `lib/actions/__tests__/pickups.calendar.test.ts` — modify
+
+**No migration.** The columns exist. Legacy `NULL`s self-heal on the first write to their column, because the whole column is rewritten.
+
+**Functions to implement:**
+- `renumberColumn(tx: Tx, config: PlacementTable, dateKey: string): Promise<void>` — reads every row on `dateKey` ordered by the table's live sort, then writes a dense `0..n-1` sequence
+- `placeAndRenumber(tx: Tx, config: PlacementTable, id: string, dateKey: string, sortIndex: number): Promise<void>` — moves the row, splices it at `clamp(sortIndex, 0, siblings)`, renumbers the destination column, and renumbers the origin column too when the row changed day
+
+**Approach:**
+1. Wrap each action's write in `db.transaction` per the house pattern at `lib/actions/customers.ts:141`. Neither calendar action uses one today
+2. Read the moved row's current date before writing, so the origin column can be renumbered when it differs
+3. Order siblings by the same expression the read query uses — orders: `production_sort_index ASC NULLS LAST, po_number ASC`; pickups: `sort_index ASC NULLS LAST, created_at ASC` — so an untouched column renumbers to the order the user is currently looking at, not a reshuffle
+4. Keep all existing guards, `revalidate*Surfaces()` calls, `console.error` payloads and `GENERIC_FAILURE_MESSAGE` handling exactly as they are (EH-01/EH-02)
+5. `clear*Placement` nulls the date and index, then renumbers the vacated column
+
+**Acceptance criteria:**
+- [x] After any placement, every row sharing that date has a distinct `production_sort_index` / `sort_index` forming a dense `0..n-1` — no `NULL`s, no duplicates
+- [x] Same-day reorder lands the card at the exact released position, on both the long-press-and-tap path and mouse drag, and survives a page reload — **server-side contract proven by tests; see the gesture-disagreement note below, which is a client-side UX question and not a violation of this contract**
+- [x] Cross-day move lands at the exact released position in the destination column, and the origin column closes its gap
+- [x] A column whose rows are all `NULL` renumbers to the order the user currently sees — no visible reshuffle beyond the intended move
+- [x] Unschedule (`clear*Placement`) renumbers the vacated column
+- [x] Pickups behave identically and stay a separate group — no cross-contamination between the two lists on one day (CONSTRAINT-25)
+- [x] Both actions are transactional; a mid-write failure leaves indices unchanged
+- [x] No optimistic client state added; `router.refresh()` remains the update path (CONSTRAINT-02)
+- [ ] Verified on iPad for the touch path
+- [x] Full suite green at ≥ **1254 tests / 106 files**; `npx tsc --noEmit` and `npm run lint` clean — **1287 tests / 108 files**, both clean
+
+**Tests required:**
+- `renumberColumn` → dense `0..n-1` from an all-`NULL` column, preserving displayed order
+- `renumberColumn` → dense `0..n-1` from a column with duplicate indices
+- `setProductionPlacement` → same-day move to index 2 puts the card third, siblings renumbered
+- `setProductionPlacement` → cross-day move renumbers both origin and destination
+- `setProductionPlacement` → `sortIndex` beyond the column length clamps to last
+- `setProductionPlacement` → transaction rollback on write failure leaves indices unchanged
+- `setProductionPlacement` → still returns the blocked-status error for cancelled/completed/invoiced orders, unchanged
+- `setPickupPlacement` → same-day reorder persists; orders on that day are not renumbered
+- `clearProductionPlacement` → vacated column renumbers dense
+
+**Status:** [x] Done 2026-08-17 — the builder's "ordering is not allowed" was one root cause producing two symptoms. `setProductionPlacement` wrote only the dragged row's index while its siblings stayed `NULL`, and under `ORDER BY production_sort_index ASC NULLS LAST` a single card holding index `1` sorts **above** every `NULL` — so the first same-day reorder always threw the card to the top of the day, and did nothing visible at all when it was already there. Cross-day moves only looked correct because `production_date` is the primary sort key; their position within the destination day was equally wrong. Fixed by `lib/actions/placement.renumber.ts` (`renumberColumn`, `placeAndRenumber`, `clearAndRenumber`), with both calendar actions now wrapping their write in `db.transaction` — neither did before. 66 tests across the three placement files; suite **1287 / 108**, `tsc` and `lint` clean. **The drag path needed no off-by-one fix:** `resolveDropTarget` returns `over.index` from the original rendered array, which `verticalListSortingStrategy` makes equivalent to `arrayMove` — already the post-removal splice index. Three deviations from the file list, all additive: `clearAndRenumber` exported as a third function so `clear*Placement` stays thin under CQ-02, plus two new files (`placement.renumber.test.ts`, and `placement.fake-db.ts` scaffolding shared by three test files). `updateKey()` resolves drizzle `.set()` keys via `getTableColumns` rather than trusting `column.name` — they coincide in this schema and would break silently if they ever stopped. **One criterion unchecked:** iPad verification of the touch path, which matters more than usual here — see the note below.
+
+**Open finding, not fixed — the two gestures disagree by one.** On a same-column **downward** move the touch path lands the card *above* the tapped card, while drag lands it *in* the tapped card's slot. The `- 1` at `components/calendar/armPlacement.ts:96` is the cause, and drag matches both dnd-kit's own drag preview and armPlacement's stated intent ("takes the tapped card's place") — so the touch path is the odd one out. Both send valid post-removal splice indices, so Task 89's server contract holds either way and this is not a regression: it is a pre-existing Task 68 inconsistency, currently pinned by `armPlacement.test.ts:87`. Left as a builder decision because the builder works on the touch path and this changes muscle memory. A same-day drop on empty column space sends `cardCount`, which counts the moved card and is therefore one past the post-removal end; the server's `[0, siblingCount]` clamp absorbs it into last place, which is the intended outcome either way.
 
 **Depends on:** —

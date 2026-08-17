@@ -1,9 +1,11 @@
 # Architecture: ToteTrack
 
 **Date:** 2026-04-20
-**Last revised:** 2026-08-16 — Task 85 + its three `@code-review` rounds: two new `components/shared/` primitives (`useResetOnChange`, `useFocusOnOpen`) listed; `DeleteCustomerDialogBody` / `ConvertLeadDialogBody` line-cap splits listed; the `DeleteCustomerDialog` entry now records its rejection-catch; Infrastructure gained the direct-connection-string warning and Secrets the publishable-key note. **Known stale, not fixed here:** the stack table still says Next.js 15.5+ and the Platform-Native Rules preamble still says "under 15" — the repo has been on `next@^16.3.0` since Task 84, and CONSTRAINT-27 plus the `proxy.ts` section already reflect 16. Wants a dedicated accuracy pass.
+**Last revised:** 2026-08-17 — Task 88/89 accuracy pass. The business-week rule is now **Mon–Sat** everywhere in this file (it still described the deleted Mon–Fri week in the CONSTRAINT-19 section, the `WeekStrip`/`DayColumn` entries and the two-date-schema section) and matches CONSTRAINT-19's 2026-08-17 revision note, including the 176px/1024px trade. `lib/actions/placement.renumber.ts` (Task 89) added to the `lib/actions/` listing with its SEC-08 rationale; the operation counts were re-checked and are unchanged — it publishes no action. The Next version claim flagged as stale below is now fixed: stack table and Platform-Native Rules preamble both read 16.
 
-**Previously revised:** 2026-08-10 — Feature 15 (Pickups, Tasks 76–81) folded in: 10th entity, `/pickups` route, the two-list calendar and its five patterns, and recounted operation / RLS / nav-item figures. Same-day DS-01 accuracy pass: `components/customers/` and `components/calendar/` listings reconciled file-for-file against disk, the `formFields` "every form surface" claim corrected (leads/support diverge), `getCustomerVolumeOverview` renamed, `getSupportAttachmentSignedUrl` added to reconcile with CONSTRAINT-24, the nonexistent `PODocumentUpload.tsx` removed, and the 59-operation arithmetic made reproducible
+**Previously revised:** 2026-08-16 — Task 85 + its three `@code-review` rounds: two new `components/shared/` primitives (`useResetOnChange`, `useFocusOnOpen`) listed; `DeleteCustomerDialogBody` / `ConvertLeadDialogBody` line-cap splits listed; the `DeleteCustomerDialog` entry now records its rejection-catch; Infrastructure gained the direct-connection-string warning and Secrets the publishable-key note.
+
+**Earlier revision:** 2026-08-10 — Feature 15 (Pickups, Tasks 76–81) folded in: 10th entity, `/pickups` route, the two-list calendar and its five patterns, and recounted operation / RLS / nav-item figures. Same-day DS-01 accuracy pass: `components/customers/` and `components/calendar/` listings reconciled file-for-file against disk, the `formFields` "every form surface" claim corrected (leads/support diverge), `getCustomerVolumeOverview` renamed, `getSupportAttachmentSignedUrl` added to reconcile with CONSTRAINT-24, the nonexistent `PODocumentUpload.tsx` removed, and the 59-operation arithmetic made reproducible
 **Status:** Approved — Phase 2 complete
 **Approved by:** Builder (2026-04-20)
 
@@ -17,7 +19,7 @@
 
 | Layer | Technology | Version target |
 |-------|-----------|---------------|
-| Framework | Next.js App Router | 15.5+ (React 19.2+) — upgraded from 14 in Task 83, 2026-08-11 |
+| Framework | Next.js App Router | 16.3+ (React 19.2+) — 14 → 15.5 in Task 83 (2026-08-11), 15.5 → 16 in Task 84 (`middleware.ts` became `proxy.ts`) |
 | Database | Supabase (PostgreSQL) | Free tier |
 | Auth | Supabase Auth | Free tier |
 | File storage | Supabase Storage | Free tier (1GB) |
@@ -76,8 +78,9 @@
 **Production date vs delivery promise (CONSTRAINT-19, FB-11):**
 - `production_date` is the build day and is **separate** from `requested_delivery_date`, the customer-facing promise. Calendar code reads and writes only the production columns — it must never write the delivery date.
 - **A PO's calendar position IS its `production_date`** — nothing is derived at read time (revised 2026-07-27, migration `0011`). `production_date IS NULL` means unscheduled, and the order sits in the callout whatever its delivery date. The delivery date seeds the column **once**, at creation, via `defaultProductionDate` in `lib/actions/orders.internal.ts` — the only caller of `prevBusinessDay`. The former two-implementation rule (`effectiveProductionDate` + `EFFECTIVE_PRODUCTION_DATE`) was **deleted**, and with it the risk of a card being filtered into one column and drawn in another.
-- `prevBusinessDay` is weekends-only — no holiday calendar exists or is planned. Mon, Sat and Sun delivery dates all resolve to the prior Friday.
-- The no-weekend invariant is enforced **on write** (the Task 52 server actions reject a Saturday/Sunday `production_date`), never on read. Read paths pass a stored `production_date` through verbatim rather than silently relocating it.
+- **The business week is Mon–Sat, not Mon–Fri (revised 2026-08-17, Task 88).** Saturday is a full production day with its own column. `isBusinessDay` excludes **Sunday only** — there is still no holiday calendar and none is planned — so `prevBusinessDay` is Sundays-only: a Monday or Sunday delivery date seeds the prior **Saturday**, and every other day seeds the previous calendar day. Historic Friday-dated rows were not migrated; nothing in the DB constrained the column, so nothing had to change.
+- The no-Sunday invariant is enforced **on write** (the Task 52 server actions reject a Sunday `production_date` through `productionDateSchema`, whose message names the accepted range: `'Production dates must fall on Monday through Saturday.'`), never on read. Read paths pass a stored `production_date` through verbatim rather than silently relocating it — a relocation would hide the data bug, and there is no Sunday column to draw the row in either way.
+- **The sixth column cost the 1024px fit, and that was the choice.** Columns stay a fixed 176px and still never shrink, so a full week no longer fits iPad landscape's 1024px — the week strip scrolls horizontally instead. Narrowing the columns to fit six would have pushed cards under the 80px legibility floor the whole card-scaling system exists to protect, so the builder took the scroll.
 
 **Invoice model v3 (CONSTRAINT-17, FB-07):**
 - One invoice per calendar month covers every customer's eligible POs
@@ -100,7 +103,7 @@
 **59 total operations** (recounted 2026-08-10 against source) = **29 + 30**:
 
 - **29 exported `async` query functions** across `db/queries/*.ts`. That tree exports **40** functions in total; the other **11** are synchronous SQL-fragment builders and pure helpers (`buildNeedToContactQuery`, `buildProductionWidgetQuery`, `revenueSumQuery`, `computeWindowStartDate`, `computeDeltaPercent`, `assembleVolumeOverview`, `productionWidgetDays`, …) that compose or post-process a query rather than performing one. They are deliberately excluded — count `export async function` in `db/queries/*.ts`, not `export function`.
-- **30 exported Server Actions** across the 11 `'use server'` modules in `lib/actions/`. This is the same 30 CONSTRAINT-24 reconciles against the build manifest — if the two disagree, one of them is stale.
+- **30 exported Server Actions** across the 11 `'use server'` modules in `lib/actions/`. This is the same 30 CONSTRAINT-24 reconciles against the build manifest — if the two disagree, one of them is stale. Count the directive, not the folder: `lib/actions/` also holds guard, helper, validation and constant siblings that deliberately carry no `'use server'` (SEC-08), and adding one — `placement.renumber.ts` in Task 89 — moves neither figure.
 
 Full spec in `docs/api-spec.md`.
 
@@ -197,8 +200,8 @@ components/
     CalendarOverlays.tsx    ← everything drawn *above* the board — one card popup and one create drawer **per group**. Split out in Task 81 when the second drawer pushed CalendarLayout past CONSTRAINT-14's 80-line JSX allowance
     calendarScroll.ts       ← useWeekScroll — strip scroll position + the viewer's local "today"
     calendarWeeks.ts        ← buildWeekGroups + groupRowsByDay (keys cards by production_date)
-    WeekStrip.tsx           ← week groups with a 2px Fri│Mon divider
-    DayColumn.tsx           ← one weekday; **two** droppables and two SortableContexts, one per group
+    WeekStrip.tsx           ← week groups with a 2px Sat│Mon divider — the strip scrolls continuously rather than snapping week to week, so without a hard rule the eye cannot find the boundary
+    DayColumn.tsx           ← one production day (Mon–Sat); **two** droppables and two SortableContexts, one per group
     DayColumnParts.tsx      ← DayHeader / ColumnBody / ColumnFooter (line-cap split)
     useColumnDroppables.ts  ← registers a column's two droppables (orders + pickups). A sibling rather than an addition to `calendarDnd.ts` for the same reason `calendarCollision.ts` is one — `useDroppable` is a runtime import and would force `'use client'` onto the type-only module
     ColumnPickupList.tsx    ← a day column's second list: its pickups, below the orders list and ordered independently of it
@@ -328,16 +331,16 @@ The calendar now has four contexts: `cardSelection` (open this card's popup), `n
 
 **`pickupVisibility`'s default is deliberately inert**: the real defaults (orders on, pickups off) paired with no-op setters. A `DayColumn` or a card therefore still renders outside a calendar — which is what every existing `DayColumn` test does — and behaves exactly as it did before pickups existed. Nothing persists the toggles: no localStorage, no URL param, no cookie. This app stores no client state anywhere and two booleans are not the reason to start (CONSTRAINT-25).
 
-### 4. `calendarDateSchema` vs `productionDateSchema` — the weekday rule is now opt-in
+### 4. `calendarDateSchema` vs `productionDateSchema` — the production-day rule is now opt-in
 
 `lib/actions/dates.validation.ts` exports two date schemas, and **which one a new date field picks is a real decision, not a formality**:
 
 | Schema | Guarantees | Used by |
 |---|---|---|
 | `calendarDateSchema` | a real `yyyy-MM-dd` day — shape *and* existence, so `2026-02-31` is a validation message rather than an opaque Postgres driver error | `pickups.validation`, `pickups.calendar.validation` |
-| `productionDateSchema` | the above **plus** `isBusinessDay` (CONSTRAINT-19) | `orders.validation`, `calendar.validation` |
+| `productionDateSchema` | the above **plus** `isBusinessDay` — Mon–Sat, Sunday alone rejected (CONSTRAINT-19) | `orders.validation`, `calendar.validation` |
 
-`productionDateSchema` is literally `calendarDateSchema` plus one refinement. A pickup takes the base: the calendar renders Mon–Fri, so a dragged pickup lands on a weekday in practice, but a collection is not production and the server must not invent a business-day invariant the entity does not have. Reach for `productionDateSchema` only when the weekend genuinely cannot render the row.
+`productionDateSchema` is literally `calendarDateSchema` plus one refinement. A pickup takes the base: the calendar renders Mon–Sat, so a dragged pickup lands on a production day in practice, but a collection is not production and the server must not invent a business-day invariant the entity does not have. Reach for `productionDateSchema` only when the excluded day — since Task 88, Sunday and only Sunday — genuinely cannot render the row.
 
 ### 5. `recordDeliveryAddressUsage` is shared between `createOrder` and `createPickup`
 
@@ -397,6 +400,7 @@ lib/
     pickups.calendar.validation.ts ← Zod schemas; reuses `SORT_INDEX_MAX` from `calendar.validation` so the two lists share one sanity bound
     calendar.ts      ← setProductionPlacement, clearProductionPlacement, toggleSameDayDelivery, toggleBackhaul (Feature 11–12)
     calendar.validation.ts ← Zod schemas + SORT_INDEX_MAX (Platform-Native Rule sibling)
+    placement.renumber.ts ← renumberColumn, placeAndRenumber, clearAndRenumber (Task 89) — the dense `0..n-1` rewrite both placement actions run on every drop. Storing only the dragged row's index is not enough: the read query orders `sort index ASC NULLS LAST`, so a lone `1` among `NULL` siblings sorts *above* all of them and the card jumps to the top of the day whatever slot it was released at. Orders and pickups share one implementation because a per-table `PlacementTable` config — table, id, day, sort-index, tiebreak and `updated_at` columns — is the only thing that differs; exactly two configs exist and neither can reach the other's rows, so the two lists sharing a day never renumber each other (CONSTRAINT-25). No 'use server' — **none of the three guards**; the guards live once at the `calendar.ts` / `pickups.calendar.ts` entry points, so the directive would publish three unauthenticated "move any row to any day" endpoints (SEC-08 / CONSTRAINT-24). Same rule as `leads.convert.ts` and `orders.internal.ts`
     dates.validation.ts ← ISO_DATE_RE + the two date schemas, `calendarDateSchema` and `productionDateSchema` (see below). Extracted in Feature 12 so every writer enforces the invariant from ONE rule; a direct re-export between `orders.validation.ts` and `calendar.validation.ts` would have closed an import cycle and left ISO_DATE_RE in the TDZ
     leads.ts         ← createLead, updateLead, addLeadNote, setNextAction, convertLeadToCustomer
     leads.convert.ts ← loadLeadForConversion, findDuplicateCustomer, runConversionTransaction — helpers for convertLeadToCustomer, extracted at the 300-line cap (no 'use server' — none of them guards, the guard lives once at the leads.ts entry point, so the directive would publish three unauthenticated endpoints; SEC-08 / CONSTRAINT-24). It carried the directive until 2026-08-09; see FB-24
@@ -488,10 +492,10 @@ All secrets live in environment variables only — never in source, never expose
 
 ## Platform-Native Rules
 
-Next.js enforces invariants that don't appear in the generic rules files but are binding for any code touching this repo. The first three were surfaced by the first production build (2026-04-22) under Next 14 and still hold under 15. The fourth arrived with the Next 15 upgrade (Task 83, 2026-08-11).
+Next.js enforces invariants that don't appear in the generic rules files but are binding for any code touching this repo. The first three were surfaced by the first production build (2026-04-22) under Next 14 and still hold under 16. The fourth arrived with the Next 15 upgrade (Task 83, 2026-08-11) and survived the move to 16 (Task 84).
 
 ### `'use server'` files export async functions only
-Files marked `'use server'` (every file under `lib/actions/`) may export **async functions only**. Non-function exports (constants, arrays, unions, enums) fail the production compile with `Only async functions are allowed to be exported in a "use server" file`. Dev mode tolerates this on the initial compile but surfaces the error on per-route cold compiles.
+Files marked `'use server'` (the 11 action-entry-point modules under `lib/actions/` — not the guard, helper, validation and constant siblings beside them) may export **async functions only**. Non-function exports (constants, arrays, unions, enums) fail the production compile with `Only async functions are allowed to be exported in a "use server" file`. Dev mode tolerates this on the initial compile but surfaces the error on per-route cold compiles.
 
 **Pattern:** non-function exports from the action-domain live in sibling `*.constants.ts` files. Precedents:
 - `lib/actions/customers.constants.ts` — `MAX_CONTACTS_PER_CUSTOMER`
