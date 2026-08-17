@@ -4,12 +4,56 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { addLeadNote } from '@/lib/actions/leads'
 import { NOTE_CONTENT_MAX } from '@/lib/actions/leads.constants'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 import type { LeadNote } from '@/db/queries/leads'
 
 interface LeadNotesSectionProps {
   leadId: string
   notes: LeadNote[]
   onSaved: () => void
+}
+
+/** What `runAddNote` writes through, so it can live outside the component. */
+interface AddNoteDeps {
+  setContent: (value: string) => void
+  setServerError: (value: string | null) => void
+  setIsSubmitting: (value: boolean) => void
+  onSaved: () => void
+}
+
+// Hoisted out of the component: nested function bodies count toward the
+// enclosing component's length, and the try/catch below took it over the cap.
+async function runAddNote(
+  leadId: string,
+  content: string,
+  { setContent, setServerError, setIsSubmitting, onSaved }: AddNoteDeps,
+): Promise<void> {
+  setServerError(null)
+  setIsSubmitting(true)
+  try {
+    const result = await addLeadNote(leadId, content)
+    if ('error' in result) {
+      setServerError(result.error)
+      return
+    }
+    setContent('')
+    onSaved()
+  } catch (cause) {
+    // `handleSave` is called from an onClick that discards the returned
+    // promise, so a transport-level rejection (offline, stale action id after
+    // a deploy) would otherwise vanish: nothing logged, no inline error, and
+    // Save Note stuck disabled with no recovery but a reload (EH-01). The
+    // textarea is deliberately left alone — only the success branch clears it,
+    // so the note the salesperson typed survives a failed save and can be
+    // retried without retyping.
+    console.error('LeadNotesSection: addLeadNote failed in transit', {
+      leadId,
+      cause,
+    })
+    setServerError(GENERIC_FAILURE_MESSAGE)
+  } finally {
+    setIsSubmitting(false)
+  }
 }
 
 function formatNoteTimestamp(isoString: string): string {
@@ -40,16 +84,7 @@ export default function LeadNotesSection({ leadId, notes, onSaved }: LeadNotesSe
       return
     }
     setClientError(null)
-    setServerError(null)
-    setIsSubmitting(true)
-    const result = await addLeadNote(leadId, content)
-    setIsSubmitting(false)
-    if ('error' in result) {
-      setServerError(result.error)
-    } else {
-      setContent('')
-      onSaved()
-    }
+    await runAddNote(leadId, content, { setContent, setServerError, setIsSubmitting, onSaved })
   }
 
   const displayError = clientError ?? serverError

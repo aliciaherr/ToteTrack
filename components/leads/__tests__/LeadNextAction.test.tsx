@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockSetNextAction = vi.hoisted(() => vi.fn())
 
@@ -18,6 +18,13 @@ const EMPTY_CURRENT = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// The EH-01 test spies on `console.error`. Restoring only at the end of that
+// test body would leave the spy installed if the test failed mid-way, silencing
+// `console.error` for every test that runs after it in this file.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('LeadNextAction', () => {
@@ -69,5 +76,33 @@ describe('LeadNextAction', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/server rejected the reminder/i)
     expect(onSaved).not.toHaveBeenCalled()
+    // Regression guard for the EH-01 fix: the returned-`{ error }` path must
+    // keep showing the server's own message, and `finally` must re-enable Save.
+    expect(screen.getByRole('button', { name: /save reminder/i })).toBeEnabled()
+  })
+
+  // Before the try/catch in `runSave`, a transport-level rejection (offline,
+  // stale action id after a deploy) escaped into a floating promise — the
+  // onClick discards it — so `setIsSubmitting(false)` never ran: no alert and
+  // Save Reminder stuck disabled with no recovery but a page reload.
+  it('recovers with an inline error when setNextAction rejects in transit (EH-01)', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockSetNextAction.mockRejectedValueOnce(new Error('network down'))
+    const onSaved = vi.fn()
+    render(<LeadNextAction leadId={LEAD_ID} current={EMPTY_CURRENT} onSaved={onSaved} />)
+
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-06-01' } })
+    fireEvent.click(screen.getByRole('button', { name: /save reminder/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(screen.getByRole('button', { name: /save reminder/i })).toBeEnabled()
+    expect(onSaved).not.toHaveBeenCalled()
+    // The cause must reach the console — never swallowed (EH-01). The message
+    // wording is not the contract, so it is matched loosely; the context object
+    // is, so it is matched explicitly. `afterEach` restores the spy.
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('setNextAction failed'),
+      expect.objectContaining({ leadId: LEAD_ID, cause: expect.any(Error) }),
+    )
   })
 })

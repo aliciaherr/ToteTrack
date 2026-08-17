@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { signIn } from '@/lib/actions/auth'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null)
@@ -18,9 +19,25 @@ export default function LoginForm() {
 
     setLoading(true)
     setError(null)
-    const result = await signIn(password)
-    setLoading(false)
-    if (result?.error) setError(result.error)
+    try {
+      const result = await signIn(password)
+      if (result?.error) setError(result.error)
+    } catch (cause) {
+      // `signIn` handles its own network failures and returns `{ error }`, so
+      // this only fires on a transport-level rejection (offline, stale action
+      // id after a deploy). Without it the rejection escaped as an unhandled
+      // promise rejection, leaving Sign In disabled with no message — and this
+      // form is pre-auth and the only door, so that wedges the whole app until
+      // a page reload (EH-01).
+      //
+      // The log carries no context object on purpose: the only input here is
+      // the password, which must never reach the console or a log sink
+      // (SEC-01). `cause` is the transport error, not the credential.
+      console.error('LoginForm: signIn failed in transit', { cause })
+      setError(GENERIC_FAILURE_MESSAGE)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { LeadNote } from '@/db/queries/leads'
 
 const mockAddLeadNote = vi.hoisted(() => vi.fn())
@@ -23,6 +23,13 @@ function makeNote(overrides: Partial<LeadNote> = {}): LeadNote {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// The EH-01 test spies on `console.error`. Restoring only at the end of that
+// test body would leave the spy installed if the test failed mid-way, silencing
+// `console.error` for every test that runs after it in this file.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('LeadNotesSection', () => {
@@ -91,5 +98,34 @@ describe('LeadNotesSection', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/server rejected the note/i)
     expect(onSaved).not.toHaveBeenCalled()
+    // Regression guard for the EH-01 fix: the returned-`{ error }` path must
+    // keep showing the server's own message, and `finally` must re-enable Save.
+    expect(screen.getByRole('button', { name: /save note/i })).toBeEnabled()
+  })
+
+  // Before the try/catch in `runAddNote`, a transport-level rejection (offline,
+  // stale action id after a deploy) escaped into a floating promise — the
+  // onClick discards it — so `setIsSubmitting(false)` never ran: no alert and
+  // Save Note stuck disabled with no recovery but a page reload.
+  it('recovers with an inline error when addLeadNote rejects in transit (EH-01)', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockAddLeadNote.mockRejectedValueOnce(new Error('network down'))
+    const onSaved = vi.fn()
+    render(<LeadNotesSection leadId={LEAD_ID} notes={[]} onSaved={onSaved} />)
+
+    const textarea = screen.getByLabelText(/new note content/i)
+    fireEvent.change(textarea, { target: { value: 'A fresh note.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save note/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(screen.getByRole('button', { name: /save note/i })).toBeEnabled()
+    expect(onSaved).not.toHaveBeenCalled()
+    // Only the success branch clears the textarea: a failed save must not eat
+    // the note the salesperson typed.
+    expect(textarea).toHaveValue('A fresh note.')
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('addLeadNote failed'),
+      expect.objectContaining({ leadId: LEAD_ID, cause: expect.any(Error) }),
+    )
   })
 })

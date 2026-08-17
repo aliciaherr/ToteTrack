@@ -3,7 +3,7 @@
 **Date:** 2026-04-20
 **Status:** Approved — Phase 3 complete
 **Approved by:** Builder (2026-04-20)
-**Total tasks:** 89 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
+**Total tasks:** 90 (single file — well over threshold; a `docs/plan-index.md` split is overdue)
 
 > Every task is one-shot-ready. A developer must be able to execute it without asking clarifying questions.
 > Tasks with `**Specialist:**` fields require reading that skill before implementation — mandatory, not optional.
@@ -3074,6 +3074,45 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 
 **Status:** [x] Done 2026-08-17 — the builder's "ordering is not allowed" was one root cause producing two symptoms. `setProductionPlacement` wrote only the dragged row's index while its siblings stayed `NULL`, and under `ORDER BY production_sort_index ASC NULLS LAST` a single card holding index `1` sorts **above** every `NULL` — so the first same-day reorder always threw the card to the top of the day, and did nothing visible at all when it was already there. Cross-day moves only looked correct because `production_date` is the primary sort key; their position within the destination day was equally wrong. Fixed by `lib/actions/placement.renumber.ts` (`renumberColumn`, `placeAndRenumber`, `clearAndRenumber`), with both calendar actions now wrapping their write in `db.transaction` — neither did before. 66 tests across the three placement files; suite **1287 / 108**, `tsc` and `lint` clean. **The drag path needed no off-by-one fix:** `resolveDropTarget` returns `over.index` from the original rendered array, which `verticalListSortingStrategy` makes equivalent to `arrayMove` — already the post-removal splice index. Three deviations from the file list, all additive: `clearAndRenumber` exported as a third function so `clear*Placement` stays thin under CQ-02, plus two new files (`placement.renumber.test.ts`, and `placement.fake-db.ts` scaffolding shared by three test files). `updateKey()` resolves drizzle `.set()` keys via `getTableColumns` rather than trusting `column.name` — they coincide in this schema and would break silently if they ever stopped. **One criterion unchecked:** iPad verification of the touch path, which matters more than usual here — see the note below.
 
-**Open finding, not fixed — the two gestures disagree by one.** On a same-column **downward** move the touch path lands the card *above* the tapped card, while drag lands it *in* the tapped card's slot. The `- 1` at `components/calendar/armPlacement.ts:96` is the cause, and drag matches both dnd-kit's own drag preview and armPlacement's stated intent ("takes the tapped card's place") — so the touch path is the odd one out. Both send valid post-removal splice indices, so Task 89's server contract holds either way and this is not a regression: it is a pre-existing Task 68 inconsistency, currently pinned by `armPlacement.test.ts:87`. Left as a builder decision because the builder works on the touch path and this changes muscle memory. A same-day drop on empty column space sends `cardCount`, which counts the moved card and is therefore one past the post-removal end; the server's `[0, siblingCount]` clamp absorbs it into last place, which is the intended outcome either way.
+**Open finding, recorded as CONSTRAINT-29 — the two gestures disagree by one.** On a same-column **downward** move the touch path lands the card *above* the tapped card, while drag lands it *in* the tapped card's slot. The `- 1` at `components/calendar/armPlacement.ts:96` is the cause, and drag matches both dnd-kit's own drag preview and armPlacement's stated intent ("takes the tapped card's place") — so the touch path is the odd one out. Both send valid post-removal splice indices, so Task 89's server contract holds either way and this is not a regression: it is a pre-existing Task 68 inconsistency, currently pinned by `armPlacement.test.ts:87`. Left as a builder decision because the builder works on the touch path and this changes muscle memory. A same-day drop on empty column space sends `cardCount`, which counts the moved card and is therefore one past the post-removal end; the server's `[0, siblingCount]` clamp absorbs it into last place, which is the intended outcome either way.
+
+**Depends on:** —
+
+---
+
+## Task 90: Close the three remaining unguarded-`await` wedge bugs
+
+**Defect fix — no `docs/prd.md` entry by design.** These restore intended behaviour; nothing about the product spec changes. Carried as technical debt for two sessions after Task 85 found and fixed the other three of the same family.
+
+**The shape.** All three do `setSubmitting(true)` → bare `await someServerAction(...)` → `setSubmitting(false)`, with no `try`/`catch`/`finally`. Returned errors are handled fine — the actions return `{ error }` for everything they anticipate. A **rejection** is not: transport failure, a dropped connection, or a deploy landing mid-request makes `await` throw, so the `setSubmitting(false)` line is never reached and there is no catch. Because these are async event handlers, the rejection does not reach a React error boundary either — it surfaces as an unhandled promise rejection and renders nothing. The control stays disabled with no message and no recovery but a page reload.
+
+**Why `LoginForm` is the worst of the three:** it is pre-auth and it is the only door. The other two are inside the app, so the user can navigate away and come back; a wedged Sign In button locks the whole application behind it.
+
+**Files:**
+- `components/auth/LoginForm.tsx` — modify (`:19-23`)
+- `components/leads/LeadNextAction.tsx` — modify (`:39-47`)
+- `components/leads/LeadNotesSection.tsx` — modify (`:42-52`)
+- `components/auth/__tests__/LoginForm.test.tsx`, `components/leads/__tests__/LeadNextAction.test.tsx`, `components/leads/__tests__/LeadNotesSection.test.tsx` — modify or create as needed
+
+**Approach:** follow the pattern already established by Task 85's three fixes (`DeleteCustomerDialog`, `ConvertLeadDialog`, `useInvoiceSubmit`) — read one before writing, do not invent a second house style. `finally` clears the submitting flag so it cannot be stranded on any path; `catch` logs the cause with context (EH-02) and sets the component's existing user-facing error state to a generic message. Do not surface `cause` to the user (SEC — the error boundaries rule).
+
+**Acceptance criteria:**
+- [x] All three handlers wrap their `await` so the submitting flag is cleared on success, on a returned `{ error }`, and on a rejection
+- [x] A rejection sets the component's existing error state to a generic message — no `cause`, no stack, no server text rendered. Uses the established `GENERIC_FAILURE_MESSAGE` from `@/lib/errors`, not a new literal
+- [x] Each rejection is logged with what failed, where, and the relevant input identifiers (EH-02) — `{ leadId, cause }` for the two lead components; **`LoginForm` logs `{ cause }` alone**, because its only input is the password (SEC-01). A test asserts the password appears nowhere in the `console.error` calls
+- [x] The submitting flag is cleared via `finally`, not by duplicating the reset in both branches
+- [x] Existing returned-`{ error }` behaviour is unchanged — the specific server message still reaches the user. All three pre-existing tests were also strengthened with a button-re-enabled assertion, which they had been missing
+- [x] No new shared abstraction introduced for three call sites; if a fourth appears, revisit
+- [x] Full suite green at ≥ **1289 tests / 108 files**; `npx tsc --noEmit`, `npm run lint` and `npm run build` clean — **1292 tests / 108 files**, all four clean
+
+**Tests required:**
+- `LoginForm` → action rejects: error message shown, Sign In re-enabled, password never logged
+- `LoginForm` → action returns `{ error }`: the server's message still shown (regression guard)
+- `LeadNextAction` → action rejects: error shown, Save re-enabled, `onSaved` not called
+- `LeadNotesSection` → action rejects: error shown, Save re-enabled, note content preserved, `onSaved` not called
+
+**Status:** [x] Done 2026-08-17 — all three closed, completing the family Task 85 opened. Suite **1289 → 1292**; `tsc`, `lint` and `build` clean. **Two of the three needed a hoist, and that is worth recording:** adding an inline `try`/`catch`/`finally` pushed `LeadNextAction` and `LeadNotesSection` past CONSTRAINT-14's 80-line component cap, so their save paths were extracted to module-level `runSave(leadId, input, deps)` / `runAddNote(leadId, content, deps)` runners with a `*Deps` interface — the same shape `DeleteCustomerDialog`, `ConvertLeadDialog` and `useInvoiceSubmit` already use, because they hit the identical cap for the identical reason last session. `LoginForm` kept its handler inline at 65 lines. Client-side validation (`!date`, `!content.trim()`) stayed in the components; only the network path moved. **`LoginForm` deliberately logs `{ cause }` with no context object** — every other call site logs identifiers, but this one's only input is the password. The three pre-existing returned-`{ error }` tests were each missing a button-re-enabled assertion and were strengthened rather than left alone, since that assertion is what distinguishes a handled error from a wedge. All three test files also gained the `afterEach(vi.restoreAllMocks)` guard from `ConvertLeadDialog.test.tsx`.
+
+**Not verified:** the rejection paths are exercised through mocked actions in jsdom, never against a real dropped connection. That is the same limit the Task 85 fixes shipped under and is accepted — reproducing a mid-flight transport failure reliably is not worth building a harness for.
 
 **Depends on:** —

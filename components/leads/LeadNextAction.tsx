@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { setNextAction } from '@/lib/actions/leads'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
+import type { NextActionInput } from '@/lib/actions/leads'
 import type { LeadDetail } from '@/db/queries/leads'
 
 interface LeadNextActionProps {
@@ -17,6 +19,44 @@ const ACTION_TYPES = [
   { value: 'visit', label: 'Visit' },
   { value: 'other', label: 'Other' },
 ] as const
+
+/** What `runSave` writes through, so it can live outside the component. */
+interface SaveDeps {
+  setError: (value: string | null) => void
+  setIsSubmitting: (value: boolean) => void
+  onSaved: () => void
+}
+
+// Hoisted out of the component: nested function bodies count toward the
+// enclosing component's length, and the try/catch below took it over the cap.
+async function runSave(
+  leadId: string,
+  input: NextActionInput,
+  { setError, setIsSubmitting, onSaved }: SaveDeps,
+): Promise<void> {
+  setError(null)
+  setIsSubmitting(true)
+  try {
+    const result = await setNextAction(leadId, input)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    onSaved()
+  } catch (cause) {
+    // `handleSave` is called from an onClick that discards the returned
+    // promise, so a transport-level rejection (offline, stale action id after
+    // a deploy) would otherwise vanish: nothing logged, no inline error, and
+    // Save Reminder stuck disabled with no recovery but a reload (EH-01).
+    console.error('LeadNextAction: setNextAction failed in transit', {
+      leadId,
+      cause,
+    })
+    setError(GENERIC_FAILURE_MESSAGE)
+  } finally {
+    setIsSubmitting(false)
+  }
+}
 
 /**
  * Next-action setter for the lead detail panel. Lets the salesperson schedule
@@ -36,15 +76,7 @@ export default function LeadNextAction({ leadId, current, onSaved }: LeadNextAct
       setError('Please select a date.')
       return
     }
-    setError(null)
-    setIsSubmitting(true)
-    const result = await setNextAction(leadId, { date, time, actionType })
-    setIsSubmitting(false)
-    if ('error' in result) {
-      setError(result.error)
-    } else {
-      onSaved()
-    }
+    await runSave(leadId, { date, time, actionType }, { setError, setIsSubmitting, onSaved })
   }
 
   return (
