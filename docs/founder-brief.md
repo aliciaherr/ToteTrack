@@ -639,3 +639,42 @@ You also made a deliberate trade: the columns stay their current width and the c
 - **Is the sideways scroll acceptable in practice?** If it turns out to be annoying, the alternative is narrower columns, which was rejected because it would make the cards too small to read.
 
 **What this closes off:** Sunday production is now the awkward one. Adding Saturday was cheap because Monday stayed the unambiguous start of the week; adding Sunday would leave no non-production day at all, and the week-boundary logic would need rethinking rather than widening. Nothing else is foreclosed — the Saturday change is one line to reverse, and the reordering fix has no way back worth wanting.
+
+---
+
+## FB-32 — Three Buttons Could Freeze Forever, Including the One You Log In With
+
+**Date:** 2026-08-17
+**Architecture reference:** none — no architectural change. The fix follows the pattern already recorded for the Task 85 fixes.
+**Constraint added:** none. CONSTRAINT-14's component size cap was applied, not changed.
+**Tasks:** 90 — commit `3369d2c`.
+
+**Decided:** Three buttons that could lock up permanently now recover and tell you what happened. This completes a set of six; the other three were fixed last session.
+
+**What was wrong, in plain terms.**
+
+You click Save. The button greys out to show it is working. When the server answers, it un-greys and either saves or tells you what went wrong.
+
+If the server *never* answered — your wifi dropped, the connection blipped, a deploy landed at exactly the wrong moment — nothing un-greyed it. The button stayed dead. No error message, because from the app's point of view nothing had gone wrong; it was still politely waiting for a reply that was never coming. Your only way out was reloading the page.
+
+The three affected:
+
+1. **Sign In, on the login screen.** The bad one. If it froze, you could not get into the app at all — there is nothing behind it to navigate to.
+2. **Save next action**, on a lead.
+3. **Add note**, on a lead. Your typed note stayed in the box, but Save was dead.
+
+**Why it happened, and why it is a family rather than three coincidences.**
+
+The app has always handled *expected* failures well — a wrong password, an invalid date, a rejected save all produce a proper message. What none of these three handled was the request *vanishing*. Those are two genuinely different situations in the code, and handling only the first is an easy thing to miss, which is exactly why six places had the same flaw.
+
+They are all now fixed the same way: the button un-greys no matter what happens, and if the request vanished you get "Something went wrong. Please try again." while the real cause goes to the logs where it can be diagnosed.
+
+**One detail worth knowing about the login fix.** Everywhere else in the app, a failure is logged along with a note of what it was working on — which lead, which customer — so it can be traced later. The login screen deliberately logs *nothing* of the sort, because the only thing it was working on is your password. There is now a test whose entire job is to fail if a password ever appears in a log line.
+
+**Means for your product:** No visible change when things are working. What changed is the worst-case: a dropped connection at the wrong moment used to leave you stuck on a dead screen with no explanation, and the login case could shut you out of the app entirely until you thought to reload. That failure mode is gone from every place it was known to exist.
+
+**Check before approving:**
+- **Nothing needed from you.** This one is not waiting on a decision or a device check — flagged because it changes behaviour you could notice, not because it needs your input.
+- **If you ever see "Something went wrong. Please try again." on one of these three**, that now means the request genuinely did not reach the server — worth noticing if it happens repeatedly, because that points at the connection rather than the app.
+
+**What this closes off:** Nothing. The fix only adds a path where there was none. The one small cost is that two lead components had to be restructured to fit the project's file-size rules — the save logic moved into a separate function — which is tidier rather than worse, and matches how the three equivalent fixes were done last session.
