@@ -8,12 +8,8 @@ import { supportTickets, supportAttachments } from '@/db/schema'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { UUID_RE } from '@/lib/validators/uuid'
+import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 import { SUPPORT_CATEGORIES, SUPPORT_PRIORITIES } from './support.constants'
-
-// User-facing fallback for any server-side failure that isn't a validation,
-// auth, or business-rule rejection. Detailed cause is logged server-side via
-// console.error — never surfaced to the client (SEC-05, EH-04).
-const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
 
 const TITLE_MAX = 200
 // 5000 chars — ample for a detailed bug report while guarding textarea/DB bloat.
@@ -52,13 +48,6 @@ function firstZodMessage(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Invalid input.'
 }
 
-async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user) return { error: 'You are not signed in.' }
-  return null
-}
-
 /**
  * Creates a new support ticket with status='open'. Attachments are uploaded
  * separately via uploadTicketAttachment(ticketId, file) after this resolves —
@@ -68,13 +57,14 @@ async function assertAuthenticated(): Promise<{ error: string } | null> {
 export async function createTicket(
   input: CreateTicketInput,
 ): Promise<{ id: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  const parsed = createTicketSchema.safeParse(input)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    const parsed = createTicketSchema.safeParse(input)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     const [row] = await db
       .insert(supportTickets)
       .values({
@@ -177,6 +167,33 @@ async function insertAttachmentWithQuotaLock(
   })
 }
 
+// Everything `uploadTicketAttachment` must clear before it puts a byte in the
+// bucket. Extracted to keep the action inside CQ-01's cap once its whole body
+// moved into one `try` — `getUser`, `createClient` and the quota count can all
+// throw, so none may sit outside it (auth.guard's contract). Called from
+// inside that `try`, never before it.
+async function runUploadPreflight(
+  ticketId: string,
+  file: File,
+): Promise<
+  { supabase: SupabaseClient; storagePath: string; fileName: string } | { error: string }
+> {
+  const authError = await assertAuthenticated()
+  if (authError) return authError
+  if (!UUID_RE.test(ticketId)) return { error: 'Invalid ticket id.' }
+  const fileError = validateFile(file)
+  if (fileError) return fileError
+  const quotaError = await assertAttachmentQuotaAvailable(ticketId)
+  if (quotaError) return quotaError
+
+  const fileName = sanitizeFilename(file.name)
+  return {
+    supabase: await createClient(),
+    storagePath: `${ticketId}/${crypto.randomUUID()}_${fileName}`,
+    fileName,
+  }
+}
+
 /**
  * Uploads a single attachment to the private `support-attachments` bucket
  * and inserts a row in `support_attachments`. Returns the storage path
@@ -196,33 +213,31 @@ export async function uploadTicketAttachment(
   ticketId: string,
   file: File,
 ): Promise<{ path: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  if (!UUID_RE.test(ticketId)) return { error: 'Invalid ticket id.' }
-
-  const fileError = validateFile(file)
-  if (fileError) return fileError
-
-  const fastFailError = await assertAttachmentQuotaAvailable(ticketId)
-  if (fastFailError) return fastFailError
-
-  const sanitizedName = sanitizeFilename(file.name)
-  const storagePath = `${ticketId}/${crypto.randomUUID()}_${sanitizedName}`
-  const supabase = await createClient()
-
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET_NAME)
-    .upload(storagePath, file, { contentType: file.type, upsert: false })
-
-  if (uploadError) {
-    // Upload failed before any DB state change — nothing to clean up.
-    console.error('uploadTicketAttachment: storage upload failed', { ticketId, cause: uploadError })
-    return { error: GENERIC_FAILURE_MESSAGE }
-  }
+  // Held outside the try so the catch can clean up an orphaned object; both
+  // stay undefined until preflight picks a destination, so a failure before the
+  // upload never fires a remove for an object that was never written (LOW-01).
+  let supabase: SupabaseClient | undefined
+  let storagePath: string | undefined
 
   try {
-    const outcome = await insertAttachmentWithQuotaLock(ticketId, storagePath, sanitizedName)
+    // Preflight is inside the try because it calls the guard (auth.guard's
+    // contract — getUser() can itself throw).
+    const preflight = await runUploadPreflight(ticketId, file)
+    if ('error' in preflight) return preflight
+    supabase = preflight.supabase
+    storagePath = preflight.storagePath
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(storagePath, file, { contentType: file.type, upsert: false })
+
+    if (uploadError) {
+      // Upload failed before any DB state change — nothing to clean up.
+      console.error('uploadTicketAttachment: storage upload failed', { ticketId, cause: uploadError })
+      return { error: GENERIC_FAILURE_MESSAGE }
+    }
+
+    const outcome = await insertAttachmentWithQuotaLock(ticketId, storagePath, preflight.fileName)
     if (outcome.status === 'over_quota') {
       await removeOrphanedUpload(supabase, storagePath)
       return { error: 'Maximum 3 attachments per ticket.' }
@@ -230,8 +245,8 @@ export async function uploadTicketAttachment(
     revalidatePath('/support')
     return { path: storagePath }
   } catch (cause) {
-    await removeOrphanedUpload(supabase, storagePath)
-    console.error('uploadTicketAttachment: insert failed', { ticketId, cause })
+    if (supabase && storagePath) await removeOrphanedUpload(supabase, storagePath)
+    console.error('uploadTicketAttachment: upload failed', { ticketId, cause })
     return { error: GENERIC_FAILURE_MESSAGE }
   }
 }
@@ -247,38 +262,38 @@ export async function uploadTicketAttachment(
 export async function getSupportAttachmentSignedUrl(
   attachmentId: string,
 ): Promise<{ url: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  if (!UUID_RE.test(attachmentId)) return { error: 'Invalid attachment id.' }
-
-  let storagePath: string
+  // One try over the whole body: the guard, `createClient()` and the storage
+  // call can all throw, and the lookup's former private try left all three
+  // outside any handler (auth.guard's contract).
   try {
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+    if (!UUID_RE.test(attachmentId)) return { error: 'Invalid attachment id.' }
+
     const [row] = await db
       .select({ file_url: supportAttachments.file_url })
       .from(supportAttachments)
       .where(eq(supportAttachments.id, attachmentId))
       .limit(1)
     if (!row) return { error: 'Attachment not found.' }
-    storagePath = row.file_url
+
+    const supabase = await createClient()
+    const { data, error: signError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(row.file_url, SIGNED_URL_EXPIRY_SECONDS)
+
+    if (signError || !data?.signedUrl) {
+      console.error('getSupportAttachmentSignedUrl: sign failed', {
+        attachmentId,
+        storagePath: row.file_url,
+        cause: signError,
+      })
+      return { error: GENERIC_FAILURE_MESSAGE }
+    }
+
+    return { url: data.signedUrl }
   } catch (cause) {
-    console.error('getSupportAttachmentSignedUrl: lookup failed', { attachmentId, cause })
+    console.error('getSupportAttachmentSignedUrl: failed', { attachmentId, cause })
     return { error: GENERIC_FAILURE_MESSAGE }
   }
-
-  const supabase = await createClient()
-  const { data, error: signError } = await supabase.storage
-    .from(BUCKET_NAME)
-    .createSignedUrl(storagePath, SIGNED_URL_EXPIRY_SECONDS)
-
-  if (signError || !data?.signedUrl) {
-    console.error('getSupportAttachmentSignedUrl: sign failed', {
-      attachmentId,
-      storagePath,
-      cause: signError,
-    })
-    return { error: GENERIC_FAILURE_MESSAGE }
-  }
-
-  return { url: data.signedUrl }
 }

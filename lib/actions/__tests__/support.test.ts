@@ -35,7 +35,15 @@ import {
 } from '../support'
 
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
-const AUTH_FAIL = { data: { user: null }, error: new Error('no session') }
+// A *resolved* response with no user — the session is simply missing. The
+// shared guard distinguishes this from an auth-service failure, so this
+// fixture must not carry an `error` (EH-02/EH-04).
+const AUTH_FAIL = { data: { user: null }, error: null }
+// The service itself answered with a failure. Different message, and logged.
+const AUTH_SERVICE_DOWN = {
+  data: { user: null },
+  error: { status: 503, name: 'AuthApiError', message: 'service unavailable' },
+}
 
 const TICKET_ID = '44444444-4444-4444-4444-444444444444'
 
@@ -134,6 +142,36 @@ describe('createTicket', () => {
     expect(mockInsert).not.toHaveBeenCalled()
   })
 
+  it('returns the generic message when the auth service answers with a failure, not a sign-in prompt', async () => {
+    // The service being down is not a missing session — telling the operator
+    // to sign in sends them to a login screen that cannot help (EH-02/EH-04).
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockResolvedValueOnce(AUTH_SERVICE_DOWN)
+    const result = await createTicket(VALID_INPUT)
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      'assertAuthenticated: auth check failed',
+      expect.objectContaining({ operation: 'assertAuthenticated', status: 503 }),
+    )
+    consoleError.mockRestore()
+  })
+
+  it('returns a handled error and logs with context when getUser itself rejects', async () => {
+    // The guard runs inside the action's try, so a rejecting auth call
+    // becomes an { error } result instead of rejecting on the client.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockRejectedValueOnce(new Error('auth service unreachable'))
+    const result = await createTicket(VALID_INPUT)
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(mockInsert).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      'createTicket: insert failed',
+      expect.objectContaining({ cause: expect.any(Error) }),
+    )
+    consoleError.mockRestore()
+  })
+
   it('returns a generic error when the insert rejects', async () => {
     mockGetUser.mockResolvedValueOnce(AUTH_OK)
     mockInsert.mockReturnValueOnce({
@@ -219,6 +257,23 @@ describe('uploadTicketAttachment', () => {
     const result = await uploadTicketAttachment(TICKET_ID, makePng())
     expect(result).toEqual({ error: 'You are not signed in.' })
     expect(mockStorageUpload).not.toHaveBeenCalled()
+  })
+
+  it('returns a handled error and cleans up nothing when getUser rejects before any upload', async () => {
+    // Preflight failed before a destination path existed, so there is no
+    // orphan to remove — the cleanup must not fire on an object never made.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockRejectedValueOnce(new Error('auth service unreachable'))
+    const result = await uploadTicketAttachment(TICKET_ID, makePng())
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(mockStorageUpload).not.toHaveBeenCalled()
+    expect(mockStorageRemove).not.toHaveBeenCalled()
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      'uploadTicketAttachment: upload failed',
+      expect.objectContaining({ ticketId: TICKET_ID, cause: expect.any(Error) }),
+    )
+    consoleError.mockRestore()
   })
 
   it('sanitises path traversal in filenames', async () => {

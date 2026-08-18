@@ -6,15 +6,10 @@ import { z } from 'zod'
 import { startOfMonth, format } from 'date-fns'
 import { db } from '@/db'
 import { invoices, orders } from '@/db/schema'
-import { createClient } from '@/lib/supabase/server'
 import { UUID_RE } from '@/lib/validators/uuid'
 import { DB_DATE_FORMAT } from '@/lib/dates'
+import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 import { INVOICE_EXISTS_CODE } from './invoices.constants'
-
-// User-facing fallback for any server-side failure that isn't a validation,
-// auth, or business-rule rejection. Detailed cause is logged server-side via
-// console.error — never surfaced to the client (SEC-05, EH-04).
-const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
 
 // Invoice number format: INV-0001, INV-0002, … padded to 4 digits.
 const INVOICE_NUMBER_PREFIX = 'INV-'
@@ -42,13 +37,6 @@ export type CreateInvoiceInput = z.input<typeof createInvoiceInputSchema>
 
 function firstZodMessage(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Invalid input.'
-}
-
-async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user) return { error: 'You are not signed in.' }
-  return null
 }
 
 async function nextInvoiceNumber(tx: Tx): Promise<string> {
@@ -201,13 +189,14 @@ export async function createInvoice(
   | { code: typeof INVOICE_EXISTS_CODE; existingInvoiceNumber: string }
   | { error: string }
 > {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  const parsed = createInvoiceInputSchema.safeParse(input)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    const parsed = createInvoiceInputSchema.safeParse(input)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     const result = await db.transaction((tx) =>
       runCreateInvoiceTransaction(tx, {
         billingMonth: parsed.data.billingMonth,

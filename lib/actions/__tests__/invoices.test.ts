@@ -225,6 +225,39 @@ describe('createInvoice', () => {
     expect(mockTransaction).not.toHaveBeenCalled()
   })
 
+  it('returns the generic message when the auth service answers with a failure, not a sign-in prompt', async () => {
+    // The service being down is not a missing session — telling the operator
+    // to sign in sends them to a login screen that cannot help (EH-02/EH-04).
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockResolvedValueOnce({
+      data: { user: null },
+      error: { status: 503, name: 'AuthApiError', message: 'service unavailable' },
+    })
+    const result = await createInvoice(VALID_INPUT)
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      'assertAuthenticated: auth check failed',
+      expect.objectContaining({ operation: 'assertAuthenticated', status: 503 }),
+    )
+    consoleError.mockRestore()
+  })
+
+  it('returns a handled error and logs with context when getUser itself rejects', async () => {
+    // The guard runs inside the action's try, so a rejecting auth call
+    // becomes an { error } result instead of rejecting on the client.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockRejectedValueOnce(new Error('auth service unreachable'))
+    const result = await createInvoice(VALID_INPUT)
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      'createInvoice: transaction failed',
+      expect.objectContaining({ cause: expect.any(Error) }),
+    )
+    consoleError.mockRestore()
+  })
+
   it('embeds the SUBSTRING position as a SQL literal so Postgres picks the integer overload, not the regex one', async () => {
     // Regression: when the position was a bound parameter, Postgres inferred
     // it as text and treated SUBSTRING as the regex variant. MAX returned the

@@ -5,8 +5,8 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { db } from '@/db'
 import { leads, leadNotes } from '@/db/schema'
-import { createClient } from '@/lib/supabase/server'
 import { UUID_RE } from '@/lib/validators/uuid'
+import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 import {
   loadLeadForConversion,
   findDuplicateCustomer,
@@ -14,7 +14,6 @@ import {
 } from './leads.convert'
 import { NOTE_CONTENT_MAX } from './leads.constants'
 
-const GENERIC_FAILURE_MESSAGE = 'Something went wrong. Please try again.'
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^\d{2}:\d{2}$/
 const NAME_MAX = 200
@@ -27,13 +26,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function firstZodMessage(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Invalid input.'
-}
-
-async function assertAuthenticated(): Promise<{ error: string } | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
-  if (error || !data.user) return { error: 'You are not signed in.' }
-  return null
 }
 
 const addLeadNoteSchema = z.object({
@@ -49,14 +41,15 @@ export async function addLeadNote(
   leadId: string,
   content: string,
 ): Promise<{ id: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-  if (!UUID_RE.test(leadId)) return { error: 'Invalid lead id.' }
-
-  const parsed = addLeadNoteSchema.safeParse({ content })
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+    if (!UUID_RE.test(leadId)) return { error: 'Invalid lead id.' }
+
+    const parsed = addLeadNoteSchema.safeParse({ content })
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     const [row] = await db
       .insert(leadNotes)
       .values({ lead_id: leadId, content: parsed.data.content })
@@ -92,14 +85,15 @@ export async function setNextAction(
   leadId: string,
   data: NextActionInput,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-  if (!UUID_RE.test(leadId)) return { error: 'Invalid lead id.' }
-
-  const parsed = setNextActionSchema.safeParse(data)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+    if (!UUID_RE.test(leadId)) return { error: 'Invalid lead id.' }
+
+    const parsed = setNextActionSchema.safeParse(data)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     await db
       .update(leads)
       .set({
@@ -154,13 +148,14 @@ function nullIfBlank(value: string | null | undefined): string | null {
 export async function createLead(
   input: LeadInput,
 ): Promise<{ id: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  const parsed = leadInputSchema.safeParse(input)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    const parsed = leadInputSchema.safeParse(input)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     const [row] = await db
       .insert(leads)
       .values({
@@ -191,15 +186,16 @@ export async function updateLead(
   id: string,
   input: LeadInput,
 ): Promise<{ success: true } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  if (!UUID_RE.test(id)) return { error: 'Invalid lead id.' }
-
-  const parsed = leadInputSchema.safeParse(input)
-  if (!parsed.success) return { error: firstZodMessage(parsed.error) }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    if (!UUID_RE.test(id)) return { error: 'Invalid lead id.' }
+
+    const parsed = leadInputSchema.safeParse(input)
+    if (!parsed.success) return { error: firstZodMessage(parsed.error) }
+
     await db
       .update(leads)
       .set({
@@ -238,12 +234,13 @@ export async function convertLeadToCustomer(
   leadId: string,
   force = false,
 ): Promise<{ customerId: string } | { warning: string } | { error: string }> {
-  const authError = await assertAuthenticated()
-  if (authError) return authError
-
-  if (!UUID_RE.test(leadId)) return { error: 'Invalid lead id.' }
-
   try {
+    // Inside the try per auth.guard's contract — getUser() can itself throw.
+    const authError = await assertAuthenticated()
+    if (authError) return authError
+
+    if (!UUID_RE.test(leadId)) return { error: 'Invalid lead id.' }
+
     const lead = await loadLeadForConversion(leadId)
     if (!lead) return { error: 'Lead not found.' }
     if (lead.status === 'converted') return { error: 'This lead has already been converted.' }
