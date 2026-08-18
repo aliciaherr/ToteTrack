@@ -5,8 +5,15 @@ import {
   ARM_MOVE_TOLERANCE_PX,
   resolveTapAction,
   type ArmedCard,
+  type TapAction,
 } from '../armPlacement'
-import { resolveDropTarget, UNSCHEDULED_ORIGIN, type CardDragData } from '../calendarDnd'
+import {
+  resolveDropTarget,
+  UNSCHEDULED_ORIGIN,
+  type CardDragData,
+  type ColumnDropData,
+  type DropTarget,
+} from '../calendarDnd'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
@@ -352,18 +359,35 @@ describe('resolveTapAction — the group rule (CONSTRAINT-25)', () => {
  * "expect index N" — an expectation would have to be updated in lockstep with a
  * regression, whereas a cross-check fails the moment the two paths disagree.
  *
- * Scope is card targets, which is where the asymmetry lived. A tap on a
- * column's empty space is a different statement ("append to this day") and
- * `resolveColumnTap` subtracts the armed card from its own column's count on
- * purpose; that branch is not part of this comparison.
+ * **Scope is both target kinds** (widened in Task 94). Card targets came first,
+ * because that is where the original asymmetry lived. Column targets — a drop or
+ * tap on a list's empty space, the statement "put this last" — were left out
+ * while only the touch path discounted the moved card from its own column's
+ * rendered count; drag read `cardCount` verbatim and so fired a no-op write when
+ * the already-last card was released below the cards. `resolveDropTarget` now
+ * makes the same correction, so the comparison covers every target kind a card
+ * can be released or tapped onto, and CONSTRAINT-29 is retired universally.
  */
 describe('touch/drag parity — one insertion index, two gestures', () => {
   /** Minimal `DragEndEvent` — only the fields `resolveDropTarget` reads. */
-  function dragEvent(cardId: string, origin: CardDragData, over: CardDragData): DragEndEvent {
+  function dragEvent(
+    cardId: string,
+    origin: CardDragData,
+    over: CardDragData | ColumnDropData,
+  ): DragEndEvent {
     return {
       active: { id: cardId, data: { current: origin } },
       over: { id: over.dateKey, data: { current: over } },
     } as unknown as DragEndEvent
+  }
+
+  /**
+   * The two resolvers say "nothing to write" in their own vocabulary — `cancel`
+   * for a tap, `null` for a drop. Normalising to the drag path's shape is what
+   * lets a no-op be compared as strictly as a placement.
+   */
+  function tapPlacement(action: TapAction): DropTarget | null {
+    return action.kind === 'place' ? action.target : null
   }
 
   const moves: Array<[string, string, number, string, number]> = [
@@ -376,7 +400,7 @@ describe('touch/drag parity — one insertion index, two gestures', () => {
     ['across days, to the top', MONDAY, 2, TUESDAY, 0],
   ]
 
-  it.each(moves)('%s', (_name, fromDay, fromIndex, toDay, toIndex) => {
+  it.each(moves)('card target — %s', (_name, fromDay, fromIndex, toDay, toIndex) => {
     const tapped = resolveTapAction(armedAt(fromDay, fromIndex), {
       type: 'card',
       group: 'order',
@@ -395,6 +419,43 @@ describe('touch/drag parity — one insertion index, two gestures', () => {
 
     expect(tapped).toEqual({ kind: 'place', target: dropped })
   })
+
+  // The last column is the rendered card count of the target list, and the
+  // boolean is whether the move is a real one. It is carried per case so a
+  // both-sides-null agreement can never pass as a placement, or the reverse —
+  // the cross-check alone would be satisfied by two resolvers that both did
+  // nothing.
+  const columnMoves: Array<[string, string, number, string, number, boolean]> = [
+    ['same day, first of three goes last', MONDAY, 0, MONDAY, 3, true],
+    ['same day, middle of three goes last', MONDAY, 1, MONDAY, 3, true],
+    ['same day, already last — nothing to write', MONDAY, 2, MONDAY, 3, false],
+    ['same day, alone in the column — nothing to write', MONDAY, 0, MONDAY, 1, false],
+    ['across days, onto a populated column', MONDAY, 0, TUESDAY, 3, true],
+    ['across days, onto an empty column', MONDAY, 1, TUESDAY, 0, true],
+  ]
+
+  it.each(columnMoves)(
+    'column target — %s',
+    (_name, fromDay, fromIndex, toDay, cardCount, writes) => {
+      const tapped = resolveTapAction(armedAt(fromDay, fromIndex), {
+        type: 'column',
+        group: 'order',
+        dateKey: toDay,
+        cardCount,
+      })
+
+      const dropped = resolveDropTarget(
+        dragEvent(
+          'order-1',
+          { type: 'card', group: 'order', dateKey: fromDay, index: fromIndex },
+          { type: 'column', group: 'order', dateKey: toDay, cardCount },
+        ),
+      )
+
+      expect(tapPlacement(tapped)).toEqual(dropped)
+      expect(dropped !== null).toBe(writes)
+    },
+  )
 })
 
 describe('arming constants', () => {

@@ -165,6 +165,22 @@ export function readDroppableGroup(data: unknown): CardGroup | null {
 }
 
 /**
+ * Insertion index for a drop on a list's empty space — the statement "put this
+ * last". `cardCount` is the *rendered* count, which still includes the dragged
+ * card when the drop is in that card's own column, so last place is
+ * `cardCount - 1` there and `cardCount` across days.
+ *
+ * Reading it verbatim same-day made a drop by the already-last card resolve to
+ * one past its own index, so the origin guard in `resolveDropTarget` saw a
+ * change that had not happened and fired a write, a revalidation and a
+ * `router.refresh()` that moved nothing. Byte-identical to the correction
+ * `armPlacement.resolveColumnTap` makes for the same gesture on touch.
+ */
+function columnDropIndex(target: ColumnDropData, sameColumn: boolean): number {
+  return sameColumn ? target.cardCount - 1 : target.cardCount
+}
+
+/**
  * Resolves a finished drag into the placement it should persist, or null when
  * nothing should be written.
  *
@@ -183,7 +199,10 @@ export function readDroppableGroup(data: unknown): CardGroup | null {
  * The target index comes from the card that was dropped *onto*, so a card lands
  * exactly where it was released rather than being appended to the end. Dropping
  * on a list's empty space is the one case that appends, because there is no
- * neighbouring card to position against.
+ * neighbouring card to position against — and there the count is corrected for
+ * the dragged card's own presence, exactly as `armPlacement.resolveColumnTap`
+ * does it (Task 94). Both gestures now compute the same index for every target
+ * kind, card or column, which is what retires CONSTRAINT-29 universally.
  *
  * There is no Sunday branch: `dateKey` can only ever be a rendered column, and
  * the calendar renders Mon–Sat only (CONSTRAINT-19). The server rejects Sunday
@@ -198,9 +217,10 @@ export function resolveDropTarget(event: DragEndEvent): DropTarget | null {
   if (target === null) return null
   if (target.group !== origin.group) return null
 
-  const index = target.type === 'card' ? target.index : target.cardCount
+  const sameColumn = target.dateKey === origin.dateKey
+  const index = target.type === 'card' ? target.index : columnDropIndex(target, sameColumn)
 
-  if (target.dateKey === origin.dateKey && index === origin.index) return null
+  if (sameColumn && index === origin.index) return null
 
   return {
     group: origin.group,

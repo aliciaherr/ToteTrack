@@ -185,6 +185,39 @@ describe('resolveDropTarget', () => {
     })
   })
 
+  it('moves to last place on its own column’s empty space, discounting itself', () => {
+    // [dragged, B, C] → drop below the cards → [B, C, dragged]. The rendered
+    // count includes the dragged card, so last place is `cardCount - 1` — the
+    // same correction `armPlacement.resolveColumnTap` makes for a tap.
+    const target = resolveDropTarget(dragEvent('order-1', CARD_AT(MONDAY, 0), COLUMN(MONDAY, 3)))
+
+    expect(target).toEqual({
+      group: 'order',
+      cardId: 'order-1',
+      dateKey: MONDAY,
+      index: 2,
+    })
+  })
+
+  it('returns null when the already-last card is dropped on its own empty space', () => {
+    // [A, B, dragged] → drop below the cards → nothing moves. Reading
+    // `cardCount` verbatim resolved this to 3 against an origin index of 2, so
+    // the origin guard let it through and burned a write, a revalidation and a
+    // refresh on a card that was already where it landed (Task 94).
+    expect(
+      resolveDropTarget(dragEvent('order-1', CARD_AT(MONDAY, 2), COLUMN(MONDAY, 3))),
+    ).toBeNull()
+  })
+
+  it('applies the same correction to a pickup dropped on its own column’s space', () => {
+    // The two lists must never grow separate index rules (CONSTRAINT-25).
+    expect(
+      resolveDropTarget(
+        dragEvent('pickup-1', CARD_AT(MONDAY, 1, 'pickup'), COLUMN(MONDAY, 2, 'pickup')),
+      ),
+    ).toBeNull()
+  })
+
   it('returns null for a drop at the origin', () => {
     expect(resolveDropTarget(dragEvent('order-1', CARD_AT(MONDAY, 1), CARD_AT(MONDAY, 1)))).toBeNull()
   })
