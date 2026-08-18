@@ -500,6 +500,26 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 
 ---
 
+## CONSTRAINT-30: Screenshots of the running app are production data
+
+**Decision:** 2026-08-17, after two QA screenshots of the live customer book landed untracked in the root of a public repository.
+
+**Any** screenshot, HAR file, console dump or network log captured from a running session is production data and must be written only to a gitignored artifact path. This is not a preference about tidiness; it is the same rule as "never commit `docs/testing-setup.md`", applied to the file types that rule forgot to name.
+
+**Why it follows from CONSTRAINT-20.** Local dev runs against the production database. There is no sandbox, so there is no such thing as a screenshot of test data — every image of a running screen is an image of the real customer book. A HAR or a network log is worse, because it carries the response bodies rather than a picture of them.
+
+**What actually happened.** SEC-07's sensitive-file list names *documents* — `testing-setup.md`, `session-log.md`, `qa-report.md`, `security-report.md`, `framework-issues.md`, the env files. It does not name images. On 2026-08-17 two `@qa` browser screenshots (`qa-calendar-ipad-landscape.png`, `qa-calendar-pickups.png`) were written to the **repo root**, outside the gitignored `.playwright-mcp/`, where no rule covered them. They show nine real customer records with company names, PO numbers, container specs and delivery dates. This repository is public.
+
+**Neither file was ever committed** — `@security` caught them as H-01 the same day, and `git log --all` confirms they have never entered history. That is the only reason this is a constraint rather than an incident. One `git add -A`, the most common way anything gets committed here, would have published the customer book permanently: removing it afterwards needs a history rewrite and a force-push that invalidates every clone, and anything already fetched is gone for good.
+
+**What is in place now.** `.gitignore` carries `qa-*.png` and `*.screenshot.png` alongside the existing `.playwright-mcp/` entry, specifically to catch the root-save path that caused this. Those two patterns are a net under the rule, not the rule itself — a screenshot named anything else still lands untracked in a public repo, so the binding requirement is the artifact path, and the ignore entries exist for the case where someone forgets it.
+
+**The framework half of this is not fixed.** `@qa` Phase 2 mandates browser screenshots as evidence and says nothing about where they may be written; that gap is logged as FI-06 strike 2 and can only be fixed in `sbdev-private`, which this machine cannot push. Until it is, the discipline lives here.
+
+**What this closes off:** nothing. Screenshots are still taken and still viewable locally — they live in a folder git refuses to track. The cost is one extra thought per capture, against a failure that is irreversible.
+
+---
+
 ## Summary Table
 
 | # | Decision | Practical impact | Decided by | Date |
@@ -533,3 +553,4 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 | 27 | `agentRules: false` stays in `next.config.js` | Next 16 otherwise writes `AGENTS.md` + `CLAUDE.md` into the repo root on every dev run and build; the generated `CLAUDE.md` is just `@AGENTS.md`, so it competes with the SBDev framework for agent context and regenerates after every edit. `AGENTS.md` also added to `.gitignore` as a second line of defence — **both stay**, the ignore entry is not a licence to drop the config line | Builder | 2026-08-12 |
 | 28 | `DATABASE_URL` is always the **Session pooler** string | Supabase's Connect dialog offers three and only one works here. **Direct connection** (`db.[ref].supabase.co:5432`, user `postgres`) is IPv6-only and Vercel's runtime is IPv4-only — it fails as `getaddrinfo ENOTFOUND` before auth is ever attempted, and it took prod down on 2026-08-16. **Transaction pooler** (`:6543`) misroutes query responses on this project (FB-20). Correct string: `aws-0-[region].pooler.supabase.com:5432`, user `postgres.[project-ref]`. Swapping only the hostname is not enough — the username differs too. `ENOTFOUND` means wrong string, not wrong password | Builder | 2026-08-16 |
 | 29 | ~~Touch and drag disagree by one on same-day **downward** moves — accepted, not a bug~~ | **Superseded by Task 91.** The `- 1` at `armPlacement.ts:96` was deleted, so touch and drag now compute identical indices under one rule — *the armed card takes the tapped card's position; empty space appends to the bottom* — and a parity test guards it. The same `- 1` also made "tap the card directly below" a silent no-op, which is what reclassified it from accepted inconsistency to defect. Drag was still not the side that moved | Builder | 2026-08-17 |
+| 30 | Screenshots of the running app are production data | Because local dev runs against prod (CONSTRAINT-20), **any** screenshot, HAR, console dump or network log from a running session is production data and must be written only to a gitignored artifact path. SEC-07's list names documents, not images, so two `@qa` screenshots showing nine real customers with PO numbers and dates landed in the root of this **public** repo, uncovered by any rule — never committed, caught as `@security` H-01 the same day, but one `git add -A` from being permanent. `.gitignore` now also carries `qa-*.png` and `*.screenshot.png` as a net under the rule. Framework half unfixed — see FI-06 strike 2 | Builder | 2026-08-17 |

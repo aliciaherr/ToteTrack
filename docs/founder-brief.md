@@ -726,3 +726,39 @@ Both are now covered: a test clicks a real card inside a real list and fails if 
 - **Plain tap should still open the card popup**, exactly as before. If tapping a card without holding it first stops opening the popup, say so immediately — that would be this change reaching further than intended.
 
 **What this closes off:** Nothing you would want back. The old "insert above" rule is gone and there is no argument for it — it made the most natural gesture on the calendar do nothing. The one thing genuinely given up is the freedom for touch and mouse to behave differently, which was never a feature; it is now something a test actively prevents.
+
+---
+
+## FB-34 — The Second Lock on Your Data Was Never Installed
+
+**Date:** 2026-08-17
+**Architecture reference:** `docs/architecture.md` → Security Architecture → Authorization. One false sentence was replaced with a paragraph describing what actually protects the data.
+**Constraint added:** none. CONSTRAINT-05 ("RLS on all tables") is unchanged — the database rules exist and are still correct. What changed is what the document *claims* they do.
+**Found by:** `@qa` (NON-BLOCKING-6) and, independently and on the same day, `@security` (M-03).
+
+**Decided:** The architecture document said the database would refuse to hand over data to anyone who was not signed in, "even if server-side code has a bug." That was not true of this app and never has been. The sentence is gone. The document now states plainly that the app's own sign-in check is the only thing guarding your data.
+
+**What the document promised.**
+
+Two locks, one behind the other. The first is the app: every screen and every save re-checks that you are signed in. The second was supposed to be the database itself — a rule attached to each table saying "only hand rows to a signed-in caller." The point of the second lock is that it keeps working when the first one is broken. If a future change accidentally left a page unguarded, the database was meant to catch it and return nothing.
+
+**What is actually true.**
+
+The second lock is installed on every table, exactly as recorded. But the app does not knock on the door like an ordinary visitor — it connects to the database as the **owner** of the tables. And a table's owner is not subject to that table's own rules. Postgres works this way by design; there is a setting that forces an owner to obey its own rules, and this project has never switched it on.
+
+So for every read and every write this app makes, the second lock is simply not in the loop. It is not weak, or misconfigured, or bypassable with effort — it does not apply. There is one lock, and it is the app's sign-in check.
+
+**Why this is a documentation defect, not a hole to plug.**
+
+The single lock is the right amount for what this is. ToteTrack has one user and one company's data in it; there is no second tenant to keep out, nobody whose rows must be hidden from somebody else's. The sign-in check runs on every screen and every action, and `@security` confirmed this audit that it is working. Nothing needs to be built, and nothing was at risk.
+
+The defect is what the sentence would have done to whoever reads it next. Somebody adding a feature six months from now — an export, a status page, a link you can send someone — reads "the database catches it even if the code has a bug," concludes the guard on their new page is belt-and-braces, and leaves it off. It isn't, and the page would hand out everything. A safety net that people believe in and that isn't there is worse than no net at all, because it changes how carefully they walk.
+
+**Means for your product:** Nothing changes in the app — not a line of code moved, not a behaviour altered. What changed is that the written record now matches reality, so the next person to touch anything that reads your data is told the truth about what is protecting it. Two independent reviewers arrived at the same finding from different directions the same day, and both confirmed the security report had described this correctly all along; it was the architecture document that had drifted.
+
+**Check before approving:**
+- **Nothing needed from you.** This is a correction to a document, flagged because it reverses something you were told when the project was designed.
+- **The reversal is specifically of FB-03**, from 2026-04-20, which told you "two independent layers protect the data" and that "even if a bug in server-side code accidentally skips the session check, the database itself refuses unauthenticated queries." That is the claim being withdrawn. FB-03's other content stands; this one promise did not survive contact with how the app connects.
+- **If you ever want the second lock to be real**, it is a small database change — switching on the setting that makes the owner obey its own rules. It is not free: it has to be done on every table, and any query that legitimately needs to run outside a session would then need a deliberate exemption. Worth doing if a second user ever appears; not worth doing today.
+
+**What this closes off:** Nothing. The correction is a description, not a decision, and it leaves both futures open — carry on with one lock, or switch the second one on later with eyes open.

@@ -47,7 +47,13 @@ If the cron fails or is not implemented: document the unpause steps for the sale
 
 **Outcome:** Accepted risk with mitigation. Keep-alive cron ping to be implemented during build. Zero architectural impact.
 
-**Status:** [x] Accepted risk
+**Mitigation revised 2026-08-17 — the cron was never built, and is now declined.** Two facts came to light together. First, the keep-alive cron **was never actually set up**: it was only ever documented (`README.md`, `docs/architecture.md:443`, `docs/plan.md` Task 30), and `docs/roadmap.md:93` still carried Task 30 unticked. The docs described a mitigation that did not exist, and a `@session-start` briefing repeated the assumption that it did. Second, the builder **declined it** on being told, on the grounds that the app is now in active daily use by the salesperson — so the database never approaches 7 consecutive idle days.
+
+**The risk is therefore carried by daily usage, not by any mechanism.** That is a real mitigation while it holds, and it is not under anyone's control the way a cron is. The residual: **if usage stops for 7 consecutive days — holiday, illness, staff change, seasonal lull, or simply the salesperson moving on — the project pauses and the app is down until someone unpauses it manually** (~30 seconds, Supabase dashboard). The person most likely to hit that is the person least equipped to fix it, on exactly the Monday morning this assumption's "why it's critical" paragraph describes.
+
+**Do not silently re-propose the cron.** It is a decided no, not an oversight. Re-open it only if the usage pattern changes — a second user, a handover, or a known period of inactivity — at which point it is ~10 minutes of setup and the original design in `README.md` still stands.
+
+**Status:** [x] Accepted risk — mitigation revised 2026-08-17: carried by daily use, cron declined
 
 ---
 
@@ -157,7 +163,7 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 
 | # | Assumption | Category | Approach | Status |
 |---|-----------|----------|----------|--------|
-| A-01 | Supabase free tier project pausing | Service capability | Research + Accepted risk | Accepted — keep-alive cron mitigation |
+| A-01 | Supabase free tier project pausing | Service capability | Research + Accepted risk | Accepted — ~~keep-alive cron~~ **revised 2026-08-17: cron never built and now declined; carried by daily use** |
 | A-02 | Single-password auth not natively supported | Service capability | Research | Resolved — fixed dummy email pattern |
 | A-03 | Cold start: low value before data entered | User behavior | Accepted risk | Accepted — build data-entry screens first |
 | A-04 | Framer Motion requires client components | Technical feasibility | Accepted risk | Accepted — document boundary rule in architecture |

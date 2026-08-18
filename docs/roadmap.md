@@ -8,6 +8,19 @@
 
 ---
 
+## ⚠ Current status (2026-08-17): SHIPPED AND IN DAILY USE
+
+**This roadmap describes the road to launch. That road ended.** ToteTrack is deployed, in production, and in active daily use by the salesperson on real customer data. Everything below is history — read it for how the product got here, not for what is left to do.
+
+Two consequences the milestones below do not reflect:
+
+- **`@launch-prep` is not applicable** and should not be run. The launch gate it guards has been passed.
+- **There is no dev environment.** Local dev, production and every script point at the one real Supabase project (CONSTRAINT-20). `npm run db:seed` and `db:wipe` destroy or pollute live customer data and are forbidden.
+
+Current work is tracked as numbered tasks in `docs/plan.md` (Task 93 at time of writing), not as milestones. Live gate status lives in `docs/qa-report.md` and `docs/security-report.md`.
+
+---
+
 ## Milestone 1: App runs and you can log in
 
 **Goal:** A working Next.js app is running locally with Supabase connected, authentication working, and the nav shell in place — every screen route exists (even if empty).
@@ -90,7 +103,7 @@
 **Tasks:**
 - [ ] Task 28: Framer Motion animation layer
 - [ ] Task 29: Toast notifications + global error handling
-- [ ] Task 30: Keep-alive cron + README documentation
+- [~] Task 30: Keep-alive cron + README documentation — **README shipped; the cron itself was never built and was declined 2026-08-17.** See `docs/assumptions.md` A-01: the app is in daily use, so the database never idles 7 days. Residual risk if usage stops for a week.
 
 **Done when:** All animations from `docs/design-decisions.md` are working (page transitions, drawer, tab switching, stagger, collapsibles); every server action shows a success or error toast; `useReducedMotion()` disables animations correctly; README has complete setup instructions including keep-alive cron steps; cron-job.org is configured and pinging Supabase every 5 days.
 
