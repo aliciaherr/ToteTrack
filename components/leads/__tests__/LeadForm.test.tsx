@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { LeadDetail } from '@/db/queries/leads'
 
 const mockCreateLead = vi.hoisted(() => vi.fn())
@@ -52,6 +52,13 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+// The EH-01 tests spy on `console.error`. Restoring only at the end of those
+// test bodies would leave the spy installed if one failed mid-way, silencing
+// `console.error` for every test that runs after it in this file.
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 describe('LeadForm', () => {
   it('renders the "New Lead" heading and an empty name field in create mode', () => {
     render(<LeadForm mode="create" onClose={vi.fn()} onSaved={vi.fn()} />)
@@ -83,7 +90,7 @@ describe('LeadForm', () => {
       target: { value: 'Alice' },
     })
     fireEvent.click(screen.getByRole('button', { name: /save lead/i }))
-    await waitFor(() => expect(mockCreateLead).toHaveBeenCalled())
+    await waitFor(() => expect(mockCreateLead).toHaveBeenCalledTimes(1))
   })
 
   it('passes a normalised payload to createLead and fires onSaved on success', async () => {
@@ -140,6 +147,63 @@ describe('LeadForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/server rejected the request/i)
     expect(onSaved).not.toHaveBeenCalled()
+    // One submit must mean exactly one action call — a count-free
+    // `toHaveBeenCalled` here would hide a double-fire on the failure path.
+    expect(mockCreateLead).toHaveBeenCalledTimes(1)
+    // Save Lead must come back for a retry: react-hook-form clears
+    // `isSubmitting` once the handler settles.
+    expect(screen.getByRole('button', { name: /save lead/i })).toBeEnabled()
+  })
+
+  // Before the try/catch in `runSave`, a transport-level rejection (offline,
+  // stale action id after a deploy) escaped `handleSubmit` unhandled: nothing
+  // logged, no alert, and — because react-hook-form still clears
+  // `isSubmitting` — a Save Lead click that silently did nothing at all.
+  it('surfaces a generic error when createLead rejects in transit (EH-01)', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateLead.mockRejectedValueOnce(new Error('network down'))
+    const onSaved = vi.fn()
+    render(<LeadForm mode="create" onClose={vi.fn()} onSaved={onSaved} />)
+
+    fireEvent.change(screen.getByPlaceholderText(/full name/i), { target: { value: 'Alice' } })
+    fireEvent.click(screen.getByRole('button', { name: /save lead/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(mockToast).not.toHaveBeenCalled()
+    expect(mockCreateLead).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: /save lead/i })).toBeEnabled()
+    // The cause must reach the console — never swallowed (EH-01). The message
+    // wording is not the contract, so it is matched loosely; the context object
+    // is, so it is matched explicitly. `afterEach` restores the spy.
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('submit failed'),
+      expect.objectContaining({ mode: 'create', leadId: null, cause: expect.any(Error) }),
+    )
+    expect(consoleError).toHaveBeenCalledTimes(1)
+    // SEC-05: the log carries identifiers and the cause, never the lead's own
+    // name, email or phone.
+    const [, context] = consoleError.mock.calls[0]
+    expect(JSON.stringify(context)).not.toMatch(/Alice/)
+  })
+
+  it('logs the lead id and surfaces a generic error when updateLead rejects (EH-01)', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockUpdateLead.mockRejectedValueOnce(new Error('network down'))
+    const onSaved = vi.fn()
+    render(
+      <LeadForm mode="edit" initialDetail={sampleDetail} onClose={vi.fn()} onSaved={onSaved} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /save lead/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(mockUpdateLead).toHaveBeenCalledTimes(1)
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('submit failed'),
+      expect.objectContaining({ mode: 'edit', leadId: LEAD_ID, cause: expect.any(Error) }),
+    )
   })
 
   // Regression, Task 85: `onClose` was declared, passed by both LeadLayout call

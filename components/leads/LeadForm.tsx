@@ -6,6 +6,8 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { createLead, updateLead } from '@/lib/actions/leads'
 import { useToast } from '@/lib/hooks/useToast'
+import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
+import type { LeadInput } from '@/lib/actions/leads'
 import {
   type LeadFormValues,
   EMPTY_FORM_VALUES,
@@ -56,6 +58,54 @@ function FormFooter({ isSubmitting, onClose }: { isSubmitting: boolean; onClose:
   )
 }
 
+/** What `runSave` writes through, so it can live outside the component. */
+interface SaveDeps {
+  isEdit: boolean
+  /** The lead being edited, or `null` in create mode. */
+  leadId: string | null
+  toast: (message: string, tone: 'success' | 'error') => void
+  onSaved: () => void
+  setServerError: (value: string | null) => void
+}
+
+/**
+ * Runs the create/update action and routes every outcome somewhere visible —
+ * an `{ error }` result inline via `serverError`, and a transport-level
+ * rejection (offline, stale action id after a deploy) as
+ * `GENERIC_FAILURE_MESSAGE` instead of escaping react-hook-form's
+ * `handleSubmit` unseen (EH-01). Mirrors `useOrderForm`'s `makeSubmitHandler`.
+ *
+ * Hoisted out of the component for the same reason as `LeadNextAction`'s
+ * `runSave`: nested function bodies count toward the enclosing component's
+ * length, and CONSTRAINT-14's 80-line allowance covers JSX overflow only —
+ * the try/catch below is logic.
+ */
+async function runSave(input: LeadInput, deps: SaveDeps): Promise<void> {
+  deps.setServerError(null)
+  let result: { id: string } | { success: true } | { error: string }
+  try {
+    result = deps.isEdit && deps.leadId
+      ? await updateLead(deps.leadId, input)
+      : await createLead(input)
+  } catch (cause) {
+    // Identifiers and the cause only — never the form values, which carry the
+    // lead's name, email and phone (SEC-05).
+    console.error('LeadForm: submit failed', {
+      mode: deps.isEdit ? 'edit' : 'create',
+      leadId: deps.leadId,
+      cause,
+    })
+    deps.setServerError(GENERIC_FAILURE_MESSAGE)
+    return
+  }
+  if ('error' in result) {
+    deps.setServerError(result.error)
+    return
+  }
+  deps.toast(deps.isEdit ? 'Lead updated.' : 'Lead created.', 'success')
+  deps.onSaved()
+}
+
 /**
  * Right-panel form for creating or editing a lead. Mirrors the CustomerForm
  * and OrderForm modal-animation pattern (scale 0.97→1 + fade, 180ms ease-out).
@@ -81,18 +131,13 @@ export default function LeadForm({ mode, initialDetail, onClose, onSaved }: Lead
   })
 
   async function onSubmit(values: LeadFormValues) {
-    setServerError(null)
-    const input = formValuesToLeadInput(values)
-    const result = isEdit && initialDetail
-      ? await updateLead(initialDetail.id, input)
-      : await createLead(input)
-
-    if ('error' in result) {
-      setServerError(result.error)
-      return
-    }
-    toast(isEdit ? 'Lead updated.' : 'Lead created.', 'success')
-    onSaved()
+    await runSave(formValuesToLeadInput(values), {
+      isEdit,
+      leadId: initialDetail?.id ?? null,
+      toast,
+      onSaved,
+      setServerError,
+    })
   }
 
   const animation = shouldReduceMotion ? {} : PANEL_ANIMATION

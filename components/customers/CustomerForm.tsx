@@ -15,13 +15,9 @@ import DeleteCustomerDialog from './DeleteCustomerDialog'
 import {
   type CustomerFormValues,
   detailToFormValues,
-  formValuesToInput,
 } from './customerFormSchema'
-import {
-  createCustomer,
-  updateCustomer,
-  deleteCustomer,
-} from '@/lib/actions/customers'
+import { makeCustomerSubmitHandler } from './customerFormSubmit'
+import { deleteCustomer } from '@/lib/actions/customers'
 import { useToast } from '@/lib/hooks/useToast'
 import type { CustomerDetail } from '@/db/queries/customers'
 
@@ -144,28 +140,14 @@ export default function CustomerForm({
   })
   const fieldArray = useFieldArray({ control: form.control, name: 'contacts', keyName: 'key' })
 
-  async function onSubmit(values: CustomerFormValues) {
-    setServerError(null)
-    const primaries = values.contacts.filter((c) => c.is_primary).length
-    if (primaries !== 1) {
-      form.setError('contacts', {
-        type: 'manual',
-        message: 'Exactly one contact must be marked as primary.',
-      })
-      return
-    }
-    form.clearErrors('contacts')
-    const input = formValuesToInput(values)
-    const result = isEdit && customerId
-      ? await updateCustomer(customerId, input)
-      : await createCustomer(input)
-    if ('error' in result) {
-      setServerError(result.error)
-      return
-    }
-    toast(isEdit ? 'Customer updated.' : 'Customer created.', 'success')
-    onSaved()
-  }
+  const onSubmit = makeCustomerSubmitHandler({
+    isEdit,
+    customerId,
+    form,
+    toast,
+    onSaved,
+    setServerError,
+  })
 
   async function handleDelete() {
     if (!customerId) return { error: 'No customer to delete.' } as const
