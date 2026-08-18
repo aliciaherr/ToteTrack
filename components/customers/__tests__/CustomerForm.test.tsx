@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import CustomerForm from '../CustomerForm'
 import type { CustomerDetail } from '@/db/queries/customers'
 
@@ -61,6 +61,14 @@ const sampleDetail: CustomerDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// The EH-01 tests below spy on `console.error`. `clearAllMocks` resets call
+// history but not the implementation, so without this the spy stays installed
+// for every test that runs after them in this file — silencing the one signal
+// a LOUD failure has left. Mirrors the guard in `LeadForm.test.tsx`.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('CustomerForm', () => {

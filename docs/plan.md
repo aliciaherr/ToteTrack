@@ -3147,23 +3147,25 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 - `SortableProductionCard` / `SortablePickupCard` armed-branch click handler — modify. `event.stopPropagation()` before dispatching `tap`, guarded so an **unarmed** tap still bubbles and still opens the popup
 
 **Acceptance criteria:**
-- [ ] `resolveCardTap` returns `target.index` unchanged for every tap, same-day or cross-day — the `- 1` and its `insertionIndex` local are gone, and touch and drag now compute **identical** indices for the same move
-- [ ] The same-day index-equality cancel is deleted. With the decrement gone it is reachable only by tapping the armed card itself, which the identity check above it already cancels — leaving both would be two paths for one behaviour
-- [ ] `resolveColumnTap` is byte-for-byte unchanged; its `cardCount - 1` is correct and is not "fixed" in passing
-- [ ] One tap produces **exactly one** placement call. A card tap in armed mode calls `stopPropagation` and never reaches the ancestor `<ul onClick>`, on both `SortableProductionCard` and `SortablePickupCard`
-- [ ] `stopPropagation` fires in the **armed branch only** — an unarmed tap still bubbles normally and still opens the card popup. Plain tap = popup is untouched (FB-14's trade)
-- [ ] The comments in `DayColumnParts.tsx` and `ColumnPickupList.tsx` are corrected. They claimed a bubbled click finds nothing armed, which is the opposite of the truth and is a large part of why this survived review
-- [ ] `armPlacement.test.ts:87` is rewritten to assert the new rule, not deleted — the old assertion is the record of what was spec'd, and its replacement is the regression guard
-- [ ] A test renders a card inside a real list and clicks it, asserting a single placement — no existing test did this, which is precisely why cause 2 was invisible
-- [ ] No optimistic client state added; `router.refresh()` remains the update path (CONSTRAINT-02). No in-flight guard is added to `tap` — the double call is eliminated at its source rather than absorbed downstream
-- [ ] CONSTRAINT-29 marked superseded by this task, with its summary-table row updated and the original text preserved
-- [ ] **Verified by the builder on a real iPad** — FB-14 (line 225c) set the hard rule that a touch task cannot close without real-device validation, and this task exists partly because that rule is the only thing that catches gestures jsdom cannot express. All five must pass:
-  - [ ] Same-day **downward** move — arm a card, tap a card below it; the armed card lands in that card's position
-  - [ ] Same-day **upward** move — arm a card, tap a card above it; same rule, same result
-  - [ ] **Adjacent swap in both directions** — arm a card, tap its immediate neighbour above, then repeat downward. Neither is a no-op
-  - [ ] **Cross-day tap onto a specific card** lands at *that card's* position in the destination day — **not** at the bottom of it. This is the one that looked correct before and was not
-  - [ ] **Tap empty space** below the cards in a day (and an entirely empty day) appends to the bottom
-- [ ] Full suite green at ≥ **1292 tests / 108 files**; `npx tsc --noEmit` and `npm run lint` clean
+- [x] `resolveCardTap` returns `target.index` unchanged for every tap, same-day or cross-day — the `- 1` and its `insertionIndex` local are gone, and touch and drag now compute **identical** indices for the same move
+- [x] The same-day index-equality cancel is deleted. With the decrement gone it is reachable only by tapping the armed card itself, which the identity check above it already cancels — leaving both would be two paths for one behaviour
+- [x] `resolveColumnTap` is byte-for-byte unchanged; its `cardCount - 1` is correct and is not "fixed" in passing
+- [x] One tap produces **exactly one** placement call. A card tap in armed mode calls `stopPropagation` and never reaches the ancestor `<ul onClick>`, on both `SortableProductionCard` and `SortablePickupCard`
+- [x] `stopPropagation` fires in the **armed branch only** — an unarmed tap still bubbles normally and still opens the card popup. Plain tap = popup is untouched (FB-14's trade)
+- [x] The comments in `DayColumnParts.tsx` and `ColumnPickupList.tsx` are corrected. They claimed a bubbled click finds nothing armed, which is the opposite of the truth and is a large part of why this survived review
+- [x] `armPlacement.test.ts:87` is rewritten to assert the new rule, not deleted — the old assertion is the record of what was spec'd, and its replacement is the regression guard
+- [x] A test renders a card inside a real list and clicks it, asserting a single placement — no existing test did this, which is precisely why cause 2 was invisible
+- [x] No optimistic client state added; `router.refresh()` remains the update path (CONSTRAINT-02). No in-flight guard is added to `tap` — the double call is eliminated at its source rather than absorbed downstream
+- [x] CONSTRAINT-29 marked superseded by this task, with its summary-table row updated and the original text preserved
+- [x] **Verified by the builder on a real iPad** — FB-14 (line 225c) set the hard rule that a touch task cannot close without real-device validation, and this task exists partly because that rule is the only thing that catches gestures jsdom cannot express. All five must pass:
+  - [x] Same-day **downward** move — arm a card, tap a card below it; the armed card lands in that card's position
+  - [x] Same-day **upward** move — arm a card, tap a card above it; same rule, same result
+  - [x] **Adjacent swap in both directions** — arm a card, tap its immediate neighbour above, then repeat downward. Neither is a no-op
+  - [x] **Cross-day tap onto a specific card** lands at *that card's* position in the destination day — **not** at the bottom of it. This is the one that looked correct before and was not
+  - [x] **Tap empty space** below the cards in a day (and an entirely empty day) appends to the bottom
+- [x] Full suite green at ≥ **1292 tests / 108 files**; `npx tsc --noEmit` and `npm run lint` clean
+
+**Checkbox reconciliation (2026-08-17, Task 92).** Every box above was `- [ ]` while the Status line recorded completion — `docs/qa-report.md` NON-BLOCKING-5, which flagged that "verified" and "forgot to tick" must not look identical at a release gate. Each was re-verified before ticking rather than taken on trust: the ten code/test criteria against disk (`armPlacement.ts` `resolveCardTap`/`resolveColumnTap`, the armed-only `stopPropagation` in both card wrappers, the corrected `DayColumnParts.tsx`/`ColumnPickupList.tsx` comments, the rewritten `armPlacement.test.ts` assertion, the `toHaveBeenCalledTimes(1)` bubble guards in `armMode.test.tsx:294/398`, the absence of any in-flight ref in `armMode.tsx`, and CONSTRAINT-29's struck summary row at `docs/constraints.md:535` with its original text preserved below), and the five iPad gestures against the builder's confirmation, given again in this session.
 
 **Tests required:**
 - `resolveCardTap` → same-day **downward** tap returns the tapped card's index, not one less (replaces the `:87` assertion)
@@ -3176,8 +3178,111 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 - **Bubble** → same for `SortablePickupCard`
 - **Bubble** → an *unarmed* card click still reaches the popup handler
 
-**Status:** [x] Done 2026-08-17 — **verified by the builder on the real iPad**, which is the criterion that closes it (FB-14 line 225c). Suite **1292 → 1305**; `tsc` and `lint` clean. Both fixes were reverted in isolation to confirm the new guards actually bite: removing `stopPropagation` fails with `expected 1 call, got 2` — the exact double-fire, which no pre-existing test caught while the bug was live — and restoring the `- 1` fails 5 assertions including two from the touch/drag parity suite. **The `- 1` existed because a code comment claimed the drag path used a post-removal index; it never did.** `resolveDropTarget` reads `index` off the `over` payload, which is the card's static rendered position and is never renumbered mid-drag, so the two paths were made to disagree in order to match a comment that was wrong. **One asymmetry survives and is deliberately not swept up:** `resolveColumnTap` still uses `cardCount - 1` where drag's column-space drop uses `cardCount` verbatim, so CONSTRAINT-29 is retired for card targets, not universally. The two produce the same result only because `placeAndRenumber` clamps the index to `siblings.length` — correct behaviour resting on a clamp nothing tests. The parity suite is scoped to card targets and says so in a comment. Follow-up: a test pinning the clamp.
+**Status:** [x] Done 2026-08-17 — **verified by the builder on the real iPad**, which is the criterion that closes it (FB-14 line 225c). Suite **1292 → 1305**; `tsc` and `lint` clean. Both fixes were reverted in isolation to confirm the new guards actually bite: removing `stopPropagation` fails with `expected 1 call, got 2` — the exact double-fire, which no pre-existing test caught while the bug was live — and restoring the `- 1` fails 5 assertions including two from the touch/drag parity suite. **The `- 1` existed because a code comment claimed the drag path used a post-removal index; it never did.** `resolveDropTarget` reads `index` off the `over` payload, which is the card's static rendered position and is never renumbered mid-drag, so the two paths were made to disagree in order to match a comment that was wrong. **One asymmetry survives and is deliberately not swept up:** `resolveColumnTap` still uses `cardCount - 1` where drag's column-space drop uses `cardCount` verbatim, so CONSTRAINT-29 is retired for card targets, not universally. The parity suite is scoped to card targets and says so in a comment. **Correction (2026-08-17 `@qa`):** this note originally claimed the two paths agree only via a clamp that nothing tests, and proposed a test pinning it. That was wrong — Task 89 already pinned both bounds at `placement.renumber.test.ts:133` (index 99 → last) and `:142` (index −1 → first), using a `BEFORE_FIRST_POSITION` sentinel documented at `:56-63` so the test cannot pass without the clamp. The real residual is different and is recorded as NON-BLOCKING-3 in `docs/qa-report.md`: on a **same-column empty-space drag**, touch cancels while drag computes `target.cardCount` and fires a placement that changes nothing — a wasted write and revalidation, violating the stated intent at `calendarDnd.ts:~164`, and untested (`CalendarDnd.test.tsx:177` covers cross-day only).
 
 **PRD wording to check, not a deviation.** `docs/prd.md:600` reads "tap another card to insert at its position (cards below shift down)". The main clause is exactly the new rule; the parenthetical is only true for upward and cross-day moves — on a same-day downward move the tapped card shifts *up*. Flagged rather than edited, since the builder's approved file list for this task did not include the PRD.
 
 **Depends on:** Task 89 (server-side renumbering — without it, a correct index still would not persist)
+
+---
+
+## Task 92: Consolidate the duplicated auth guard — one checker, called inside the try
+
+**Defect fix — no `docs/prd.md` entry by design.** Nothing about the product spec changes. Source: `docs/qa-report.md` BLOCKING-1 (2026-08-17).
+
+**Two defects, not one.** `lib/actions/auth.guard.ts:14-18` states in the imperative that `assertAuthenticated` must be called **inside** the action's `try`, because `createClient()` (`lib/supabase/server.ts:20-27`) and `getUser()` both reach Supabase and can throw. Three modules ignored the shared guard and defined a local copy, called outside the `try`:
+
+- `lib/actions/invoices.ts:47-52`, called at `:204` (try opens `:210`) — `createInvoice`
+- `lib/actions/leads.ts:32-37`, called at `:52,95,157,194,241` — all five lead actions
+- `lib/actions/support.ts:55-60`, called at `:71,199,250` — all three support actions
+
+**Placement.** Called outside a `try`, an auth-service blip makes the throw escape the action and reject on the client, where nothing handles it. This compounds with BLOCKING-2: three of those nine are called from sites that swallow rejections, so the operator's work appears to submit into nothing.
+
+**Silence.** Each copy was `if (error || !data.user) return { error: 'You are not signed in.' }` — no `console.error`, and an auth *service* failure collapsed into a missing-session message. That sends an already-signed-in operator to a login screen that cannot help them, and logs nothing. It is exactly the EH-02/EH-04 defect the shared guard was written to fix: the guard logs `{ operation, status, cause }` and returns `GENERIC_FAILURE_MESSAGE` for a service failure, reserving `'You are not signed in.'` for a genuinely absent session.
+
+**No security hole opens or closes here.** All nine actions failed closed before and fail closed after. This is a robustness and observability fix. It nonetheless touches authentication, so the Security Trigger fires and the task cannot close without `@security`.
+
+**Files:**
+- `lib/actions/invoices.ts` — modify. Delete the local guard; import the shared one; move the call inside the `try`
+- `lib/actions/leads.ts` — modify. Same, across 5 call sites
+- `lib/actions/support.ts` — modify. Same, across 3 call sites
+- `lib/actions/__tests__/invoices.test.ts`, `lib/actions/__tests__/leads.test.ts`, `lib/actions/__tests__/support.test.ts` — modify
+
+**Approach:** `lib/actions/customers.ts:132` is the reference — it carries the inline comment confirming compliance, and `customer-addresses.ts:56-64` shows the same shape with an id check and a Zod parse following the guard inside the same `try`. Match them; do not invent a second house style. The already-compliant modules (`orders`, `orders.revert`, `customers`, `customer-addresses`, `calendar`, `pickups`, `pickups.calendar`) also import `GENERIC_FAILURE_MESSAGE` from `./auth.guard` rather than redeclaring it, so the three local copies of that constant go with the three local guards.
+
+**Functions / components to implement:**
+- No new exported action. `assertAuthenticated` is imported, not written
+- `runUploadPreflight(ticketId, file)` in `lib/actions/support.ts` — new **non-exported** helper. `uploadTicketAttachment` had ~20 lines of guard/id/file/quota checks above its `try`; moving them inside pushes the action past CQ-01's 50-line cap, so they move together into one helper called from the first line of the `try`. Not exported, so `'use server'`'s async-only rule and CONSTRAINT-24's endpoint count are both unaffected
+
+**Acceptance criteria:**
+- [x] All three local `assertAuthenticated` copies are deleted; a repo-wide search for `async function assertAuthenticated` under `lib/actions/` returns exactly one hit, in `auth.guard.ts`
+- [x] All **9** call sites import the shared guard and sit **inside** their action's `try`, matching `customers.ts:132`
+- [x] The three local `GENERIC_FAILURE_MESSAGE` declarations are gone; all three modules import it from `./auth.guard`. Same string, so no user-facing copy changes
+- [x] `createClient` is no longer imported by `invoices.ts` or `leads.ts` (the guard was its only consumer there); `support.ts` keeps it — the storage upload and the signed-URL mint still need a client (CQ-05, no unused imports)
+- [x] Check order within each action is preserved. Auth still runs before the id check and before Zod, so no action starts validating for a caller it has not authenticated
+- [x] An auth-*service* failure now returns `GENERIC_FAILURE_MESSAGE` and is logged; a genuinely missing session still returns `'You are not signed in.'`. The two are distinguishable in the log and in the message (EH-02, EH-04)
+- [x] `uploadTicketAttachment` and `getSupportAttachmentSignedUrl` have no `await` left outside a `try`. The former's preflight is inside it; the latter's private lookup-only `try` is widened to the whole body, since `createClient()` and `createSignedUrl` sat outside every handler
+- [x] `uploadTicketAttachment`'s LOW-01 orphan cleanup still runs on a post-upload failure, and does **not** run when the failure happened before anything was written — `supabase`/`storagePath` stay `undefined` until preflight picks a destination
+- [x] No success path changes. No revalidation, transaction, quota, sanitisation or storage behaviour is altered
+- [x] CQ-01 every changed function < 50 lines; CQ-02 all three files < 300 lines; CQ-05 no `console.log`, no dead code, no unused imports
+- [x] Full suite green at ≥ **1305 tests / 108 files**; `npx tsc --noEmit` and `npm run lint` clean
+
+**Tests required:**
+- `createInvoice` / `createLead` / `createTicket` → `getUser` **rejects**: the action resolves to `{ error: GENERIC_FAILURE_MESSAGE }` rather than rejecting, and `console.error` is called with the action's name and `cause`. This is the case no test in the repo covered — every existing auth test used a *resolved* `{ user: null }`
+- `createInvoice` / `createLead` / `createTicket` → `getUser` resolves carrying an `error`: generic message, not `'You are not signed in.'`, and the guard's own `{ operation, status }` log fires
+- `uploadTicketAttachment` → `getUser` rejects before any upload: handled `{ error }`, and **no** storage upload, transaction, or orphan `remove`
+- Existing not-signed-in tests keep asserting `'You are not signed in.'` — the `AUTH_FAIL` fixtures in `leads.test.ts` and `support.test.ts` carried a bogus `error: new Error('no session')` alongside `user: null`, which the shared guard correctly reads as a service failure; they are corrected to `error: null` so they test the case their name claims
+
+**Status:** [ ] Implementation complete 2026-08-17 — **awaiting `@security`.** The task touches authentication, so the framework's Security Trigger fires and the completion order pauses here; it is deliberately not `[x]`. All nine call sites are on the shared guard and inside their `try`; the three changed test files went **55 → 62** tests, `tsc` and `lint` clean, full suite green at 108 files. **Behaviour did change in one respect, and it is the point of the task:** an auth-service failure at these nine actions now reads "Something went wrong. Please try again." and is logged, where it previously read "You are not signed in." and was logged nowhere. **`support.ts` needed more than a guard move** — `uploadTicketAttachment` had four checks and two awaits above its `try`, and `getSupportAttachmentSignedUrl`'s `try` covered only its DB lookup, leaving the guard, `createClient()` and `createSignedUrl` outside every handler. Both were brought under one `try`; the former's prelude became `runUploadPreflight` to stay inside CQ-01. **`support.ts` is now 299 lines against CQ-02's 300** — the next change to it must split the attachment machinery into a sibling, the way `orders.revert.ts` and `leads.convert.ts` were extracted at this same cap.
+
+**Not verified:** the rejection paths are exercised through a mocked `getUser` in vitest, never against a real Supabase Auth outage. Same limit Tasks 85 and 90 shipped under, accepted for the same reason.
+
+**Depends on:** —
+
+---
+
+## Task 93: Stop the lead and customer forms failing silently
+
+**Defect fix — no `docs/prd.md` entry by design.** Nothing about the product spec changes. Source: `docs/qa-report.md` BLOCKING-2 (2026-08-17).
+
+**Scoped deliberately to two of four sites.** The finding named four: `components/leads/LeadForm.tsx:83-96`, `components/customers/CustomerForm.tsx:158-168`, `components/support/useTicketSubmit.ts:42-61` and `components/support/TicketAttachments.tsx:17-35`. **The builder deprioritised the two support sites** — the support ticket surface is not in the salesperson's active daily workflow — so this task closes the lead and customer forms only. The two support sites remain open and are recorded in `docs/qa-report.md`; they are not superseded and not fixed.
+
+**The defect.** Both forms awaited a server action with no `try`/`catch` at all. A returned `{ error }` was handled; a **rejection** was not. React Hook Form resets `isSubmitting`, so the button did not wedge — the click simply did nothing, with no log and no message. Against this project's LOUD-failure standard (EH-01, EH-02) silent is worse than sticky: Task 90's three wedge fixes at least left visible evidence. These two are the highest-traffic write surfaces in the app.
+
+**Compounds with Task 92.** `LeadForm` calls `createLead`/`updateLead`, two of the nine actions whose guard sat outside the `try`. Before both tasks, an auth-service blip during lead entry produced a rejection that nothing caught and nothing logged, anywhere in the stack.
+
+**Files:**
+- `components/leads/LeadForm.tsx` — modify. Submit path extracted to a module-level `runSave(input, deps)` with a `SaveDeps` interface
+- `components/customers/CustomerForm.tsx` — modify. Submit handler extracted to a sibling file
+- `components/customers/customerFormSubmit.ts` — **create.** Holds `makeCustomerSubmitHandler` and the catch
+- `components/leads/__tests__/LeadForm.test.tsx`, `components/customers/__tests__/CustomerForm.test.tsx` — modify
+
+**Approach:** `components/orders/useOrderForm.ts:97-109` is the reference and is copied faithfully in both — `let result` declared **outside** the `try` so only the action call is guarded, leaving the already-handled `{ error }` branch and the success path byte-identical in behaviour. The error surfaces through the same `role="alert"` banner each form already uses for a returned `{ error }`; no new user-facing surface was invented.
+
+**Why both were extracted rather than caught inline.** `CustomerForm.tsx` was **already 206 lines — over CQ-02's 200-line cap before this change**. Adding the catch in place measured at ~239 lines / 83-line body, worse on both caps; extraction to a sibling brought it to 188 (body 67), so a pre-existing violation was closed on the way past. `LeadForm.tsx`'s body was 54 lines of legitimate JSX overflow, and `docs/constraints.md:183` allows CONSTRAINT-14's 80 lines *only* when the overflow is JSX, not logic — ~10 lines of try/catch would have been logic. Both follow the `runSave` / `*Deps` precedent already in their own directories (`LeadNextAction.tsx:32`, `useInvoiceSubmit`).
+
+**Functions / components to implement:**
+- `runSave(input, deps: SaveDeps)` in `components/leads/LeadForm.tsx` — module-level, 26 lines
+- `makeCustomerSubmitHandler(deps)` in `components/customers/customerFormSubmit.ts` — module-level, 38 lines
+
+**Acceptance criteria:**
+- [x] Both submit paths catch a rejection, log with context, and surface an operator-visible error through the existing `role="alert"` banner
+- [x] `console.error` receives **identifiers and `cause` only** — `{ mode, leadId|customerId, cause }`. No form values. These forms carry names, emails and phone numbers (SEC-01/SEC-05), and the tests assert specific field values are absent from the logged arguments, following the precedent `LoginForm.test.tsx:79` set for the password
+- [x] The already-handled `{ error }` path is unchanged — the server's own message still reaches the operator verbatim, not flattened into the generic string
+- [x] The success path is unchanged — `onSaved`, toast and revalidation behaviour identical
+- [x] `CustomerForm.tsx` is back under CQ-02's 200-line cap (206 → 188); `LeadForm.tsx` 167 lines; both new helpers < 50 lines (CQ-01)
+- [x] CQ-05 no `console.log`, no dead code, no unused imports
+- [x] Full suite green; `npx tsc --noEmit` and `npm run lint` clean
+
+**Tests required:**
+- `LeadForm` → `createLead` rejects (create mode): generic alert appears, `onSaved` and toast not called, button re-enabled, `console.error` called **once** with `{ mode: 'create', leadId: null, cause }`, and no personal data in the logged context
+- `LeadForm` → `updateLead` rejects (edit mode): the real lead id reaches the log
+- `CustomerForm` → `updateCustomer` rejects (edit) and `createCustomer` rejects (create): same assertions, with `customerId` naming the flow
+- `CustomerForm` → `createCustomer` returns a handled `{ error }`: the server's specific message reaches the alert un-flattened. **This case had no test at all before**
+- Call-count strengthening in both files: each had a bare `toHaveBeenCalled()` on a submit path — the same shape that hid the calendar double-fire in Task 91 — now `toHaveBeenCalledTimes(1)`. Both files also gained `afterEach(vi.restoreAllMocks)`
+
+**Status:** [x] Done 2026-08-17 — shipped as `ba57094`. Suite **1305 → 1317**, 108 files; `tsc` and `lint` clean. **Behaviour on a rejection changed from nothing-at-all to a logged failure plus a visible generic message**; the handled-`{ error }` and success paths are untouched. Two pre-existing defects were closed in passing and are worth remembering: `CustomerForm.tsx` was already over its line cap before this task, and both test files were asserting submit calls without counts. **Not a Security Trigger** — no auth, payment or data-model change; the actions themselves were not touched, only the client-side handling of their rejection.
+
+**Not verified:** the rejection paths are exercised through a mocked action in vitest, never against a real server outage. The two support sites named in BLOCKING-2 are still unfixed by explicit decision.
+
+**Depends on:** — (independent of Task 92, though the two together close the compound failure described above)
