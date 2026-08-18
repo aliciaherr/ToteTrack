@@ -51,5 +51,16 @@ yarn-error.log*
 # QA browser artifacts — screenshots of the live app contain real customer data.
 # .playwright-mcp/ is ignored above; this catches shots saved to the repo root by
 # a filename argument, which is how two of them escaped on 2026-08-17 (SEC-07, H-01).
-qa-*.png
-*.screenshot.png
+# Root-anchored: nothing binary or artifact-shaped is tracked anywhere in this
+# repo, so a blanket rule at the root costs nothing and closes the whole class.
+# The earlier `qa-*.png` / `*.screenshot.png` pair only caught the two filenames
+# that happened to leak; `calendar.png`, `trace.har` or `export.csv` still walked
+# straight past it (@security L-08).
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.gif
+/*.har
+/*.csv
+/*.log
