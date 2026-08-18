@@ -17,6 +17,7 @@ vi.mock('@/db', () => ({
 
 vi.mock('next/cache', () => ({ revalidatePath: mockRevalidatePath }))
 
+import { leads, customers } from '@/db/schema'
 import { addLeadNote, setNextAction, createLead, updateLead, convertLeadToCustomer } from '../leads'
 
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
@@ -44,7 +45,10 @@ function stubUpdateResolves() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  // `reset`, not `clear`: the conversion suite below installs whole
+  // implementations on these mocks, and `clearAllMocks` wipes call history but
+  // leaves implementations in place — they would leak into every later test.
+  vi.resetAllMocks()
 })
 
 describe('addLeadNote', () => {
@@ -349,15 +353,19 @@ describe('convertLeadToCustomer', () => {
     expect(mockTransaction).toHaveBeenCalledOnce()
   })
 
-  it('returns a generic error and does not update lead when the transaction fails', async () => {
+  it('returns a generic error and revalidates nothing when the transaction fails', async () => {
+    // Error *mapping* only — the transaction rejects before its callback runs,
+    // so this says nothing about rollback. The state a failed conversion
+    // leaves behind is pinned by the rollback suite below.
     mockGetUser.mockResolvedValueOnce(AUTH_OK)
     stubSelectLead({ company: null }) // null company skips duplicate check
     mockTransaction.mockRejectedValueOnce(new Error('insert failed'))
     const result = await convertLeadToCustomer(LEAD_ID)
     expect(result).toHaveProperty('error')
     expect((result as { error: string }).error).not.toMatch(/insert failed/i)
-    // mockUpdate was NOT called outside the transaction — lead status unchanged
-    expect(mockUpdate).not.toHaveBeenCalled()
+    // A conversion that did not happen invalidates no cache — the two
+    // revalidations sit after the await and must stay there.
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 
   it('returns an auth error when the user is not signed in', async () => {
@@ -365,5 +373,182 @@ describe('convertLeadToCustomer', () => {
     const result = await convertLeadToCustomer(LEAD_ID)
     expect(result).toEqual({ error: 'You are not signed in.' })
     expect(mockTransaction).not.toHaveBeenCalled()
+  })
+})
+
+// ─── convertLeadToCustomer: the rollback guarantee ────────────────────────────
+
+/**
+ * In-memory stand-in for the three tables a conversion touches, in the spirit
+ * of `placement.fake-db.ts`: it *applies* the writes rather than queueing
+ * return values, so a test can assert the state a failed conversion leaves
+ * behind instead of the statements that produced it.
+ *
+ * The distinction it exists to draw is between writes issued on the `tx`
+ * handle and writes issued on `db` itself. Only `tx` writes are held pending
+ * and dropped when the transaction fails to commit; a `db` write lands
+ * immediately and survives, exactly as a statement outside the transaction
+ * would in Postgres. That asymmetry is what makes "the lead is not left
+ * converted" a claim about `leads.convert.ts` rather than about the fake:
+ * move the status write off `tx` and onto `db` and it stops holding.
+ */
+interface FakeConversionDb {
+  /** The two lead columns a conversion writes. */
+  lead(): { status: string; converted_customer_id: string | null }
+  customers(): { id: string; company_name: string }[]
+  contacts(): { customer_id: string; name: string; is_primary: boolean }[]
+  /** `db.update` calls — i.e. writes made outside the transaction handle. */
+  writesOutsideTransaction(): number
+}
+
+const CONVERTED_CUSTOMER_ID = 'customer-1'
+
+/**
+ * Wires the module-level `db` mocks to a fresh in-memory store.
+ * @param failCommitWith When given, the transaction throws with this message
+ *   *after* its callback has run — the only failure point that lands after the
+ *   status write, and therefore the only one that can prove a rollback.
+ */
+function installConversionDb(failCommitWith?: string): FakeConversionDb {
+  const state = {
+    lead: {
+      name: 'Alice Smith',
+      company: 'Acme Corp' as string | null,
+      email: 'alice@example.com',
+      phone: null as string | null,
+      title: null as string | null,
+      status: 'warm',
+      converted_customer_id: null as string | null,
+    },
+    customers: [] as { id: string; company_name: string }[],
+    contacts: [] as { customer_id: string; name: string; is_primary: boolean }[],
+  }
+  let outsideWrites = 0
+
+  function applyLeadSet(payload: Record<string, unknown>): void {
+    if ('status' in payload) state.lead.status = payload.status as string
+    if ('converted_customer_id' in payload) {
+      state.lead.converted_customer_id = payload.converted_customer_id as string | null
+    }
+  }
+
+  // `loadLeadForConversion` reads `leads`; `findDuplicateCustomer` reads
+  // `customers`. The table handed to `.from()` is what tells them apart.
+  mockSelect.mockImplementation(() => ({
+    from: (table: unknown) => ({
+      where: () =>
+        Promise.resolve(
+          table === leads
+            ? [{ ...state.lead }]
+            : state.customers.map((row) => ({ company_name: row.company_name })),
+        ),
+    }),
+  }))
+
+  mockTransaction.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => {
+    // Writes queue here until commit. Dropping the queue is the rollback.
+    const pending: (() => void)[] = []
+    const tx = {
+      insert: (table: unknown) => ({
+        values: (payload: Record<string, unknown>) => {
+          if (table === customers) {
+            // The id has to exist before commit — the contact insert and the
+            // lead update both depend on it.
+            pending.push(() =>
+              state.customers.push({
+                id: CONVERTED_CUSTOMER_ID,
+                company_name: payload.company_name as string,
+              }),
+            )
+            return { returning: () => Promise.resolve([{ id: CONVERTED_CUSTOMER_ID }]) }
+          }
+          pending.push(() =>
+            state.contacts.push({
+              customer_id: payload.customer_id as string,
+              name: payload.name as string,
+              is_primary: payload.is_primary as boolean,
+            }),
+          )
+          return Promise.resolve(undefined)
+        },
+      }),
+      update: () => ({
+        set: (payload: Record<string, unknown>) => ({
+          where: () => {
+            pending.push(() => applyLeadSet(payload))
+            return Promise.resolve(undefined)
+          },
+        }),
+      }),
+    }
+    const result = await run(tx)
+    if (failCommitWith !== undefined) throw new Error(failCommitWith)
+    for (const apply of pending) apply()
+    return result
+  })
+
+  // The un-transactional path: applied at once, and never rolled back.
+  mockUpdate.mockImplementation(() => ({
+    set: (payload: Record<string, unknown>) => ({
+      where: () => {
+        outsideWrites += 1
+        applyLeadSet(payload)
+        return Promise.resolve(undefined)
+      },
+    }),
+  }))
+
+  return {
+    lead: () => ({
+      status: state.lead.status,
+      converted_customer_id: state.lead.converted_customer_id,
+    }),
+    customers: () => state.customers,
+    contacts: () => state.contacts,
+    writesOutsideTransaction: () => outsideWrites,
+  }
+}
+
+describe('convertLeadToCustomer rollback', () => {
+  it('commits the customer, the primary contact and the converted status together', async () => {
+    // The companion the rollback test needs: without it, "the lead is still
+    // warm" would also hold for code that never writes the status at all.
+    mockGetUser.mockResolvedValueOnce(AUTH_OK)
+    const fake = installConversionDb()
+
+    const result = await convertLeadToCustomer(LEAD_ID)
+
+    expect(result).toEqual({ customerId: CONVERTED_CUSTOMER_ID })
+    expect(fake.lead()).toEqual({
+      status: 'converted',
+      converted_customer_id: CONVERTED_CUSTOMER_ID,
+    })
+    expect(fake.customers()).toEqual([
+      { id: CONVERTED_CUSTOMER_ID, company_name: 'Acme Corp' },
+    ])
+    expect(fake.contacts()).toEqual([
+      { customer_id: CONVERTED_CUSTOMER_ID, name: 'Alice Smith', is_primary: true },
+    ])
+    // Every one of those three writes went through the transaction handle.
+    expect(fake.writesOutsideTransaction()).toBe(0)
+  })
+
+  it('leaves the lead unconverted and writes nothing when the transaction does not commit', async () => {
+    mockGetUser.mockResolvedValueOnce(AUTH_OK)
+    const fake = installConversionDb('could not serialize access')
+
+    const result = await convertLeadToCustomer(LEAD_ID)
+
+    expect(result).toEqual({ error: 'Something went wrong. Please try again.' })
+    expect((result as { error: string }).error).not.toMatch(/serialize/i)
+    // The status write is inside the transaction, so it goes back with it —
+    // the salesperson's lead is still workable rather than stranded as
+    // 'converted' with no customer behind it.
+    expect(fake.lead()).toEqual({ status: 'warm', converted_customer_id: null })
+    expect(fake.customers()).toEqual([])
+    expect(fake.contacts()).toEqual([])
+    // A write outside the transaction is the one way the status could have
+    // survived the rollback, so there must not be one.
+    expect(fake.writesOutsideTransaction()).toBe(0)
   })
 })

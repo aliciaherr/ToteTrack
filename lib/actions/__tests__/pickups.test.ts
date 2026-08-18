@@ -103,6 +103,14 @@ beforeEach(() => {
   lastAddressInsertValues = null
   // Default DB behavior so tests that don't care about the address
   // bookkeeping after a create fall through without noise.
+  //
+  // These fallbacks are permanent, so a *second* `db.update` in an action
+  // resolves silently and `lastUpdateSet` still holds the first payload — a
+  // double-write would look identical to a single one. Every test below that
+  // reaches an update therefore pins `mockUpdate` with
+  // `toHaveBeenCalledTimes`, mirroring the insert counts already asserted
+  // here. A double-fire of exactly this shape shipped in the calendar and was
+  // only caught in Task 91.
   mockSelect.mockImplementation(() => ({
     from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
   }))
@@ -217,6 +225,8 @@ describe('createPickup', () => {
     const result = await createPickup({ ...VALID_PICKUP, address_id: ADDRESS_ID })
     expect(result).toEqual({ id: PICKUP_ID })
     expect(lastUpdateSet).toMatchObject({ last_used_at: expect.any(Date) })
+    // Exactly one bump. `lastUpdateSet` alone cannot see a second write.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
     // The pickup row still stores the address as plain text (CONSTRAINT-21) —
     // no id column is written.
     expect(lastInsertValues).toMatchObject({ address: '123 Main Street' })
@@ -333,6 +343,8 @@ describe('updatePickup', () => {
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ qty_275: 12, qty_330: 9 })
     expect(lastUpdateSet).toHaveProperty('updated_at')
+    // One statement, not two. The beforeEach fallback would swallow a second.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
     expect(mockRevalidatePath).toHaveBeenCalledWith('/pickups')
   })
 
@@ -346,6 +358,8 @@ describe('updatePickup', () => {
     const result = await updatePickup(PICKUP_ID, payloadWithStatus)
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).not.toHaveProperty('status')
+    // A second, unpinned write could carry the status the first refused to.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a malformed pickup id before touching the database', async () => {
@@ -393,6 +407,9 @@ describe('updatePickup', () => {
       'updatePickup: update failed',
       expect.objectContaining({ operation: 'updatePickup', pickupId: PICKUP_ID }),
     )
+    // The rejecting stub is consumed once; a retry would fall through to the
+    // resolving fallback and turn the logged failure into a silent success.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
     consoleSpy.mockRestore()
   })
 })
@@ -405,6 +422,8 @@ describe('updatePickupStatus', () => {
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ status: 'completed' })
     expect(lastUpdateSet).toHaveProperty('updated_at')
+    // Exactly one status write — a second would re-stamp updated_at unseen.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
     expect(mockRevalidatePath).toHaveBeenCalledWith('/pickups')
     expect(mockRevalidatePath).toHaveBeenCalledWith('/calendar')
     expect(mockRevalidatePath).not.toHaveBeenCalledWith('/dashboard')
@@ -416,6 +435,7 @@ describe('updatePickupStatus', () => {
     const result = await updatePickupStatus(PICKUP_ID, 'cancelled')
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ status: 'cancelled' })
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('reopens a completed pickup back to scheduled', async () => {
@@ -426,6 +446,7 @@ describe('updatePickupStatus', () => {
     const result = await updatePickupStatus(PICKUP_ID, 'scheduled')
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ status: 'scheduled' })
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('an invalid uuid is rejected before any query', async () => {

@@ -243,6 +243,14 @@ beforeEach(() => {
   // .onConflictDoUpdate() chain). Tests asserting address behavior stack
   // ...Once stubs on top; pre-Feature-14 tests just fall through to these
   // without noise.
+  //
+  // These fallbacks are permanent, so a *second* `db.update` in an action
+  // resolves silently and `lastUpdateSet` still holds the first payload — a
+  // double-write would look identical to a single one. Every test below that
+  // reaches an update therefore pins `mockUpdate` with
+  // `toHaveBeenCalledTimes`, the same discipline the insert counts already
+  // apply. A double-fire of exactly this shape shipped in the calendar and
+  // was only caught in Task 91.
   mockSelect.mockImplementation(() => ({
     from: () => ({
       where: () => ({ limit: () => Promise.resolve([]) }),
@@ -560,6 +568,8 @@ describe('createOrder', () => {
     const result = await createOrder({ ...VALID_CREATE, delivery_address_id: ADDRESS_ID })
     expect(result).toEqual({ id: ORDER_ID })
     expect(lastUpdateSet).toMatchObject({ last_used_at: expect.any(Date) })
+    // Exactly one bump. `lastUpdateSet` alone cannot see a second write.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
     // SEC-03 ordering: the ownership lookup ran BEFORE the order insert.
     expect(mockSelect.mock.invocationCallOrder[0]).toBeLessThan(
       mockInsert.mock.invocationCallOrder[0],
@@ -659,6 +669,8 @@ describe('updateOrder', () => {
       qty_275_rebot: 12,
       price: '300.00',
     })
+    // One statement, not two. The beforeEach fallback would swallow a second.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('never writes a status column even when status is passed in the payload', async () => {
@@ -676,6 +688,8 @@ describe('updateOrder', () => {
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).not.toHaveProperty('status')
     expect(lastUpdateSet).not.toHaveProperty('initial_status')
+    // A second, unpinned write could carry the status the first refused to.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a malformed order id before touching the database', async () => {
@@ -725,6 +739,9 @@ describe('updateOrder', () => {
     })
     const result = await updateOrder(ORDER_ID, VALID_UPDATE)
     expect(result).toEqual({ error: 'PO number already exists.' })
+    // The rejecting stub is consumed once; a retry would fall through to the
+    // resolving fallback and turn the mapped error into a silent success.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   // Edit-lock tests (Feature 9, Q3): qty + price changes blocked on
@@ -810,6 +827,7 @@ describe('updateOrder', () => {
     expect(lastUpdateSet).toMatchObject({
       notes: 'Updated note — quantities and price unchanged.',
     })
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('allows qty changes on a completed PO (lock applies to invoiced + cancelled only)', async () => {
@@ -824,6 +842,7 @@ describe('updateOrder', () => {
     const result = await updateOrder(ORDER_ID, VALID_UPDATE)
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ qty_275_rebot: 12, price: '300.00' })
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('revalidates the orders list, the calendar and the dashboard on edit', async () => {
@@ -838,6 +857,7 @@ describe('updateOrder', () => {
     expect(mockRevalidatePath).toHaveBeenCalledWith('/orders')
     expect(mockRevalidatePath).toHaveBeenCalledWith('/calendar')
     expect(mockRevalidatePath).toHaveBeenCalledWith('/dashboard')
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -849,6 +869,8 @@ describe('updateOrderStatus', () => {
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ status: 'completed' })
     expect(lastUpdateSet).toHaveProperty('updated_at')
+    // Exactly one status write — a second would re-stamp updated_at unseen.
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
     // All three surfaces draw the row — a completed card dims on the calendar
     // and in the dashboard widget, not just in the orders list.
     expect(mockRevalidatePath).toHaveBeenCalledWith('/orders')
@@ -862,6 +884,7 @@ describe('updateOrderStatus', () => {
     const result = await updateOrderStatus(ORDER_ID, 'cancelled')
     expect(result).toEqual({ success: true })
     expect(lastUpdateSet).toMatchObject({ status: 'cancelled' })
+    expect(mockUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('rejects invoiced as the target via Zod before touching the database', async () => {
