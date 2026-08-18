@@ -291,6 +291,53 @@ describe('armed tap surfaces', () => {
     expect(value.tap).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'card' }))
   })
 
+  it('a tap on an armed card fires placement exactly once, at that card’s index', () => {
+    // The regression this file exists to catch (Task 91). The card sits inside
+    // the real `ColumnOrderList`, whose `<ul>` is itself a tap surface, so a
+    // click that keeps bubbling calls `tap` a SECOND time with a column target.
+    // `armMode.tap` closes over the `armed` state, which has not re-rendered
+    // between the two synchronous calls, so that second call issued a second,
+    // wrong placement — a bottom-of-day append racing the correct one. Counting
+    // the calls is the whole point: asserting only `toHaveBeenCalledWith` passed
+    // happily while the bug was live.
+    const value = armModeValue()
+    const rows = [
+      makeRow({ id: 'order-a', po_number: 'PO-1001', production_date: TUESDAY }),
+      makeRow({ id: 'order-b', po_number: 'PO-1002', production_date: TUESDAY }),
+      makeRow({ id: 'order-c', po_number: 'PO-1003', production_date: TUESDAY }),
+    ]
+    renderColumn(value, rows)
+
+    fireEvent.click(screen.getAllByTestId('production-card')[2])
+
+    expect(value.tap).toHaveBeenCalledTimes(1)
+    expect(value.tap).toHaveBeenCalledWith({
+      type: 'card',
+      group: 'order',
+      cardId: 'order-c',
+      dateKey: TUESDAY,
+      index: 2,
+    })
+  })
+
+  it('an unarmed card click still bubbles to the column, so the popup path is untouched', () => {
+    // The `stopPropagation` is armed-only. With nothing armed the click must
+    // still reach the list — `tap` no-ops there — because suppressing it
+    // unconditionally would be a behaviour change nobody asked for.
+    const value = armModeValue({ armed: null })
+    const rows = [makeRow({ id: 'order-a', po_number: 'PO-1001', production_date: TUESDAY })]
+    renderColumn(value, rows)
+
+    fireEvent.click(screen.getByTestId('production-card'))
+
+    expect(value.tap).toHaveBeenCalledWith({
+      type: 'column',
+      group: 'order',
+      dateKey: TUESDAY,
+      cardCount: 1,
+    })
+  })
+
   it('the armed card renders its armed treatment', () => {
     const rows = [makeRow({ production_date: TUESDAY })]
     const value = armModeValue({
@@ -345,6 +392,43 @@ describe('armed tap surfaces — the pickups list (CONSTRAINT-25)', () => {
       cardId: 'pickup-2',
       dateKey: TUESDAY,
       index: 0,
+    })
+  })
+
+  it('a tap on an armed pickup card fires placement exactly once, at that card’s index', () => {
+    // The pickups mirror of the bubble guard above. `ColumnPickupList`'s `<ul>`
+    // is a tap surface too, so `SortablePickupCard` must stop propagation while
+    // armed or the second call appends the pickup to the bottom of the day.
+    const value = armModeValue()
+    renderColumn(
+      value,
+      [],
+      [makePickup({ id: 'pickup-a' }), makePickup({ id: 'pickup-b' }), makePickup({ id: 'pickup-c' })],
+    )
+
+    fireEvent.click(screen.getAllByTestId('pickup-card')[2])
+
+    expect(value.tap).toHaveBeenCalledTimes(1)
+    expect(value.tap).toHaveBeenCalledWith({
+      type: 'card',
+      group: 'pickup',
+      cardId: 'pickup-c',
+      dateKey: TUESDAY,
+      index: 2,
+    })
+  })
+
+  it('an unarmed pickup card click still bubbles to the pickups list', () => {
+    const value = armModeValue({ armed: null })
+    renderColumn(value, [], [makePickup({ id: 'pickup-a' })])
+
+    fireEvent.click(screen.getByTestId('pickup-card'))
+
+    expect(value.tap).toHaveBeenCalledWith({
+      type: 'column',
+      group: 'pickup',
+      dateKey: TUESDAY,
+      cardCount: 1,
     })
   })
 

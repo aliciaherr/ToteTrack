@@ -92,8 +92,17 @@ export default function SortableProductionCard({
     disabled: { draggable: isBuilt, droppable: false },
   })
 
-  const handleClick = () => {
+  // `stopPropagation` only while armed, and it is load-bearing (Task 91). The
+  // ancestor `<ul>` is itself a tap surface, so without it one tap on a card
+  // fired `tap` twice: once here with this card's index, then again from the
+  // column handler. `tap` closes over the `armed` *state*, which React has not
+  // re-rendered between the two synchronous calls, so the second call still saw
+  // a non-null armed card and issued a second, wrong placement — a bottom-of-day
+  // append racing the correct one, with no in-flight guard in the mutation.
+  // Unarmed clicks must keep bubbling or the card popup path changes.
+  const handleClick = (event: React.MouseEvent) => {
     if (armed !== null) {
+      event.stopPropagation()
       tap({ type: 'card', group: 'order', cardId: row.id, dateKey, index })
       return
     }

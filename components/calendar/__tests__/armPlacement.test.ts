@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
+import type { DragEndEvent } from '@dnd-kit/core'
 import {
   ARM_DELAY_MS,
   ARM_MOVE_TOLERANCE_PX,
   resolveTapAction,
   type ArmedCard,
 } from '../armPlacement'
-import { UNSCHEDULED_ORIGIN } from '../calendarDnd'
+import { resolveDropTarget, UNSCHEDULED_ORIGIN, type CardDragData } from '../calendarDnd'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
@@ -85,8 +86,9 @@ describe('resolveTapAction — card taps', () => {
   })
 
   it('takes the tapped card’s place when moving down within a column', () => {
-    // [A, armed, B, C] — tapping C (rendered index 3) must land the armed card
-    // in C's slot, which is insertion index 2 once the armed card lifts out.
+    // [A, armed, B, C] — tapping C (rendered index 3) lands the armed card in
+    // C's slot: index 3, verbatim. The old `-1` correction landed it in B's slot
+    // instead, one short of where the salesperson aimed (Task 91).
     const action = resolveTapAction(armedAt(MONDAY, 1), {
       type: 'card',
       group: 'order',
@@ -97,7 +99,7 @@ describe('resolveTapAction — card taps', () => {
 
     expect(action).toEqual({
       kind: 'place',
-      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 2 },
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 3 },
     })
   })
 
@@ -116,8 +118,10 @@ describe('resolveTapAction — card taps', () => {
     })
   })
 
-  it('cancels without writing when the tap resolves to the card’s own position', () => {
-    // Tapping the card directly below the armed one is a visual no-op.
+  it('swaps with the neighbour directly below rather than cancelling', () => {
+    // [A, armed, B] — tapping B is a real one-slot move down, not a no-op. It
+    // read as a no-op only because the `-1` correction turned index 2 back into
+    // the armed card's own index 1 and the resolver cancelled on the collision.
     const action = resolveTapAction(armedAt(MONDAY, 1), {
       type: 'card',
       group: 'order',
@@ -126,7 +130,40 @@ describe('resolveTapAction — card taps', () => {
       index: 2,
     })
 
-    expect(action).toEqual({ kind: 'cancel' })
+    expect(action).toEqual({
+      kind: 'place',
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 2 },
+    })
+  })
+
+  it('swaps with the neighbour directly above', () => {
+    const action = resolveTapAction(armedAt(MONDAY, 2), {
+      type: 'card',
+      group: 'order',
+      cardId: 'order-b',
+      dateKey: MONDAY,
+      index: 1,
+    })
+
+    expect(action).toEqual({
+      kind: 'place',
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 1 },
+    })
+  })
+
+  it('places at the top of its own column when the first card is tapped', () => {
+    const action = resolveTapAction(armedAt(MONDAY, 4), {
+      type: 'card',
+      group: 'order',
+      cardId: 'order-a',
+      dateKey: MONDAY,
+      index: 0,
+    })
+
+    expect(action).toEqual({
+      kind: 'place',
+      target: { group: 'order', cardId: 'order-1', dateKey: MONDAY, index: 0 },
+    })
   })
 
   it('cancels when the armed card itself is tapped', () => {
@@ -275,9 +312,10 @@ describe('resolveTapAction — the group rule (CONSTRAINT-25)', () => {
     })
   })
 
-  it('applies the same-column index − 1 correction to pickups too', () => {
-    // [A, armed, B, C] in the pickups list — tapping C (rendered index 3) must
-    // resolve to insertion index 2, exactly as it does for orders.
+  it('takes the tapped card’s position in the pickups list too', () => {
+    // [A, armed, B, C] in the pickups list — tapping C (rendered index 3)
+    // resolves to insertion index 3, exactly as it does for orders. The two
+    // lists must never grow separate index rules (CONSTRAINT-25).
     const action = resolveTapAction(armedPickupAt(MONDAY, 1), {
       type: 'card',
       group: 'pickup',
@@ -288,7 +326,7 @@ describe('resolveTapAction — the group rule (CONSTRAINT-25)', () => {
 
     expect(action).toEqual({
       kind: 'place',
-      target: { group: 'pickup', cardId: 'pickup-1', dateKey: MONDAY, index: 2 },
+      target: { group: 'pickup', cardId: 'pickup-1', dateKey: MONDAY, index: 3 },
     })
   })
 
@@ -302,6 +340,60 @@ describe('resolveTapAction — the group rule (CONSTRAINT-25)', () => {
       kind: 'unschedule',
       target: { group: 'pickup', cardId: 'pickup-1' },
     })
+  })
+})
+
+/**
+ * The guard that replaces CONSTRAINT-29 (Task 91).
+ *
+ * Touch and drag are two gestures for one operation, so for the same logical
+ * move they must hand the server the same insertion index. This suite runs each
+ * move through both resolvers and compares. It is deliberately not written as
+ * "expect index N" — an expectation would have to be updated in lockstep with a
+ * regression, whereas a cross-check fails the moment the two paths disagree.
+ *
+ * Scope is card targets, which is where the asymmetry lived. A tap on a
+ * column's empty space is a different statement ("append to this day") and
+ * `resolveColumnTap` subtracts the armed card from its own column's count on
+ * purpose; that branch is not part of this comparison.
+ */
+describe('touch/drag parity — one insertion index, two gestures', () => {
+  /** Minimal `DragEndEvent` — only the fields `resolveDropTarget` reads. */
+  function dragEvent(cardId: string, origin: CardDragData, over: CardDragData): DragEndEvent {
+    return {
+      active: { id: cardId, data: { current: origin } },
+      over: { id: over.dateKey, data: { current: over } },
+    } as unknown as DragEndEvent
+  }
+
+  const moves: Array<[string, string, number, string, number]> = [
+    ['same day, downward', MONDAY, 1, MONDAY, 3],
+    ['same day, upward', MONDAY, 3, MONDAY, 1],
+    ['same day, swap with the card below', MONDAY, 1, MONDAY, 2],
+    ['same day, swap with the card above', MONDAY, 2, MONDAY, 1],
+    ['same day, to the top', MONDAY, 4, MONDAY, 0],
+    ['across days, into the middle', MONDAY, 0, TUESDAY, 2],
+    ['across days, to the top', MONDAY, 2, TUESDAY, 0],
+  ]
+
+  it.each(moves)('%s', (_name, fromDay, fromIndex, toDay, toIndex) => {
+    const tapped = resolveTapAction(armedAt(fromDay, fromIndex), {
+      type: 'card',
+      group: 'order',
+      cardId: 'order-target',
+      dateKey: toDay,
+      index: toIndex,
+    })
+
+    const dropped = resolveDropTarget(
+      dragEvent(
+        'order-1',
+        { type: 'card', group: 'order', dateKey: fromDay, index: fromIndex },
+        { type: 'card', group: 'order', dateKey: toDay, index: toIndex },
+      ),
+    )
+
+    expect(tapped).toEqual({ kind: 'place', target: dropped })
   })
 })
 

@@ -43,8 +43,12 @@ interface ColumnPickupListProps {
  *
  * Both branches carry the droppable ref and the tap handler: an empty day must
  * be able to receive a pickup, and a tap on empty space appends the armed card.
- * Taps on a card never reach here — the card's own handler runs first and
- * disarms, so the bubbled click finds nothing armed.
+ * Taps on a card do not reach here because `SortablePickupCard` stops
+ * propagation while something is armed (Task 91) — the same guard the orders
+ * list relies on. Without it the bubbled click would call `tap` a second time,
+ * still seeing the pre-render `armed` state, and append the card to the bottom
+ * of the day on top of the correct placement. Unarmed card clicks still bubble
+ * here and are harmless: `tap` no-ops with nothing armed.
  */
 export default function ColumnPickupList({
   pickups,

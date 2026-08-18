@@ -91,8 +91,15 @@ export function ColumnListsHidden() {
  * on the list's empty space — below the cards, or anywhere in an empty day —
  * appends the armed card to this day. The tap carries `group: 'order'`, so an
  * armed *pickup* tapped here resolves to `cancel` and writes nothing
- * (CONSTRAINT-25). Taps on a card never reach here: the card's own handler runs
- * first and disarms, so the bubbled click finds nothing armed.
+ * (CONSTRAINT-25).
+ *
+ * Taps on a card do not reach here **because the card stops propagation while
+ * something is armed** (Task 91) — not because the card's handler disarms first.
+ * `armMode.tap` closes over the `armed` state, which has not re-rendered by the
+ * time a bubbled click arrives in the same event, so a card tap that reached
+ * this handler would issue a second placement on top of the correct one. Unarmed
+ * card clicks still bubble here and are harmless: `tap` no-ops with nothing
+ * armed.
  */
 export function ColumnOrderList({
   dateKey,

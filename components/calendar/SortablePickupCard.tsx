@@ -83,8 +83,15 @@ export default function SortablePickupCard({
     disabled: { draggable: isLocked, droppable: false },
   })
 
-  const handleClick = () => {
+  // Mirrors `SortableProductionCard`'s handler exactly, including the armed-only
+  // `stopPropagation` (Task 91). The ancestor `<ul>` in `ColumnPickupList` is
+  // also a tap surface, so without it one tap fired `tap` twice and the second
+  // call — still reading the pre-render `armed` state — appended the pickup to
+  // the bottom of the day, racing the correct placement. Unarmed clicks keep
+  // bubbling so the popup path is unchanged.
+  const handleClick = (event: React.MouseEvent) => {
     if (armed !== null) {
+      event.stopPropagation()
       tap({ type: 'card', group: 'pickup', cardId: pickup.id, dateKey, index })
       return
     }

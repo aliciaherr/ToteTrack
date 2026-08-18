@@ -437,26 +437,30 @@ The 11 modules are `lib/actions/`: `auth.ts` (2), `calendar.ts` (4), `customer-a
 
 ---
 
-## CONSTRAINT-29: touch and drag disagree by one on same-day downward moves, and that is accepted
+## CONSTRAINT-29: ~~touch and drag disagree by one on same-day downward moves, and that is accepted~~ — **SUPERSEDED by Task 91**
 
-**Decision:** 2026-08-17, after Task 89. Surfaced by `@code-review`, put to the builder, and explicitly left alone.
+**Status:** Superseded 2026-08-17 — the asymmetry no longer exists. Task 91 removed the `- 1` at `components/calendar/armPlacement.ts:96`, so touch and drag now compute **identical** indices for the same move under one rule: *the armed card takes the tapped card's position; empty space appends to the bottom*. A parity test asserts the two paths agree, so this cannot silently reopen. The decision below was correct on the evidence it had; what changed is that the same `- 1` turned out to also make the most natural same-day gesture — tap the card directly below — a silent no-op, which reclassified it from a tolerable inconsistency to a defect. See `docs/plan.md` → Task 91.
 
-**The behaviour.** Moving a card *down* within one day column, where the column is `[A, X, B, C]` and `X` is moved onto `C`:
+**Original text preserved below — the history matters.**
 
-- **Touch** (long-press to arm, tap `C`) → `[A, B, X, C]`. `X` lands **above** `C`.
-- **Drag** (mouse, drop on `C`) → `[A, B, C, X]`. `X` lands **below** `C`, taking `C`'s old slot.
+**Decision:** ~~2026-08-17, after Task 89. Surfaced by `@code-review`, put to the builder, and explicitly left alone.~~
 
-Upward moves agree; only the downward case diverges. The `- 1` at `components/calendar/armPlacement.ts:96` is the whole of the difference.
+**The behaviour.** ~~Moving a card *down* within one day column, where the column is `[A, X, B, C]` and `X` is moved onto `C`:~~
 
-**Why it exists:** the two specs disagree, and each gesture faithfully implements a different one. `docs/prd.md` Feature 11's touch paragraph says "tap another card to insert at its position (cards below shift down)", which is the touch behaviour. `armPlacement.ts`'s own comment says the card "takes the tapped card's place", which is the drag behaviour. Neither gesture is a bug against the sentence it was written from. It has been this way since Task 68 and went unnoticed until a code-review pass compared them.
+- ~~**Touch** (long-press to arm, tap `C`) → `[A, B, X, C]`. `X` lands **above** `C`.~~
+- ~~**Drag** (mouse, drop on `C`) → `[A, B, C, X]`. `X` lands **below** `C`, taking `C`'s old slot.~~
 
-**Why it is not a Task 89 defect.** Both gestures send a valid *post-removal splice index*, which is exactly the contract `placeAndRenumber` expects, so dense renumbering is correct under either. This is a question of which index the client chooses to send, not of what the server does with it.
+~~Upward moves agree; only the downward case diverges. The `- 1` at `components/calendar/armPlacement.ts:96` is the whole of the difference.~~
 
-**Why drag is the one that cannot move.** `@dnd-kit` renders a live preview of the landing slot while you drag. Changing what drag commits would make the preview show one thing and the write do another — a worse defect than the inconsistency. Touch has no preview, so touch is the only side that *could* change. The builder declined: the gestures are used on different devices, they are never mixed in one session, and the touch path is the builder's daily muscle memory.
+**Why it exists:** ~~the two specs disagree, and each gesture faithfully implements a different one. `docs/prd.md` Feature 11's touch paragraph says "tap another card to insert at its position (cards below shift down)", which is the touch behaviour. `armPlacement.ts`'s own comment says the card "takes the tapped card's place", which is the drag behaviour. Neither gesture is a bug against the sentence it was written from. It has been this way since Task 68 and went unnoticed until a code-review pass compared them.~~
 
-**What this closes off:** nothing structural — it is one `- 1` to delete, plus a reworded PRD sentence and one test at `components/calendar/__tests__/armPlacement.test.ts:87`. Revisit if a second user appears (CONSTRAINT-04's single-user premise is what makes "different devices, different habits" acceptable), or if the two gestures ever become available on the same device in the same session.
+**Why it is not a Task 89 defect.** ~~Both gestures send a valid *post-removal splice index*, which is exactly the contract `placeAndRenumber` expects, so dense renumbering is correct under either. This is a question of which index the client chooses to send, not of what the server does with it.~~ (This part remains true and is why Task 91 needed no server change.)
 
-**Do not re-raise this as a bug.** It was found, analysed and decided. A future `@code-review` or `@qa` pass that rediscovers the asymmetry should cite this constraint and move on.
+**Why drag is the one that cannot move.** ~~`@dnd-kit` renders a live preview of the landing slot while you drag. Changing what drag commits would make the preview show one thing and the write do another — a worse defect than the inconsistency. Touch has no preview, so touch is the only side that *could* change. The builder declined: the gestures are used on different devices, they are never mixed in one session, and the touch path is the builder's daily muscle memory.~~ (Still true, and Task 91 honoured it: touch moved, drag did not.)
+
+**What this closes off:** ~~nothing structural — it is one `- 1` to delete, plus a reworded PRD sentence and one test at `components/calendar/__tests__/armPlacement.test.ts:87`. Revisit if a second user appears (CONSTRAINT-04's single-user premise is what makes "different devices, different habits" acceptable), or if the two gestures ever become available on the same device in the same session.~~ Task 91 did exactly that, for a different reason than "a second user appeared".
+
+**Do not re-raise this as a bug.** ~~It was found, analysed and decided. A future `@code-review` or `@qa` pass that rediscovers the asymmetry should cite this constraint and move on.~~ **Reversed.** The asymmetry is gone; a `@code-review` or `@qa` pass that finds touch and drag disagreeing by one has found a **regression** against Task 91 and should raise it.
 
 ---
 
@@ -528,4 +532,4 @@ Upward moves agree; only the downward case diverges. The `- 1` at `components/ca
 | 26 | Cross-vertical primitives live in `components/shared/` | A second consumer in a different vertical forces the move; no vertical imports from or re-exports on behalf of another; shared file is parameterised by a bridge, each vertical keeps a thin adapter; known drift — leads and support each hold their own, different `FORM_INPUT_CLASS` | Builder | 2026-08-10 |
 | 27 | `agentRules: false` stays in `next.config.js` | Next 16 otherwise writes `AGENTS.md` + `CLAUDE.md` into the repo root on every dev run and build; the generated `CLAUDE.md` is just `@AGENTS.md`, so it competes with the SBDev framework for agent context and regenerates after every edit. `AGENTS.md` also added to `.gitignore` as a second line of defence — **both stay**, the ignore entry is not a licence to drop the config line | Builder | 2026-08-12 |
 | 28 | `DATABASE_URL` is always the **Session pooler** string | Supabase's Connect dialog offers three and only one works here. **Direct connection** (`db.[ref].supabase.co:5432`, user `postgres`) is IPv6-only and Vercel's runtime is IPv4-only — it fails as `getaddrinfo ENOTFOUND` before auth is ever attempted, and it took prod down on 2026-08-16. **Transaction pooler** (`:6543`) misroutes query responses on this project (FB-20). Correct string: `aws-0-[region].pooler.supabase.com:5432`, user `postgres.[project-ref]`. Swapping only the hostname is not enough — the username differs too. `ENOTFOUND` means wrong string, not wrong password | Builder | 2026-08-16 |
-| 29 | Touch and drag disagree by one on same-day **downward** moves — accepted, not a bug | Moving `X` onto `C` in `[A, X, B, C]`: touch gives `[A, B, X, C]`, drag gives `[A, B, C, X]`. Each implements a different spec sentence (`prd.md` Feature 11's touch paragraph vs `armPlacement.ts`'s own comment); the `- 1` at `armPlacement.ts:96` is the whole difference. Both send valid post-removal splice indices, so Task 89's renumbering is correct either way. Drag cannot be the one to change — `@dnd-kit` previews its landing slot live, so moving it would make the preview lie. Pre-existing since Task 68. **Do not re-raise as a bug** | Builder | 2026-08-17 |
+| 29 | ~~Touch and drag disagree by one on same-day **downward** moves — accepted, not a bug~~ | **Superseded by Task 91.** The `- 1` at `armPlacement.ts:96` was deleted, so touch and drag now compute identical indices under one rule — *the armed card takes the tapped card's position; empty space appends to the bottom* — and a parity test guards it. The same `- 1` also made "tap the card directly below" a silent no-op, which is what reclassified it from accepted inconsistency to defect. Drag was still not the side that moved | Builder | 2026-08-17 |

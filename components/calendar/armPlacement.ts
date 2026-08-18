@@ -50,7 +50,12 @@ export interface CardTapTarget {
   group: CardGroup
   cardId: string
   dateKey: string
-  /** The tapped card's rendered position — pre-removal, unlike a drag's. */
+  /**
+   * The tapped card's rendered position, used verbatim as the insertion index.
+   * The armed card takes this slot; everything else closes up around it. This is
+   * the same number `resolveDropTarget` reads off a drag's `over` payload, which
+   * is what makes touch and drag byte-identical (Task 91).
+   */
   index: number
 }
 
@@ -78,24 +83,25 @@ export type TapAction =
   | { kind: 'cancel' }
 
 /**
- * Insertion index for a tap on a card, in the server's terms.
+ * One rule, everywhere: **the armed card takes the tapped card's position**
+ * (Task 91). The tapped card's rendered index is used verbatim — same day or
+ * across days, up the column or down it — and everything else closes up around
+ * the moved card.
  *
- * The placement actions store the index they are given, and the drag path feeds
- * them dnd-kit's displayed index — which counts positions *with the moved card
- * already lifted out*. A tap has no lift, so the tapped card's rendered index
- * counts the armed card too; when both share a column and the armed card sits
- * above the tap, the rendered index is one higher than the insertion the
- * salesperson aimed at ("the armed card takes the tapped card's place").
+ * The earlier same-column `index - 1` correction was wrong, not merely
+ * different. It assumed the drag path feeds the server a *post-removal* index
+ * while a tap feeds a pre-removal one. It does not: `resolveDropTarget` reads
+ * `index` off the `over` payload, which is the card's static rendered position
+ * from props and is never re-numbered mid-drag. Both gestures therefore speak
+ * the same number, and subtracting one from the tap made a downward same-day
+ * move land one slot short of where the salesperson aimed. Removing it retires
+ * the touch/drag asymmetry; the parity suite in `armPlacement.test.ts` runs the
+ * same logical move through both resolvers and fails loudly if they diverge.
  *
- * Same-column is decided on `dateKey` alone because the cross-group case is
- * already gone by the time this runs — `resolveTapAction` rejects it first, so
- * two lists that share a `dateKey` can never be compared against each other.
+ * There is no "tapped my own slot" cancel here. Within one group and one
+ * `dateKey` a rendered index identifies exactly one card, so an equal index
+ * means the armed card itself — already caught by the `cardId` guard above.
  */
-function insertionIndex(armed: ArmedCard, target: CardTapTarget): number {
-  const sameColumn = target.dateKey === armed.dateKey
-  return sameColumn && armed.index < target.index ? target.index - 1 : target.index
-}
-
 function resolveCardTap(armed: ArmedCard, target: CardTapTarget): TapAction {
   if (target.cardId === armed.row.id) return { kind: 'cancel' }
   // A card inside a callout dropdown is not a position to insert at — the
@@ -103,12 +109,14 @@ function resolveCardTap(armed: ArmedCard, target: CardTapTarget): TapAction {
   // list", the same statement as tapping the callout itself.
   if (target.dateKey === UNSCHEDULED_ORIGIN) return resolveCalloutTap(armed)
 
-  const index = insertionIndex(armed, target)
-  if (target.dateKey === armed.dateKey && index === armed.index) return { kind: 'cancel' }
-
   return {
     kind: 'place',
-    target: { group: armed.group, cardId: armed.row.id, dateKey: target.dateKey, index },
+    target: {
+      group: armed.group,
+      cardId: armed.row.id,
+      dateKey: target.dateKey,
+      index: target.index,
+    },
   }
 }
 
@@ -139,8 +147,8 @@ function resolveCalloutTap(armed: ArmedCard): TapAction {
  * (Task 68). The touch counterpart of `resolveDropTarget` /
  * `resolveUnscheduleTarget`, sharing their contracts: origin-position taps are
  * silent no-ops, an unscheduled card cannot be re-unscheduled, and a `place`
- * carries the same post-removal insertion index a drag would have produced —
- * the server cannot tell the two gestures apart.
+ * carries the byte-identical insertion index a drag would have produced — the
+ * server cannot tell the two gestures apart (Task 91).
  *
  * **The group is checked first and is absolute** (CONSTRAINT-25). An armed
  * pickup ignores every order target and vice versa, whether that target is a

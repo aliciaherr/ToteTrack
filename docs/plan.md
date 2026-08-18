@@ -3116,3 +3116,68 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Not verified:** the rejection paths are exercised through mocked actions in jsdom, never against a real dropped connection. That is the same limit the Task 85 fixes shipped under and is accepted — reproducing a mid-flight transport failure reliably is not worth building a harness for.
 
 **Depends on:** —
+
+---
+
+## Task 91: One placement rule on touch — the armed card takes the tapped card's position
+
+**Defect fix — no `docs/prd.md` entry needed.** `docs/prd.md:576` already requires "Cards land at the exact index released, not appended", and `:600` already describes the arm-then-tap gesture. Nothing about the product spec changes; this makes the touch path do what both sentences already promise. It also **retires CONSTRAINT-29**, which recorded the touch/drag disagreement as accepted — the accepted asymmetry is the first of the two root causes below.
+
+**The symptom that pointed at the wrong thing.** Moving a card to a *different* day worked; reordering *within* one day did nothing. That asymmetry was the clue, and it has two independent causes that happen to overlap on the same-day path.
+
+**Cause 1 — the decrement (`armPlacement.ts:96`).** `resolveCardTap` subtracted one from the insertion index on same-day downward taps (`target.index - 1`). That implements "insert *above* the tapped card", which makes the most natural gesture — arm a card, tap the card directly below it — resolve to the armed card's own index and get cancelled by the equality check at `armPlacement.ts:107`. A silent no-op, spec'd by CONSTRAINT-29 and pinned by `armPlacement.test.ts:87`, so every test agreed with it.
+
+**Cause 2 — one tap counted twice (`SortableProductionCard.tsx:95-101`).** The card's armed-mode click handler had no `stopPropagation`, so a tap bubbled to the ancestor `<ul onClick>` at `DayColumnParts.tsx:126` and called `tap` a second time. `tap` (`armMode.tsx:124-139`) is a `useCallback` closed over the `armed` **state**, so within one event loop pass the second call still saw the same non-null `armed` and issued a **second placement** — same-day "bottom of this day", cross-day "bottom of the destination day". Two server actions raced with no in-flight guard, and the second one usually won. **Cross-day masked it:** landing at the bottom of the *correct day* looks like a successful move, so only same-day reordering ever showed the damage. A comment in `DayColumnParts.tsx` asserted the bubbled click would find nothing armed, which is the opposite of what the code did.
+
+**The rule this task establishes, stated once:** *the armed card takes the tapped card's position; tapping empty column space or an empty day appends to the bottom.* One rule for every day, including the same one. Removing the decrement makes touch produce indices **identical to mouse drag** for the same gesture, which is what allows CONSTRAINT-29 to be retired rather than merely narrowed.
+
+**Files:**
+- `components/calendar/armPlacement.ts` — modify. `resolveCardTap` (`:105`): drop the `insertionIndex` local and pass `target.index` through verbatim; delete the now-unreachable same-day equality cancel. `resolveColumnTap` is **not** changed — its `cardCount - 1` is correct for a same-day append and stays
+- `components/calendar/SortableProductionCard.tsx` — modify (`:95-101`). `stopPropagation` in the armed branch only
+- `components/calendar/SortablePickupCard.tsx` — modify. Same change, same reason — the pickup list has the identical ancestor handler
+- `components/calendar/DayColumnParts.tsx` — modify (`:126`). Correct the comment claiming a bubbled card click finds nothing armed
+- `components/calendar/ColumnPickupList.tsx` — modify. Same false comment
+- `components/calendar/__tests__/armPlacement.test.ts` — modify. `:87` asserts the old insert-above rule; rewrite it, do not delete it
+- New bubble/parity guards — a test that renders a card inside a real list and clicks it (asserting exactly one placement call), and a test asserting touch and drag resolve the same index for the same move
+
+**No migration, no server change.** `placeAndRenumber` (Task 89) already clamps and renumbers correctly; both gestures were already sending valid post-removal splice indices. This is entirely about which index the client chooses to send, and how many times it sends it.
+
+**Functions / components to implement:**
+- `resolveCardTap(armed, target)` — modify. Returns `{ kind: 'place', index: target.index }` for same-day and cross-day alike; the only remaining cancel is the identity check on the armed card itself
+- `SortableProductionCard` / `SortablePickupCard` armed-branch click handler — modify. `event.stopPropagation()` before dispatching `tap`, guarded so an **unarmed** tap still bubbles and still opens the popup
+
+**Acceptance criteria:**
+- [ ] `resolveCardTap` returns `target.index` unchanged for every tap, same-day or cross-day — the `- 1` and its `insertionIndex` local are gone, and touch and drag now compute **identical** indices for the same move
+- [ ] The same-day index-equality cancel is deleted. With the decrement gone it is reachable only by tapping the armed card itself, which the identity check above it already cancels — leaving both would be two paths for one behaviour
+- [ ] `resolveColumnTap` is byte-for-byte unchanged; its `cardCount - 1` is correct and is not "fixed" in passing
+- [ ] One tap produces **exactly one** placement call. A card tap in armed mode calls `stopPropagation` and never reaches the ancestor `<ul onClick>`, on both `SortableProductionCard` and `SortablePickupCard`
+- [ ] `stopPropagation` fires in the **armed branch only** — an unarmed tap still bubbles normally and still opens the card popup. Plain tap = popup is untouched (FB-14's trade)
+- [ ] The comments in `DayColumnParts.tsx` and `ColumnPickupList.tsx` are corrected. They claimed a bubbled click finds nothing armed, which is the opposite of the truth and is a large part of why this survived review
+- [ ] `armPlacement.test.ts:87` is rewritten to assert the new rule, not deleted — the old assertion is the record of what was spec'd, and its replacement is the regression guard
+- [ ] A test renders a card inside a real list and clicks it, asserting a single placement — no existing test did this, which is precisely why cause 2 was invisible
+- [ ] No optimistic client state added; `router.refresh()` remains the update path (CONSTRAINT-02). No in-flight guard is added to `tap` — the double call is eliminated at its source rather than absorbed downstream
+- [ ] CONSTRAINT-29 marked superseded by this task, with its summary-table row updated and the original text preserved
+- [ ] **Verified by the builder on a real iPad** — FB-14 (line 225c) set the hard rule that a touch task cannot close without real-device validation, and this task exists partly because that rule is the only thing that catches gestures jsdom cannot express. All five must pass:
+  - [ ] Same-day **downward** move — arm a card, tap a card below it; the armed card lands in that card's position
+  - [ ] Same-day **upward** move — arm a card, tap a card above it; same rule, same result
+  - [ ] **Adjacent swap in both directions** — arm a card, tap its immediate neighbour above, then repeat downward. Neither is a no-op
+  - [ ] **Cross-day tap onto a specific card** lands at *that card's* position in the destination day — **not** at the bottom of it. This is the one that looked correct before and was not
+  - [ ] **Tap empty space** below the cards in a day (and an entirely empty day) appends to the bottom
+- [ ] Full suite green at ≥ **1292 tests / 108 files**; `npx tsc --noEmit` and `npm run lint` clean
+
+**Tests required:**
+- `resolveCardTap` → same-day **downward** tap returns the tapped card's index, not one less (replaces the `:87` assertion)
+- `resolveCardTap` → same-day **upward** tap returns the tapped card's index — unchanged behaviour, kept as a guard that the fix did not swing the other way
+- `resolveCardTap` → cross-day tap returns the tapped card's index
+- `resolveCardTap` → tapping the armed card itself still cancels
+- `resolveColumnTap` → same-day empty-space tap still appends (regression guard on the untouched `cardCount - 1`)
+- **Parity** → for the same move, `resolveCardTap` and the drag path's `resolveDropTarget` produce the same index. This is the test that keeps CONSTRAINT-29 retired
+- **Bubble** → a `SortableProductionCard` rendered inside its real `<ul>` and clicked while armed fires the placement handler exactly once
+- **Bubble** → same for `SortablePickupCard`
+- **Bubble** → an *unarmed* card click still reaches the popup handler
+
+**Status:** [ ] — implementation in progress. Closes only after the builder's real-iPad run of the five gestures above; do not mark done on a green suite alone.
+
+**PRD wording to check, not a deviation.** `docs/prd.md:600` reads "tap another card to insert at its position (cards below shift down)". The main clause is exactly the new rule; the parenthetical is only true for upward and cross-day moves — on a same-day downward move the tapped card shifts *up*. Flagged rather than edited, since the builder's approved file list for this task did not include the PRD.
+
+**Depends on:** Task 89 (server-side renumbering — without it, a correct index still would not persist)
