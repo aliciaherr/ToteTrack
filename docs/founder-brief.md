@@ -678,3 +678,51 @@ They are all now fixed the same way: the button un-greys no matter what happens,
 - **If you ever see "Something went wrong. Please try again." on one of these three**, that now means the request genuinely did not reach the server — worth noticing if it happens repeatedly, because that points at the connection rather than the app.
 
 **What this closes off:** Nothing. The fix only adds a path where there was none. The one small cost is that two lead components had to be restructured to fit the project's file-size rules — the save logic moved into a separate function — which is tidier rather than worse, and matches how the three equivalent fixes were done last session.
+
+---
+
+## FB-33 — One Tap Was Being Counted Twice, and "Insert Above" Meant "Do Nothing"
+
+**Date:** 2026-08-17
+**Architecture reference:** none — no architectural change. Same components, same server actions, corrected rules.
+**Constraint retired:** CONSTRAINT-29, superseded by Task 91. No new constraint added.
+**Tasks:** 91 — in progress; closes on your iPad check, not on a green test run.
+
+**Decided:** There is now **one rule** for moving a card with your finger: **tap a card to take its place, tap empty space to go last.** The same rule on any day, including the day the card is already on.
+
+**The clue was which half worked.**
+
+Moving a card to a *different* day worked. Reordering cards *within* one day did not. Same gesture, same code — so the difference had to be in what "same day" does differently. It turned out to be two separate faults that only overlap on the same-day path.
+
+**Fault one: the rule was written backwards.**
+
+The old rule was "slot the card in *above* the one you tapped". Read that back with a real gesture in mind. You hold a card, and you tap the card just below it, because that is what "move down one" looks like. Under the old rule, "above the card below me" *is where I already am*. So the app worked out the destination, noticed it was the same as the starting point, and correctly did nothing.
+
+It was not a crash and not an accident. It was the rule doing exactly what it said, and what it said was wrong. Worse, a test asserted this behaviour, so every automated check agreed the app was fine.
+
+**Fault two: one tap was counted twice.**
+
+Each card listens for your tap. So does the list the cards sit in. The card was not telling the list "I have handled this one" — so a single tap fired twice. The first count did the right thing. The second count meant "send this card to the **bottom** of this day", and being second, it won.
+
+On a different day, this was invisible: the card ended up at the bottom of the day you tapped, which is a plausible-looking result of a move you asked for. You would never have called it a bug. Within one day, it was the whole bug — the card either went nowhere (fault one) or slid to the bottom (fault two).
+
+Both counts also sent an instruction to the server, so two saves raced each other for the same card. The fix stops the second tap from existing rather than trying to referee the race.
+
+**What it does now.** Tap a card, the armed card takes that card's position. Tap empty space in a day, or an empty day, and it goes last. That's it — there is no separate same-day rule to remember.
+
+**Finger and mouse now agree exactly.** Last session I recorded a small disagreement between the two — moving a card down with your finger put it just above the card you tapped, while dragging with a mouse put it just below — and you chose to keep it. That disagreement was the *same* backwards rule that caused fault one. Removing it makes both gestures land in identical places, so the note recording the disagreement (CONSTRAINT-29) is retired, and there is now a test whose whole job is to fail if the two ever drift apart again.
+
+**The uncomfortable part: how this shipped.**
+
+Fault two was invisible to every test that existed, because no test had ever rendered a card inside a real list and clicked it. Tests checked the card on its own and the list on its own; the bug lived only in the space between them. And a comment in the code — a note written for the next person to read — stated plainly that the double tap could not happen. It was wrong, and because it was reassuring, nobody checked it against the code sitting directly underneath it.
+
+Both are now covered: a test clicks a real card inside a real list and fails if the tap is counted more than once, and the false comment is corrected rather than deleted.
+
+**Means for your product:** Day sequencing finally behaves as a single, predictable rule instead of two rules that disagreed. The build order you set with your finger is the order that saves, and it is the same order a mouse would have produced.
+
+**Check before approving:**
+- **This one needs your iPad and cannot close without it.** Five things to try, and all five are meant to work: move a card **down** within a day, move one **up**, **swap two neighbours** in both directions, tap a **specific card in another day** (it should land in *that card's* spot, not at the bottom), and tap **empty space** in a day (it should go last).
+- **The cross-day one is the one worth being fussy about.** It is the case that looked correct before and was not — so if a card you drop onto a specific card in another week still lands at the bottom of that day, the second fix has not taken.
+- **Plain tap should still open the card popup**, exactly as before. If tapping a card without holding it first stops opening the popup, say so immediately — that would be this change reaching further than intended.
+
+**What this closes off:** Nothing you would want back. The old "insert above" rule is gone and there is no argument for it — it made the most natural gesture on the calendar do nothing. The one thing genuinely given up is the freedom for touch and mouse to behave differently, which was never a feature; it is now something a test actively prevents.
