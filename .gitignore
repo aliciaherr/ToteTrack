@@ -47,3 +47,9 @@ yarn-error.log*
 
 # Vercel
 .vercel
+
+# QA browser artifacts — screenshots of the live app contain real customer data.
+# .playwright-mcp/ is ignored above; this catches shots saved to the repo root by
+# a filename argument, which is how two of them escaped on 2026-08-17 (SEC-07, H-01).
+qa-*.png
+*.screenshot.png

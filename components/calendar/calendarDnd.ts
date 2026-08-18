@@ -14,6 +14,16 @@ export const POINTER_ACTIVATION_DISTANCE_PX = 6
  */
 export const AUTO_SCROLL_EDGE_RATIO = 0.08
 
+/**
+ * Stable `DndContext` id. `@dnd-kit` generates its own per render pass when this
+ * is omitted, which makes the `aria-describedby` it writes onto every sortable
+ * card differ between the server render and hydration — a mismatch React logs
+ * once per card and explicitly declines to patch up, leaving the attribute
+ * pointing at a description node that may not exist. Any constant string fixes
+ * it; the value itself is arbitrary and must simply never change.
+ */
+export const CALENDAR_DND_CONTEXT_ID = 'calendar-dnd'
+
 /** Droppable id of the unscheduled orders callout. Not a date — deliberately unparseable. */
 export const UNSCHEDULED_DROPPABLE_ID = 'unscheduled-callout'
 

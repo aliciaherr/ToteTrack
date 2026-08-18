@@ -18,6 +18,7 @@ import DragOverlayCard, { findActiveCard, type ActiveCard } from './CalendarDrag
 import { groupedCollisionDetection } from './calendarCollision'
 import {
   AUTO_SCROLL_EDGE_RATIO,
+  CALENDAR_DND_CONTEXT_ID,
   POINTER_ACTIVATION_DISTANCE_PX,
   resolveDropTarget,
   resolveUnscheduleTarget,
@@ -142,6 +143,12 @@ export default function CalendarDndContext({
 
   return (
     <DndContext
+      // Explicit and stable. Without it `@dnd-kit` derives its own instance id
+      // per render pass, so the `aria-describedby` it puts on every sortable
+      // card differs between the server render and hydration — React logs a
+      // mismatch it explicitly will not patch up, once per card, and the
+      // attribute ends up pointing at a description node that may not exist.
+      id={CALENDAR_DND_CONTEXT_ID}
       sensors={sensors}
       collisionDetection={groupedCollisionDetection}
       autoScroll={autoScroll}
