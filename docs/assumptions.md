@@ -10,7 +10,7 @@
 
 **Overall:** [x] Complete — all assumptions resolved or accepted
 
-**Last updated:** 2026-04-19
+**Last updated:** 2026-08-18
 
 ---
 
@@ -159,6 +159,37 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 
 ---
 
+### A-06 — PO extraction operating parameters
+
+**Category:** Cost + Technical feasibility
+
+**Assumption:** The five operating figures given by the builder on 2026-08-18 are accurate and stable enough to design the PO extraction feature against.
+
+| Parameter | Stated value |
+|---|---|
+| Volume | 10–20 POs/day |
+| SKU resolution | **Must resolve — strict.** Unmatched line items block the PO |
+| Sender spread | 50–100 distinct customers |
+| Cost of a missed error | A wrong shipment reaches the customer |
+| Handwriting | Rare, under ~5% |
+| Auto-accept | **None, ever.** Every PO is visually checked, however briefly |
+
+**Why it's critical:** The last three are builder-set requirements and carry no validation risk. The first three were given from memory, never measured, and each changes the build if materially wrong:
+
+- **Volume** — at 10–20/day model cost is under $1/day, so selection optimises purely for accuracy. At ~200/day cost returns and "no auto-accept" stops being sustainable.
+- **Sender spread** — 50–100 is past hand-curating per-sender examples, so corrections must feed back automatically. Under ~10 makes hand-tuning viable and much cheaper.
+- **Handwriting** — under 5% is an edge case. Above ~20% it drives model selection.
+
+**Resolution approach:** Accepted. Each consequence above is reversible — model choice is config, not architecture.
+
+**Outcome:** Volume and sender count are checkable against ToteTrack's own order and customer data — do this before sizing the resolver, whose difficulty scales directly with sender count. Handwriting validates itself when the Phase 0 benchmark set is assembled.
+
+**Status:** [x] Accepted — verify volume and sender count against real data before sizing the resolver
+
+> Source: design conversation 2026-08-18. Architecture rationale lives in `architecture-playbooks/playbooks/document-extraction.md` (separate repo).
+
+---
+
 ## Summary
 
 | # | Assumption | Category | Approach | Status |
@@ -168,8 +199,11 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 | A-03 | Cold start: low value before data entered | User behavior | Accepted risk | Accepted — build data-entry screens first |
 | A-04 | Framer Motion requires client components | Technical feasibility | Accepted risk | Accepted — document boundary rule in architecture |
 | A-05 | iPad touch drag-and-drop inside a scrolling strip | Technical feasibility | Accepted risk | **Resolved 2026-07-27** — failed on device, contingency fired, replacement (long-press-to-arm + tap-to-place, Task 68) built and device-validated the same day |
+| A-06 | PO extraction operating parameters (volume, senders, handwriting, strict resolution, no auto-accept) | Cost + Technical feasibility | Accepted | Accepted 2026-08-18 — verify volume and sender count against real data before sizing the resolver; handwriting validated at Phase 0 |
 
 **Open count:** 0 — every assumption is resolved or accepted with its contingency exercised. A-05, the one assumption flagged as likely to fire, did fire and is now closed: its replacement interaction shipped and passed the real-device check on 2026-07-27.
+
+A-06 carries one outstanding action, not a blocker: **verify volume and sender count against real data before sizing the resolver.**
 
 ---
 

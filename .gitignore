@@ -14,6 +14,10 @@ docs/session-handoff.md
 docs/framework-issues.md
 docs/security-report.md
 docs/qa-report.md
+# Planning artifact for the PO extraction feature. Deliberately untracked: it
+# dissolves into data-model.md / plan.md / assumptions.md once the feature ships
+# and is then deleted. The durable half lives in the architecture-playbooks repo.
+docs/document-extraction.md
 
 # Claude Code local settings
 .claude/settings.local.json
@@ -48,19 +52,40 @@ yarn-error.log*
 # Vercel
 .vercel
 
-# QA browser artifacts — screenshots of the live app contain real customer data.
-# .playwright-mcp/ is ignored above; this catches shots saved to the repo root by
-# a filename argument, which is how two of them escaped on 2026-08-17 (SEC-07, H-01).
-# Root-anchored: nothing binary or artifact-shaped is tracked anywhere in this
-# repo, so a blanket rule at the root costs nothing and closes the whole class.
-# The earlier `qa-*.png` / `*.screenshot.png` pair only caught the two filenames
-# that happened to leak; `calendar.png`, `trace.har` or `export.csv` still walked
-# straight past it (@security L-08).
-/*.png
-/*.jpg
-/*.jpeg
-/*.webp
-/*.gif
-/*.har
+# Documents, images and artifacts carrying real customer data — ANYWHERE in the tree.
+#
+# Two incidents shaped this rule. First: QA screenshots of the live app, saved to
+# the repo root by a filename argument, escaped on 2026-08-17 (SEC-07, H-01) —
+# `.playwright-mcp/` is ignored above but did not catch them. The earlier
+# `qa-*.png` / `*.screenshot.png` pair only caught the two filenames that happened
+# to leak; `calendar.png` or `trace.har` still walked straight past (@security L-08).
+# Second: PO extraction work puts real customer purchase orders on disk — scans,
+# photos and PDFs carrying customer names, addresses and pricing. Those live in
+# subdirectories, so the root-anchored rules that fixed the first incident missed
+# the whole class, and `pdf` was not covered at all.
+#
+# Hence repo-wide rather than root-anchored. Verified 2026-08-18: no image, PDF or
+# binary file is tracked anywhere in this repo, so a repo-wide rule costs nothing.
+#
+# Real customer documents should live OUTSIDE the working tree entirely — an ignore
+# rule you get wrong once is a history rewrite. This is defence in depth, not the
+# plan. Committed eval fixtures must be redacted or synthetic.
+#
+# If a legitimate asset is ever needed (a logo under public/), add it with
+# `git add -f` and note it here.
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.tif
+*.tiff
+*.heic
+*.har
+
+# Root-anchored only. `csv` stays root-scoped deliberately — a seed or fixture
+# dataset under db/ is plausible and legitimate, whereas `export.csv` at the root
+# is the QA-artifact shape that leaked.
 /*.csv
 /*.log
