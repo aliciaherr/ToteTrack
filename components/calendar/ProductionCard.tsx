@@ -1,6 +1,5 @@
 'use client'
 
-import { format, parseISO } from 'date-fns'
 import BackhaulTag from '@/components/shared/BackhaulTag'
 import SameDayTag from '@/components/shared/SameDayTag'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
@@ -11,6 +10,7 @@ import {
 } from './productionCardStatus'
 import { ColoredMix } from './productionCardColors'
 import { formatProductionMix, productionMixText } from './productionCardFormat'
+import { formatShortDate } from '@/lib/format-date'
 
 interface ProductionCardProps {
   row: CalendarOrderRow
@@ -28,13 +28,6 @@ interface ProductionCardProps {
    * — the same ring-survives-without-movement split the armed state uses.
    */
   isFound?: boolean
-}
-
-function formatDeliveryDate(isoDate: string | null): string {
-  if (!isoDate) return '—'
-  // `parseISO`, never `new Date(string)` — the latter reads a date-only string
-  // as UTC midnight and prints the previous day in any negative-offset timezone.
-  return format(parseISO(isoDate), 'MMM d')
 }
 
 /** PO number with the backhaul and same-day tags pushed to the right edge. */
@@ -101,7 +94,7 @@ function CardDateRow({ isoDate }: { isoDate: string | null }) {
       className="text-muted-foreground tabular-nums leading-none mt-auto"
       style={{ height: 'var(--card-row-date)', fontSize: 'var(--card-fs-date)' }}
     >
-      {formatDeliveryDate(isoDate)}
+      {formatShortDate(isoDate)}
     </span>
   )
 }

@@ -687,10 +687,11 @@ describe('CalendarLayout — the view cycle', () => {
     renderLayout({ unscheduled: [makeRow({ production_date: null })] })
     const control = screen.getByTestId('calendar-view-cycle')
 
+    // By test id, not by role+name: this asserts inside a loop over a fully
+    // rendered nine-week calendar, and recomputing accessibility roles across
+    // that tree on each pass is slow enough to time out under a loaded suite.
     for (let press = 0; press <= CALENDAR_VIEW_ORDER.length; press += 1) {
-      expect(
-        screen.getByRole('button', { name: /need a production date/i }),
-      ).toHaveTextContent('1')
+      expect(screen.getByTestId('unscheduled-callout-pill')).toHaveTextContent('1')
       fireEvent.click(control)
     }
   })

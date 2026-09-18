@@ -1,18 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { format, parseISO } from 'date-fns'
 import BackhaulTag from '@/components/shared/BackhaulTag'
 import { sumPoSize, formatPoTotal } from '@/components/shared/qtyGridValues'
 import type { OpenOrderRow } from '@/db/queries/dashboard'
+import { formatShortDate } from '@/lib/format-date'
 
 interface OpenOrdersWidgetProps {
   rows: OpenOrderRow[]
-}
-
-function formatDeliveryDate(isoDate: string | null): string {
-  if (!isoDate) return '—'
-  return format(parseISO(isoDate), 'MMM d')
 }
 
 function OpenOrderRowLink({ row }: { row: OpenOrderRow }) {
@@ -39,7 +34,7 @@ function OpenOrderRowLink({ row }: { row: OpenOrderRow }) {
           </div>
         </div>
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-          {formatDeliveryDate(row.requested_delivery_date)}
+          {formatShortDate(row.requested_delivery_date)}
         </span>
       </Link>
     </li>

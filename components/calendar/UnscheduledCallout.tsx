@@ -47,6 +47,7 @@ function CalloutPill({
   return (
     <button
       type="button"
+      data-testid="unscheduled-callout-pill"
       onClick={onToggle}
       aria-expanded={isExpanded}
       aria-controls="unscheduled-dropdown"

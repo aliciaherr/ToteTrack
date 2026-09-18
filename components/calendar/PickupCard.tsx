@@ -1,9 +1,9 @@
 'use client'
 
-import { format, parseISO } from 'date-fns'
 import { BUILT_SURFACE_CLASS } from './productionCardStatus'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 import type { PickupStatus } from '@/db/queries/pickups'
+import { formatShortDate } from '@/lib/format-date'
 
 /**
  * The amber card surface, deliberately **not** the green-275 / blue-330
@@ -43,14 +43,6 @@ export function formatPickupCounts(pickup: { qty_275: number; qty_330: number })
   if (pickup.qty_275 > 0) parts.push(`${pickup.qty_275} × 275`)
   if (pickup.qty_330 > 0) parts.push(`${pickup.qty_330} × 330`)
   return parts.length > 0 ? parts.join(', ') : EMPTY_COUNTS_TEXT
-}
-
-/** The collection day, or an em dash while the pickup is still unscheduled. */
-function formatPickupDate(isoDate: string | null): string {
-  if (!isoDate) return '—'
-  // `parseISO`, never `new Date(string)` — the latter reads a date-only string
-  // as UTC midnight and prints the previous day in any negative-offset timezone.
-  return format(parseISO(isoDate), 'MMM d')
 }
 
 interface PickupCardProps {
@@ -137,7 +129,7 @@ export default function PickupCard({
         className="text-muted-foreground tabular-nums leading-none mt-auto"
         style={{ height: 'var(--card-row-date)', fontSize: 'var(--card-fs-date)' }}
       >
-        {formatPickupDate(pickup.pickup_date)}
+        {formatShortDate(pickup.pickup_date)}
       </span>
     </article>
   )
