@@ -52,14 +52,15 @@ function TableHeader() {
   return (
     <thead className="sticky top-0 bg-muted text-xs uppercase tracking-wide text-muted-foreground">
       <tr>
-        <th scope="col" className="px-4 py-3 text-left font-medium">PO #</th>
-        <th scope="col" className="px-4 py-3 text-left font-medium">Customer</th>
-        <th scope="col" className="px-4 py-3 text-right font-medium">275</th>
-        <th scope="col" className="px-4 py-3 text-right font-medium">330</th>
-        <th scope="col" className="px-4 py-3 text-left font-medium">Status</th>
-        <th scope="col" className="px-4 py-3 text-left font-medium">Req. Date</th>
-        <th scope="col" className="px-4 py-3 text-right font-medium">Price</th>
-        <th scope="col" className="px-4 py-3 w-8 text-center font-medium">
+        <th scope="col" className="px-3 py-3 text-left font-medium">PO #</th>
+        <th scope="col" className="px-3 py-3 text-left font-medium">Customer</th>
+        <th scope="col" className="px-3 py-3 text-right font-medium">275</th>
+        <th scope="col" className="px-3 py-3 text-right font-medium">330</th>
+        <th scope="col" className="px-3 py-3 text-left font-medium">Status</th>
+        <th scope="col" className="px-3 py-3 text-left font-medium">Req. Date</th>
+        <th scope="col" className="px-3 py-3 text-left font-medium">Prod. Date</th>
+        <th scope="col" className="px-3 py-3 text-right font-medium">Price</th>
+        <th scope="col" className="px-3 py-3 w-8 text-center font-medium">
           <span className="sr-only">Backhaul</span>
         </th>
       </tr>

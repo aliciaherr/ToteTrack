@@ -26,6 +26,12 @@ export interface OrderTableRow {
   qty_330_new: number
   price: string
   requested_delivery_date: string | null
+  /**
+   * The build day, or null when the order has not been scheduled yet. Shown
+   * beside the delivery promise in the table — the two are separate decisions
+   * and the list is where the gap between them is visible (CONSTRAINT-19).
+   */
+  production_date: string | null
   backhaul: boolean
 }
 
@@ -113,6 +119,7 @@ function buildOrdersQuery(status: OrderListStatus, search: string | undefined): 
       o.qty_330_new,
       o.price::text AS price,
       o.requested_delivery_date,
+      o.production_date,
       o.backhaul
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id

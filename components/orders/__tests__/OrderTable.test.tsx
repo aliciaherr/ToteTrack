@@ -44,6 +44,7 @@ function makeOrder(index: number, overrides: Partial<OrderTableRow> = {}): Order
     qty_330_new: 0,
     price: '250.00',
     requested_delivery_date: '2026-05-01',
+    production_date: '2026-04-28',
     backhaul: false,
     ...overrides,
   }
@@ -121,7 +122,7 @@ describe('OrderTable', () => {
     expect(screen.getByText('PO-1001')).toBeInTheDocument()
   })
 
-  it('renders the new column headers in order: PO, Customer, 275, 330, Status, Req Date, Price', () => {
+  it('renders the column headers in order, delivery promise then build day', () => {
     renderTable({ orders: [makeOrder(0)] })
     const headers = screen.getAllByRole('columnheader').map((header) => header.textContent?.trim())
     expect(headers).toEqual([
@@ -131,9 +132,47 @@ describe('OrderTable', () => {
       '330',
       'Status',
       'Req. Date',
+      'Prod. Date',
       'Price',
       'Backhaul',
     ])
+  })
+
+  it('shows the build day, and an em dash when the order has none', () => {
+    // The two dates are separate decisions (CONSTRAINT-19) — an order can be
+    // promised for a day it has not been scheduled to build on, and the list is
+    // where that gap is visible.
+    renderTable({
+      orders: [
+        makeOrder(0, { production_date: '2026-04-28' }),
+        makeOrder(1, { production_date: null }),
+      ],
+    })
+
+    const cells = screen.getAllByTestId('order-row-production-date')
+    expect(cells[0]).toHaveTextContent('Apr 28')
+    expect(cells[1]).toHaveTextContent('—')
+  })
+
+  it('shortens both dates so two date columns fit without widening the table', () => {
+    renderTable({
+      orders: [makeOrder(0, { requested_delivery_date: '2026-05-01' })],
+    })
+
+    expect(screen.getByText('May 1')).toBeInTheDocument()
+    expect(screen.queryByText('2026-05-01')).not.toBeInTheDocument()
+  })
+
+  it('truncates a long PO number instead of widening the column for every row', () => {
+    // One unusually long PO number used to push Customer right on every row —
+    // that dead space is what paid for the new column.
+    renderTable({ orders: [makeOrder(0, { po_number: 'PO-2026-0412-REVISION-B' })] })
+
+    const cell = screen.getByTitle('PO-2026-0412-REVISION-B')
+    expect(cell).toHaveClass('truncate')
+    // Clipped visually, never in the accessible name — the row still announces
+    // the order in full.
+    expect(cell).toHaveTextContent('PO-2026-0412-REVISION-B')
   })
 
   it('sums 275 and 330 per row across the three type columns', () => {

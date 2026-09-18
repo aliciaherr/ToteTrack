@@ -7,6 +7,7 @@ import OrderStatusBadge from './OrderStatusBadge'
 import BackhaulTag from '@/components/shared/BackhaulTag'
 import { sumPoSize, formatPoTotal } from '@/components/shared/qtyGridValues'
 import { formatCurrency } from '@/lib/format-currency'
+import { formatShortDate } from '@/lib/format-date'
 import type { OrderTableRow } from '@/db/queries/orders'
 
 interface OrderRowProps {
@@ -15,6 +16,28 @@ interface OrderRowProps {
   href: string
   animationIndex: number
   shouldReduceMotion: boolean
+}
+
+/**
+ * The PO number, capped and truncated.
+ *
+ * Without a cap the column is auto-sized to the **longest** PO number in the
+ * result set, and one unusually long number pushes Customer right for every
+ * row — which is where the dead space between the two came from. The cap is in
+ * `ch` so it tracks the font rather than a pixel guess.
+ *
+ * Truncating loses nothing: the row is already a link to the order, where the
+ * full number is the heading, and `title` gives it back on hover for anyone on
+ * a mouse. The cell keeps the full value as its accessible text — the row's
+ * `aria-label` names the order in full — so a screen reader never reads a
+ * clipped number.
+ */
+function PoCell({ poNumber }: { poNumber: string }) {
+  return (
+    <span className="block max-w-[14ch] truncate" title={poNumber}>
+      {poNumber}
+    </span>
+  )
 }
 
 function CustomerCell({ name }: { name: string }) {
@@ -66,28 +89,34 @@ export default function OrderRow({
           : 'hover:bg-muted even:bg-muted/30 focus-visible:bg-muted'
       }`}
     >
-      <td className="px-4 py-3 text-sm font-medium text-foreground whitespace-nowrap">
-        {order.po_number}
+      <td className="px-3 py-3 text-sm font-medium text-foreground">
+        <PoCell poNumber={order.po_number} />
       </td>
-      <td className="px-4 py-3 text-sm min-w-0">
+      <td className="px-3 py-3 text-sm min-w-0">
         <CustomerCell name={customerLabel} />
       </td>
-      <td className="px-4 py-3 text-sm text-foreground tabular-nums text-right whitespace-nowrap">
+      <td className="px-3 py-3 text-sm text-foreground tabular-nums text-right whitespace-nowrap">
         {formatPoTotal(total275)}
       </td>
-      <td className="px-4 py-3 text-sm text-foreground tabular-nums text-right whitespace-nowrap">
+      <td className="px-3 py-3 text-sm text-foreground tabular-nums text-right whitespace-nowrap">
         {formatPoTotal(total330)}
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3">
         <OrderStatusBadge status={order.status} size="sm" />
       </td>
-      <td className="px-4 py-3 text-sm text-foreground whitespace-nowrap">
-        {order.requested_delivery_date ?? '—'}
+      <td className="px-3 py-3 text-sm text-foreground whitespace-nowrap">
+        {formatShortDate(order.requested_delivery_date)}
       </td>
-      <td className="px-4 py-3 text-sm text-foreground text-right whitespace-nowrap">
+      <td
+        data-testid="order-row-production-date"
+        className="px-3 py-3 text-sm text-foreground whitespace-nowrap"
+      >
+        {formatShortDate(order.production_date)}
+      </td>
+      <td className="px-3 py-3 text-sm text-foreground text-right whitespace-nowrap">
         {formatCurrency(order.price)}
       </td>
-      <td className="px-4 py-3 w-8 text-center">
+      <td className="px-3 py-3 w-8 text-center">
         {order.backhaul && <BackhaulTag />}
       </td>
     </motion.tr>
