@@ -3,7 +3,9 @@
 import { useMemo } from 'react'
 import CalendarHeader from './CalendarHeader'
 import WeekStrip from './WeekStrip'
+import { CardHighlightProvider } from './cardHighlight'
 import { useWeekScroll } from './calendarScroll'
+import { useCalendarSearch } from './useCalendarSearch'
 import { buildWeekGroups } from './calendarWeeks'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
@@ -19,6 +21,8 @@ interface CalendarBoardProps {
   unscheduledPickups: CalendarPickupRow[]
   /** Anchor week's Monday as `yyyy-MM-dd`. */
   weekStart: string
+  /** `?find=` — a PO to reveal on arrival, set by a cross-week search jump. */
+  findPo: string | null
   shouldReduceMotion: boolean
   onPick: (orderId: string, dateKey: string) => void
   /** Places the chosen undated pickup on a day. */
@@ -33,6 +37,12 @@ interface CalendarBoardProps {
  * component stays inside the 80-line JSX allowance (CONSTRAINT-14) and reads as
  * what it is — a composition root wiring providers, the board and the overlays.
  *
+ * It owns the search hook for the same reason it owns the week-scroll hook:
+ * search needs the strip ref to scroll horizontally *and* sits in the header,
+ * and this is the only component that renders both. The highlight it produces
+ * is provided from here so it reaches cards in the day columns and cards in the
+ * header's undated callout through one provider.
+ *
  * It owns the week-scroll hook because nothing outside the board consumes it:
  * `stripRef`, `todayKey` and `goToCurrentWeek` are read here and by the header
  * this renders, and nowhere else. Both day-bucket maps arrive already built —
@@ -42,12 +52,18 @@ interface CalendarBoardProps {
  * Every context it needs — arm mode, card selection, group visibility, the
  * new-card day — is provided above it by `CalendarLayout`, not passed through.
  */
+/** Every placed order across the day buckets, flattened. */
+function allRows(rowsByDay: Map<string, CalendarOrderRow[]>): CalendarOrderRow[] {
+  return Array.from(rowsByDay.values()).flat()
+}
+
 export default function CalendarBoard({
   rowsByDay,
   pickupsByDay,
   unscheduled,
   unscheduledPickups,
   weekStart,
+  findPo,
   shouldReduceMotion,
   onPick,
   onPickPickup,
@@ -55,12 +71,26 @@ export default function CalendarBoard({
 }: CalendarBoardProps) {
   const { stripRef, todayKey, goToCurrentWeek } = useWeekScroll(weekStart, shouldReduceMotion)
   const weeks = useMemo(() => buildWeekGroups(weekStart), [weekStart])
+  // Placed and undated orders in one list: search resolves against everything
+  // the client holds, and an undated hit is revealed in the callout rather than
+  // a column.
+  const searchableRows = useMemo(
+    () => [...allRows(rowsByDay), ...unscheduled],
+    [rowsByDay, unscheduled],
+  )
+  const search = useCalendarSearch({
+    rows: searchableRows,
+    stripRef,
+    shouldReduceMotion,
+    findOnMount: findPo,
+  })
 
   return (
-    <>
+    <CardHighlightProvider value={search.highlightedPo}>
       <CalendarHeader
         unscheduled={unscheduled}
         unscheduledPickups={unscheduledPickups}
+        search={search}
         onCurrentWeek={goToCurrentWeek}
         onSelectPickup={onSelectPickup}
       />
@@ -81,6 +111,6 @@ export default function CalendarBoard({
           onSelectPickup={onSelectPickup}
         />
       </div>
-    </>
+    </CardHighlightProvider>
   )
 }

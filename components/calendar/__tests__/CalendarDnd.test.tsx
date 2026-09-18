@@ -666,10 +666,11 @@ describe('DayColumn drag wiring', () => {
 
 describe('DayColumn pickup drag wiring', () => {
   const BOTH_LISTS_ON = {
+    view: 'both' as const,
     showOrders: true,
     showPickups: true,
-    toggleOrders: vi.fn(),
-    togglePickups: vi.fn(),
+    cycleView: vi.fn(),
+    setView: vi.fn(),
   }
 
   function renderBothLists(rows: CalendarOrderRow[], pickups: CalendarPickupRow[]) {

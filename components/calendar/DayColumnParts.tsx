@@ -67,21 +67,6 @@ export function DayHeader({ date, isToday }: { date: Date; isToday: boolean }) {
 }
 
 /**
- * Shown in place of both lists when the header has toggled each of them off —
- * an explicit message rather than a blank grid the viewer has to interpret.
- */
-export function ColumnListsHidden() {
-  return (
-    <div
-      data-testid="column-lists-hidden"
-      className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground p-8 text-center"
-    >
-      Both lists are hidden.
-    </div>
-  )
-}
-
-/**
  * The column's scrollable order list, or its empty state.
  *
  * Both branches carry the droppable ref: an empty day must be able to receive a

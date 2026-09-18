@@ -20,3 +20,13 @@ export const UNSCHEDULED_DROPDOWN_VISIBLE = 4
  * for a month in both directions without a round-trip.
  */
 export const CALENDAR_WEEKS_BUFFER = 4
+
+/**
+ * Most search hits returned for one PO-number term.
+ *
+ * A cap rather than a page: this is a jump-to-a-card box, not a browse list. If
+ * a term is loose enough to match more than this, the answer the viewer needs
+ * is "be more specific", not page two — and the result list has to fit under a
+ * header with no room to spare (CONSTRAINT-19).
+ */
+export const CALENDAR_SEARCH_LIMIT = 8

@@ -1,6 +1,6 @@
 import { addWeeks, format, subWeeks } from 'date-fns'
 import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
-import { DB_DATE_FORMAT, businessWeekDays, parseDbDate } from '@/lib/dates'
+import { DB_DATE_FORMAT, businessWeekDays, parseDbDate, startOfBusinessWeek } from '@/lib/dates'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
@@ -144,4 +144,19 @@ export function groupPickupsByDay(
   }
 
   return byDay
+}
+
+/**
+ * The Monday whose business week holds `dateKey` — the strip's scroll target
+ * for a card on that day, and the `?week=` value for a jump to it.
+ *
+ * Lives here rather than in the search hook because it is the same mapping
+ * `buildWeekGroups` keys its groups by; two copies could disagree about a
+ * Saturday and send a search to the week next door.
+ *
+ * @param dateKey A `DB_DATE_FORMAT` date, such as an order's `production_date`.
+ * @throws {InvalidDateError} when `dateKey` is unparseable.
+ */
+export function weekKeyFor(dateKey: string): string {
+  return format(startOfBusinessWeek(parseDbDate('weekKeyFor', dateKey)), DB_DATE_FORMAT)
 }

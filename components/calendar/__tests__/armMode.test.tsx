@@ -191,10 +191,11 @@ describe('useArmModeState', () => {
 })
 
 const BOTH_LISTS_ON = {
+  view: 'both' as const,
   showOrders: true,
   showPickups: true,
-  toggleOrders: vi.fn(),
-  togglePickups: vi.fn(),
+  cycleView: vi.fn(),
+  setView: vi.fn(),
 }
 
 /** DayColumn with a hand-built arm-mode value, for tap-surface wiring tests. */

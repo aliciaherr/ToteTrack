@@ -1,6 +1,6 @@
 import { addDays, addWeeks, format, isValid, parseISO, subWeeks } from 'date-fns'
 import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
-import { ISO_DATE_RE } from './actions/orders.validation'
+import { ISO_DATE_RE, PO_NUMBER_MAX } from './actions/orders.validation'
 import { DB_DATE_FORMAT, startOfBusinessWeek } from './dates'
 import type { CalendarRange } from '@/db/queries/calendar'
 
@@ -63,4 +63,28 @@ export function buildCalendarRange(weekStart: Date): CalendarRange {
     from: format(firstMonday, DB_DATE_FORMAT),
     to: format(lastSaturday, DB_DATE_FORMAT),
   }
+}
+
+/**
+ * Resolves the `/calendar` route's `?find=` param — the PO number a cross-week
+ * search jump asked to be revealed once the new week has loaded.
+ *
+ * Length-capped at `PO_NUMBER_MAX` because no real PO number is longer, and
+ * rejected outright when the param was repeated (an array, the same shape trap
+ * `parseCalendarWeek` documents). Anything rejected yields null, which simply
+ * means no card is highlighted — a stale or hand-edited link should open the
+ * calendar, never fail it.
+ *
+ * The value never reaches SQL. It is compared against `data-po-number` in the
+ * DOM and against already-loaded rows, so this is a sanity bound rather than
+ * the injection boundary — that one is `searchCalendarOrders`, which binds its
+ * term as a parameter (SEC-02).
+ *
+ * @param value Raw `?find=` query param, if present.
+ */
+export function parseCalendarFind(value: string | string[] | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (trimmed === '' || trimmed.length > PO_NUMBER_MAX) return null
+  return trimmed
 }

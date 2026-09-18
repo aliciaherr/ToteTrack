@@ -7,6 +7,7 @@ import ProductionCard from './ProductionCard'
 import { isBuiltStatus } from './productionCardStatus'
 import { toTranslate, type CardDragData } from './calendarDnd'
 import { useArmMode } from './armMode'
+import { useIsHighlighted } from './cardHighlight'
 import { useLongPressArm } from './useLongPressArm'
 import { useSelectCard } from './cardSelection'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
@@ -27,11 +28,21 @@ interface SortableProductionCardProps {
  * card, so desktop drags never have a layout animation fighting `@dnd-kit`'s
  * own transforms.
  */
-function CardFace({ row, isArmed, isFlying }: { row: CalendarOrderRow; isArmed: boolean; isFlying: boolean }) {
-  if (!isFlying) return <ProductionCard row={row} isArmed={isArmed} />
+function CardFace({
+  row,
+  isArmed,
+  isFlying,
+  isFound,
+}: {
+  row: CalendarOrderRow
+  isArmed: boolean
+  isFlying: boolean
+  isFound: boolean
+}) {
+  if (!isFlying) return <ProductionCard row={row} isArmed={isArmed} isFound={isFound} />
   return (
     <motion.div layout layoutId={`fly-${row.id}`}>
-      <ProductionCard row={row} isArmed={isArmed} />
+      <ProductionCard row={row} isArmed={isArmed} isFound={isFound} />
     </motion.div>
   )
 }
@@ -80,6 +91,12 @@ export default function SortableProductionCard({
   // The group is part of the comparison, not decoration: an armed pickup must
   // never make an order card render its armed ring.
   const isArmed = armed?.group === 'order' && armed.row.id === row.id
+  // Read here rather than in `ProductionCard` so the card face stays
+  // presentational and context-free — Task 57's dropdown and Task 58's popup
+  // both render one outside every calendar provider. Reading it in the wrapper
+  // also means the undated callout lights its cards for free: it renders this
+  // same wrapper, so a search hit with no production date needs no second path.
+  const isFound = useIsHighlighted(row.po_number)
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     // `draggable` and `droppable` are disabled separately on purpose. A bare
@@ -122,7 +139,12 @@ export default function SortableProductionCard({
       {isDragging ? (
         <DropPlaceholder />
       ) : (
-        <CardFace row={row} isArmed={isArmed} isFlying={flyingId === row.id} />
+        <CardFace
+          row={row}
+          isArmed={isArmed}
+          isFlying={flyingId === row.id}
+          isFound={isFound}
+        />
       )}
     </div>
   )

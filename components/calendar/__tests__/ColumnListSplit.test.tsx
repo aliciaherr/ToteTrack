@@ -20,10 +20,11 @@ import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 const TUESDAY = new Date(2026, 6, 28)
 
 const BOTH_LISTS_ON = {
+  view: 'both' as const,
   showOrders: true,
   showPickups: true,
-  toggleOrders: vi.fn(),
-  togglePickups: vi.fn(),
+  cycleView: vi.fn(),
+  setView: vi.fn(),
 }
 
 function makeRow(): CalendarOrderRow {

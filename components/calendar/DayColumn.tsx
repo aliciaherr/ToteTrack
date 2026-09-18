@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react'
 import { format } from 'date-fns'
 import ColumnPickupList from './ColumnPickupList'
-import { ColumnFooter, ColumnListsHidden, ColumnOrderList, DayHeader } from './DayColumnParts'
+import { ColumnFooter, ColumnOrderList, DayHeader } from './DayColumnParts'
 import { useCalendarVisibility } from './pickupVisibility'
 import { useColumnDroppables } from './useColumnDroppables'
 import { DB_DATE_FORMAT } from '@/lib/dates'
@@ -39,14 +39,16 @@ interface ColumnBodyProps {
 
 /**
  * The column's body: its two card lists, each scrolling inside its own share of
- * the column, or the message shown when both are toggled off.
+ * the column.
  *
  * Both lists carry `COLUMN_LIST_FLEX`, so the height split is decided by the
  * flex chain rather than by any pixel value — one list on grows to the whole
  * column, both on take an explicit half each whatever their padding, and
  * neither can make the page itself scroll (CONSTRAINT-19). Which lists are
- * drawn comes from the header toggles through
- * `pickupVisibility`, which defaults to orders-on / pickups-off (CONSTRAINT-25).
+ * drawn comes from the header's view cycle through `pickupVisibility`, which
+ * defaults to orders-only (CONSTRAINT-25). At least one list is always drawn:
+ * the view is an enum of three useful states, so "neither" is not a value the
+ * booleans can hold and there is no empty-body branch to render (Task 93).
  *
  * Each list gets its **own** droppable ref, and a hidden list mounts neither
  * its ref nor its `SortableContext`. That is the honest outcome: with a group
@@ -63,8 +65,6 @@ function ColumnBody({
   onSelectPickup,
 }: ColumnBodyProps) {
   const { showOrders, showPickups } = useCalendarVisibility()
-
-  if (!showOrders && !showPickups) return <ColumnListsHidden />
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">

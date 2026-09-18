@@ -30,6 +30,11 @@ interface CalendarLayoutProps {
   unscheduledPickups: CalendarPickupRow[]
   /** Anchor week's Monday as `yyyy-MM-dd`, from `parseCalendarWeek`. */
   weekStart: string
+  /**
+   * `?find=` — the PO number a cross-week search jump asked to be revealed on
+   * arrival, already validated at the route boundary. Null on a normal visit.
+   */
+  findPo: string | null
   /** Active customers for the new-PO form's dropdown. */
   customers: CustomerSelectOption[]
 }
@@ -67,6 +72,7 @@ interface CalendarLayoutProps {
  * @param pickups Placed pickups for the fetched range, each carrying its `pickup_date`.
  * @param unscheduledPickups Pickups with no date — the header's undated callout.
  * @param weekStart Anchor week's Monday as `yyyy-MM-dd`.
+ * @param findPo PO number to reveal on arrival, from `?find=`.
  * @param customers Active customers for the new-PO form's dropdown.
  */
 export default function CalendarLayout({
@@ -75,6 +81,7 @@ export default function CalendarLayout({
   pickups,
   unscheduledPickups,
   weekStart,
+  findPo,
   customers,
 }: CalendarLayoutProps) {
   const shouldReduceMotion = Boolean(useReducedMotion())
@@ -116,6 +123,7 @@ export default function CalendarLayout({
                   unscheduled={unscheduled}
                   unscheduledPickups={unscheduledPickups}
                   weekStart={weekStart}
+                  findPo={findPo}
                   shouldReduceMotion={shouldReduceMotion}
                   onPick={orders.handlePick}
                   onPickPickup={pickupActions.handlePickPickup}

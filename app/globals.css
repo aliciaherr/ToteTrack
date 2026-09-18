@@ -189,6 +189,32 @@
   }
 }
 
+/* The search hit (Task 93). A card the viewer has just been taken to has to
+   announce itself on a grid of near-identical cards, so the signal is a ring
+   that blooms outward and fades — motion drawing the eye, not a colour change
+   that competes with the status colours the card already carries.
+
+   The solid outline is applied alongside the animation rather than inside it,
+   so it is still there for the whole highlight window when reduced motion
+   strips the bloom. A reduced-motion viewer gets a steady ring held for the
+   same duration rather than nothing at all — the same split the armed state
+   above uses. */
+@keyframes calendar-card-found-bloom {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); }
+  100% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--primary) 0%, transparent); }
+}
+.calendar-card-found {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-radius: calc(var(--radius) - 2px);
+  animation: calendar-card-found-bloom 0.6s ease-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .calendar-card-found {
+    animation: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

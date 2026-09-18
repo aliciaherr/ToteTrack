@@ -6,6 +6,8 @@ import { forwardRef } from 'react'
 const mockUseReducedMotion = vi.hoisted(() => vi.fn().mockReturnValue(false))
 const mockSetProductionPlacement = vi.hoisted(() => vi.fn())
 const mockRefresh = vi.hoisted(() => vi.fn())
+const mockPush = vi.hoisted(() => vi.fn())
+const mockSearchCalendarOrders = vi.hoisted(() => vi.fn())
 const mockToast = vi.hoisted(() => vi.fn())
 const mockUpdatePickup = vi.hoisted(() => vi.fn())
 const mockUpdatePickupStatus = vi.hoisted(() => vi.fn())
@@ -41,6 +43,12 @@ vi.mock('@/lib/actions/calendar', () => ({
   clearProductionPlacement: vi.fn(),
 }))
 
+// Search's read action, stubbed for the same reason as the placement writes: it
+// is a `'use server'` module and imports the postgres driver.
+vi.mock('@/lib/actions/calendar.search', () => ({
+  searchCalendarOrders: mockSearchCalendarOrders,
+}))
+
 // The card popup's status block (Task 66) reaches both order-status actions,
 // and they import the postgres driver for the same reason as above.
 vi.mock('@/lib/actions/orders', () => ({
@@ -68,7 +76,7 @@ vi.mock('@/lib/actions/pickups.calendar', () => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: mockRefresh }),
+  useRouter: () => ({ refresh: mockRefresh, push: mockPush }),
 }))
 
 vi.mock('@/lib/hooks/useToast', () => ({
@@ -144,6 +152,7 @@ import {
 } from '../calendarWeeks'
 import { InvalidDateError } from '@/lib/errors'
 import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
+import { CALENDAR_VIEW_ORDER, type CalendarView } from '../pickupVisibility'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
 
@@ -218,15 +227,27 @@ function renderLayout(props: Partial<Parameters<typeof CalendarLayout>[0]> = {})
       pickups={[]}
       unscheduledPickups={[]}
       weekStart={ANCHOR_MONDAY}
+      findPo={null}
       customers={[]}
       {...props}
     />,
   )
 }
 
-/** Flips one of the two header group toggles. */
-function toggleGroup(name: 'Orders' | 'Pickups') {
-  fireEvent.click(screen.getByRole('switch', { name }))
+/**
+ * Presses the header's view cycle until it lands on `view`.
+ *
+ * Driven by the control's own `data-view` rather than a fixed press count, so
+ * the tests state the view they need and stay correct if the cycle order in
+ * `CALENDAR_VIEW_ORDER` is ever reordered.
+ */
+function cycleToView(view: CalendarView) {
+  const control = screen.getByTestId('calendar-view-cycle')
+  for (let press = 0; press < CALENDAR_VIEW_ORDER.length; press += 1) {
+    if (control.getAttribute('data-view') === view) return
+    fireEvent.click(control)
+  }
+  throw new Error(`The view cycle never reached "${view}".`)
 }
 
 /** Opens one day column's `+ Add order` menu and returns it. */
@@ -253,6 +274,7 @@ beforeEach(() => {
   mockSetProductionPlacement.mockResolvedValue({ success: true })
   mockSetPickupPlacement.mockResolvedValue({ success: true })
   mockClearPickupPlacement.mockResolvedValue({ success: true })
+  mockSearchCalendarOrders.mockResolvedValue({ hits: [] })
   // jsdom implements neither; both are called by `scrollWeekIntoView`.
   scrollToSpy = vi.fn()
   Element.prototype.scrollTo = scrollToSpy as unknown as Element['scrollTo']
@@ -443,6 +465,13 @@ describe('CalendarLayout', () => {
   })
 
   it('smooth-scrolls on Current week by default', () => {
+    // The clock is frozen inside the anchor week on purpose. Without it the
+    // test reads the real date, and once that drifts more than
+    // CALENDAR_WEEKS_BUFFER weeks from ANCHOR_MONDAY today's column is not in
+    // the strip at all — so the button re-anchors the route instead of
+    // scrolling and there is no `behavior` to assert on.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 29, 12, 0, 0)) // Wednesday 2026-07-29
     renderLayout()
     scrollToSpy.mockClear()
 
@@ -452,6 +481,8 @@ describe('CalendarLayout', () => {
   })
 
   it('jumps instead of smooth-scrolling when reduced motion is requested', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 29, 12, 0, 0)) // Wednesday 2026-07-29
     mockUseReducedMotion.mockReturnValue(true)
     renderLayout()
     scrollToSpy.mockClear()
@@ -459,6 +490,21 @@ describe('CalendarLayout', () => {
     fireEvent.click(screen.getByRole('button', { name: /current week/i }))
 
     expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }))
+  })
+
+  it('re-anchors the route when today is outside the rendered strip', () => {
+    // What search reaches on every jump to a distant order: the strip is drawn
+    // around a far-off anchor, so today's column was never loaded and there is
+    // nothing to scroll to. Before Task 93 the button silently did nothing.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 29, 12, 0, 0)) // Wednesday 2026-07-29
+    renderLayout({ weekStart: '2027-03-01' })
+    scrollToSpy.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: /current week/i }))
+
+    expect(mockPush).toHaveBeenCalledWith('/calendar')
+    expect(scrollToSpy).not.toHaveBeenCalled()
   })
 
   it('renders the empty state for a day with no cards', () => {
@@ -527,6 +573,7 @@ describe('CalendarLayout', () => {
         pickups={[]}
         unscheduledPickups={[]}
         weekStart={ANCHOR_MONDAY}
+      findPo={null}
         customers={[]}
       />,
     )
@@ -551,6 +598,7 @@ describe('CalendarLayout', () => {
         pickups={[]}
         unscheduledPickups={[]}
         weekStart={ANCHOR_MONDAY}
+      findPo={null}
         customers={[]}
       />,
     )
@@ -559,23 +607,59 @@ describe('CalendarLayout', () => {
   })
 })
 
-describe('CalendarLayout — the two group toggles', () => {
-  it('opens with orders on and pickups off, every visit', () => {
+describe('CalendarLayout — the view cycle', () => {
+  it('opens on the orders view, every visit', () => {
     renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
 
-    expect(screen.getByRole('switch', { name: 'Orders' })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByRole('switch', { name: 'Pickups' })).toHaveAttribute(
-      'aria-checked',
-      'false',
-    )
+    expect(screen.getByTestId('calendar-view-cycle')).toHaveAttribute('data-view', 'orders')
     expect(screen.getByText('PO-1000')).toBeInTheDocument()
     expect(screen.queryByTestId('pickup-card')).not.toBeInTheDocument()
   })
 
-  it('toggling pickups on renders pickup cards in the right column', () => {
+  it('cycles Orders → Pickups → Both and wraps back to Orders', () => {
+    renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
+    const control = screen.getByTestId('calendar-view-cycle')
+
+    fireEvent.click(control)
+    expect(control).toHaveAttribute('data-view', 'pickups')
+    expect(screen.queryByText('PO-1000')).not.toBeInTheDocument()
+
+    fireEvent.click(control)
+    expect(control).toHaveAttribute('data-view', 'both')
+    expect(screen.getByText('PO-1000')).toBeInTheDocument()
+    expect(screen.getByTestId('pickup-card')).toBeInTheDocument()
+
+    fireEvent.click(control)
+    expect(control).toHaveAttribute('data-view', 'orders')
+  })
+
+  it('names both the current view and the next one, for screen readers', () => {
+    renderLayout()
+
+    expect(screen.getByTestId('calendar-view-cycle')).toHaveAccessibleName(
+      'Showing Orders. Switch to Pickups.',
+    )
+  })
+
+  it('never reaches a view that hides both lists', () => {
+    // The old pair of toggles could turn everything off, and every column drew
+    // a "both lists are hidden" message for it. Three views replace four
+    // combinations, so that state is now unreachable (CONSTRAINT-25, Task 93).
+    renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
+    const control = screen.getByTestId('calendar-view-cycle')
+
+    for (let press = 0; press <= CALENDAR_VIEW_ORDER.length; press += 1) {
+      const hasCards =
+        screen.queryByText('PO-1000') !== null || screen.queryByTestId('pickup-card') !== null
+      expect(hasCards).toBe(true)
+      fireEvent.click(control)
+    }
+  })
+
+  it('shows pickup cards in the right column on the pickups view', () => {
     renderLayout({ pickups: [makePickup({ pickup_date: ANCHOR_FRIDAY })] })
 
-    toggleGroup('Pickups')
+    cycleToView('pickups')
 
     const fridayColumn = document.querySelector(`[data-date="${ANCHOR_FRIDAY}"]`) as HTMLElement
     expect(within(fridayColumn).getByTestId('pickup-card')).toBeInTheDocument()
@@ -589,21 +673,26 @@ describe('CalendarLayout — the two group toggles', () => {
   it('keeps the two lists independent — orders stay put when pickups appear', () => {
     renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
 
-    toggleGroup('Pickups')
+    cycleToView('both')
 
     const mondayColumn = document.querySelector(`[data-date="${ANCHOR_MONDAY}"]`) as HTMLElement
     expect(within(mondayColumn).getByText('PO-1000')).toBeInTheDocument()
     expect(within(mondayColumn).getByTestId('pickup-card')).toBeInTheDocument()
   })
 
-  it('shows an explicit message rather than a blank grid when both are off', () => {
-    renderLayout({ rows: [makeRow()], pickups: [makePickup()] })
+  it('keeps the unscheduled-orders callout up in every view', () => {
+    // "No active order may be invisible" is an invariant of the orders half,
+    // and a view toggle is a statement about which cards to draw — not a
+    // request to stop being told there is unscheduled work (Task 93).
+    renderLayout({ unscheduled: [makeRow({ production_date: null })] })
+    const control = screen.getByTestId('calendar-view-cycle')
 
-    toggleGroup('Orders')
-
-    expect(screen.getAllByTestId('column-lists-hidden').length).toBeGreaterThan(0)
-    expect(screen.queryByText('PO-1000')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('pickup-card')).not.toBeInTheDocument()
+    for (let press = 0; press <= CALENDAR_VIEW_ORDER.length; press += 1) {
+      expect(
+        screen.getByRole('button', { name: /need a production date/i }),
+      ).toHaveTextContent('1')
+      fireEvent.click(control)
+    }
   })
 
   it('surfaces undated pickups only while pickups are on', () => {
@@ -611,14 +700,14 @@ describe('CalendarLayout — the two group toggles', () => {
 
     expect(screen.queryByRole('button', { name: /pickups need a date/i })).not.toBeInTheDocument()
 
-    toggleGroup('Pickups')
+    cycleToView('pickups')
 
     expect(screen.getByRole('button', { name: /pickups need a date/i })).toHaveTextContent('1')
   })
 
   it('opens the pickup popup from a card and closes it again', () => {
     renderLayout({ pickups: [makePickup()] })
-    toggleGroup('Pickups')
+    cycleToView('pickups')
 
     fireEvent.click(screen.getByTestId('pickup-card'))
 
@@ -632,7 +721,7 @@ describe('CalendarLayout — the two group toggles', () => {
   it('removes a pickup from the calendar through clearPickupPlacement', async () => {
     mockClearPickupPlacement.mockResolvedValueOnce({ success: true })
     renderLayout({ pickups: [makePickup({ address: '9 Dock Rd', notes: 'gate code 4821' })] })
-    toggleGroup('Pickups')
+    cycleToView('pickups')
     fireEvent.click(screen.getByTestId('pickup-card'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove from calendar' }))

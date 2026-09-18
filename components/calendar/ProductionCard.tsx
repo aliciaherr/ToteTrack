@@ -22,6 +22,12 @@ interface ProductionCardProps {
    * motion, so the armed state is never signalled by movement only.
    */
   isArmed?: boolean
+  /**
+   * True while search is pointing at this card (Task 93). A blooming ring that
+   * fades after `HIGHLIGHT_DURATION_MS`, and a steady one under reduced motion
+   * — the same ring-survives-without-movement split the armed state uses.
+   */
+  isFound?: boolean
 }
 
 function formatDeliveryDate(isoDate: string | null): string {
@@ -112,14 +118,20 @@ function CardDateRow({ isoDate }: { isoDate: string | null }) {
  * Cards never show prices (CONSTRAINT-19) — the quantity mix is the whole
  * point at a glance, and money belongs in the popup.
  *
+ * `data-po-number` is what search scrolls to. It is on the card rather than the
+ * drag wrapper because the callout and the day columns wrap cards differently,
+ * and the thing being scrolled into view is the card face either way.
+ *
  * @param row Calendar row from `getCalendarOrders` / `getUnscheduledOrders`.
  * @param isDragging True while the card is being carried by a drag.
  * @param isArmed True while the card is armed by a touch long-press.
+ * @param isFound True while search is pointing at this card (Task 93).
  */
 export default function ProductionCard({
   row,
   isDragging = false,
   isArmed = false,
+  isFound = false,
 }: ProductionCardProps) {
   const mix = formatProductionMix(row)
   const isBuilt = isBuiltStatus(row.status)
@@ -128,14 +140,16 @@ export default function ProductionCard({
   return (
     <article
       data-testid="production-card"
+      data-po-number={row.po_number}
       data-draggable={isDraggable ? 'true' : undefined}
       data-armed={isArmed ? 'true' : undefined}
+      data-found={isFound ? 'true' : undefined}
       aria-label={`PO ${row.po_number}`}
       className={`flex flex-col rounded-md border border-border overflow-hidden select-none ${
         isBuilt ? BUILT_SURFACE_CLASS : `${ACTIVE_SURFACE_CLASS} cursor-grab`
       } ${isDragging ? 'opacity-80 shadow-lg' : ''} ${
         isArmed ? 'calendar-card-armed ring-2 ring-primary' : ''
-      }`}
+      } ${isFound ? 'calendar-card-found' : ''}`}
       style={{
         height: 'var(--card-h)',
         paddingBlock: 'var(--card-pad)',

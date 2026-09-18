@@ -16,6 +16,15 @@ import type { CalendarOrderRow } from '@/db/queries/calendar'
 
 interface UnscheduledCalloutProps {
   rows: CalendarOrderRow[]
+  /**
+   * Bumped by search when a hit turns out to have no production date, so the
+   * card it wants to light is in this dropdown rather than a day column.
+   *
+   * A counter rather than a boolean: two searches in a row for the same undated
+   * PO have to open the panel twice, and a boolean that is already `true` would
+   * make the second one a no-op.
+   */
+  openSignal?: number
 }
 
 // `group` is what stops the pickups pill next door from being a legal
@@ -104,7 +113,7 @@ function useEscapeToClose(isOpen: boolean, close: () => void) {
  *
  * @param rows Orders with no production date, from `getUnscheduledOrders`.
  */
-export default function UnscheduledCallout({ rows }: UnscheduledCalloutProps) {
+export default function UnscheduledCallout({ rows, openSignal = 0 }: UnscheduledCalloutProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const { armed, tap } = useArmMode()
   const { setNodeRef, isOver } = useDroppable({
@@ -130,6 +139,10 @@ export default function UnscheduledCallout({ rows }: UnscheduledCalloutProps) {
 
   useOpenOnDragOverTarget(UNSCHEDULED_DROPPABLE_ID, open)
   useEscapeToClose(isExpanded, close)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: this subscribes the panel to an external signal (search finding an undated hit), which is exactly what an effect is for. The alternative is lifting `isExpanded` into the header so search can set it, which would put this panel's private open/shut state three levels above the panel.
+    if (openSignal > 0) open()
+  }, [openSignal, open])
 
   if (rows.length === 0) {
     return (

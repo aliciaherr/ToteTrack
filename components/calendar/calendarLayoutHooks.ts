@@ -1,7 +1,13 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { DEFAULT_CALENDAR_VISIBILITY, type CalendarVisibility } from './pickupVisibility'
+import {
+  DEFAULT_CALENDAR_VIEW,
+  nextCalendarView,
+  visibilityForView,
+  type CalendarView,
+  type CalendarVisibility,
+} from './pickupVisibility'
 import type { GroupedPlacement } from './usePickupPlacement'
 import type { CalendarOrderRow } from '@/db/queries/calendar'
 import type { CalendarPickupRow } from '@/db/queries/pickups.calendar'
@@ -63,22 +69,25 @@ export function useCalendarActions(
 }
 
 /**
- * The two header toggles, held in plain component state.
+ * The header's view control, held in plain component state.
  *
- * Deliberately not persisted anywhere — every visit opens orders-on /
- * pickups-off (CONSTRAINT-25). Mounting the calendar *is* the reset, so there
- * is no reset code to get wrong.
+ * One enum rather than two booleans since Task 93 merged the two toggles into a
+ * single cycling pill. The booleans the columns read are *derived* from it, so
+ * the illegal fourth state the old pair could reach — both groups off — is not
+ * representable rather than merely discouraged.
+ *
+ * Deliberately not persisted anywhere — every visit opens on `orders`
+ * (CONSTRAINT-25). Mounting the calendar *is* the reset, so there is no reset
+ * code to get wrong.
  */
 export function useCalendarVisibilityState(): CalendarVisibility {
-  const [showOrders, setShowOrders] = useState<boolean>(DEFAULT_CALENDAR_VISIBILITY.showOrders)
-  const [showPickups, setShowPickups] = useState<boolean>(DEFAULT_CALENDAR_VISIBILITY.showPickups)
+  const [view, setView] = useState<CalendarView>(DEFAULT_CALENDAR_VIEW)
 
-  const toggleOrders = useCallback(() => setShowOrders((current) => !current), [])
-  const togglePickups = useCallback(() => setShowPickups((current) => !current), [])
+  const cycleView = useCallback(() => setView(nextCalendarView), [])
 
   return useMemo(
-    () => ({ showOrders, showPickups, toggleOrders, togglePickups }),
-    [showOrders, showPickups, toggleOrders, togglePickups],
+    () => ({ view, ...visibilityForView(view), cycleView, setView }),
+    [view, cycleView],
   )
 }
 

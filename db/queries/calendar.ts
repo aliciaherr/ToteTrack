@@ -3,9 +3,13 @@ import { db } from '@/db'
 import { DatabaseError, InvalidDateError } from '@/lib/errors'
 import { parseDbDate } from '@/lib/dates'
 import type { PoStatus } from './orders'
-import { CALENDAR_WEEKS_BUFFER, UNSCHEDULED_DROPDOWN_VISIBLE } from './calendar.constants'
+import {
+  CALENDAR_SEARCH_LIMIT,
+  CALENDAR_WEEKS_BUFFER,
+  UNSCHEDULED_DROPDOWN_VISIBLE,
+} from './calendar.constants'
 
-export { CALENDAR_WEEKS_BUFFER, UNSCHEDULED_DROPDOWN_VISIBLE }
+export { CALENDAR_SEARCH_LIMIT, CALENDAR_WEEKS_BUFFER, UNSCHEDULED_DROPDOWN_VISIBLE }
 
 /** One contact row for a calendar order's customer, primary-first. */
 export interface CalendarContact {
@@ -200,5 +204,99 @@ export async function getUnscheduledOrders(): Promise<CalendarOrderRow[]> {
       cause,
     })
     throw new DatabaseError('getUnscheduledOrders', 'Failed to load unscheduled orders', { cause })
+  }
+}
+
+/** One search hit: enough to navigate to the card, and nothing else. */
+export interface CalendarSearchHit {
+  id: string
+  po_number: string
+  customer_name: string | null
+  /** The card's column, or null when the order is undated (the callout). */
+  production_date: string | null
+}
+
+/** A page of search hits, plus whether the term matched more than fit. */
+export interface CalendarSearchResult {
+  hits: CalendarSearchHit[]
+  /** True when the term matched more orders than `limit`. */
+  hasMore: boolean
+}
+
+function buildPoSearchQuery(term: string, limit: number): SQL {
+  // `%term%` rather than `term%`: PO numbers carry prefixes the salesperson does
+  // not think of as part of the number ("PO-2026-0412" is "0412" to them), so a
+  // prefix match would miss the way people actually search. `ILIKE` mirrors the
+  // Orders tab's own search so the two behave alike.
+  const pattern = `%${term}%`
+  return sql`
+    SELECT
+      o.id,
+      o.po_number,
+      c.company_name AS customer_name,
+      to_char(o.production_date, 'YYYY-MM-DD') AS production_date
+    FROM orders o
+    LEFT JOIN customers c ON c.id = o.customer_id
+    WHERE ${NOT_CANCELLED}
+      AND o.po_number ILIKE ${pattern}
+    ORDER BY
+      o.po_number ASC
+    LIMIT ${limit}
+  `
+}
+
+/**
+ * Finds non-cancelled orders whose PO number contains `term`, for the
+ * calendar's search box (Task 93).
+ *
+ * Deliberately **not** scoped to the rendered week range. The calendar only
+ * loads nine weeks, so a client-side search would report "no such order" for
+ * one three months out — a lie indistinguishable from a genuine miss, and the
+ * reason the box is worth having at all is that it can be trusted.
+ *
+ * Matches on PO number only, never customer name, even though the Orders tab's
+ * search does both. This box exists to jump to one card; a customer term would
+ * return that customer's whole book and turn a jump into a browse.
+ *
+ * `production_date` comes back as `to_char(...)` rather than a `Date`, because
+ * the caller compares it against `yyyy-MM-dd` week keys. Letting the driver
+ * hand back a `Date` would re-introduce the UTC-midnight drift
+ * `lib/calendar-range.ts` documents at length.
+ *
+ * Cancelled orders are excluded for the same reason the calendar hides them:
+ * they have no card to scroll to, so a hit would navigate to nothing.
+ *
+ * Ordered by PO number ascending — the order the results list renders in, and
+ * stable as the viewer types: adding a character narrows the same list rather
+ * than reshuffling it, so a row does not move out from under a finger.
+ *
+ * Queries one row beyond `limit` to learn whether more matched, then drops it.
+ * That is what lets the box say "keep typing to narrow" instead of silently
+ * showing the alphabetically-first eight of two hundred as if they were all.
+ *
+ * @param term Raw search text. Trimmed here; an empty term returns no rows
+ * rather than every order, since `%%` matches everything.
+ * @param limit Most rows to return. Defaults to `CALENDAR_SEARCH_LIMIT`.
+ * @throws {DatabaseError} when the underlying SQL query fails.
+ */
+export async function findOrdersByPoNumber(
+  term: string,
+  limit: number = CALENDAR_SEARCH_LIMIT,
+): Promise<CalendarSearchResult> {
+  const trimmed = term.trim()
+  if (trimmed === '') return { hits: [], hasMore: false }
+
+  try {
+    const result = await db.execute(buildPoSearchQuery(trimmed, limit + 1))
+    const rows = result as unknown as CalendarSearchHit[]
+    return { hits: rows.slice(0, limit), hasMore: rows.length > limit }
+  } catch (cause) {
+    console.error('findOrdersByPoNumber: query failed', {
+      operation: 'findOrdersByPoNumber',
+      termLength: trimmed.length,
+      limit,
+      cause,
+    })
+    throw new DatabaseError('findOrdersByPoNumber', 'Failed to search orders', { cause })
   }
 }

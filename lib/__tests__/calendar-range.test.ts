@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { format, getDay, parseISO } from 'date-fns'
-import { parseCalendarWeek, buildCalendarRange } from '../calendar-range'
+import { parseCalendarWeek, parseCalendarFind, buildCalendarRange } from '../calendar-range'
 import { DB_DATE_FORMAT } from '../dates'
 import { CALENDAR_WEEKS_BUFFER } from '@/db/queries/calendar.constants'
+import { PO_NUMBER_MAX } from '../actions/orders.validation'
 
 // 2026-07-27 is a Monday. The surrounding days anchor every case below.
 const MONDAY = '2026-07-27'
@@ -113,5 +114,35 @@ describe('buildCalendarRange', () => {
       (parseISO(range.to).getTime() - parseISO(range.from).getTime()) / (1000 * 60 * 60 * 24)
 
     expect(spanDays).toBe(CALENDAR_WEEKS_BUFFER * 2 * DAYS_PER_WEEK + MONDAY_TO_SATURDAY)
+  })
+})
+
+describe('parseCalendarFind', () => {
+  it('returns the PO number a search jump asked to reveal', () => {
+    expect(parseCalendarFind('PO-2026-0412')).toBe('PO-2026-0412')
+  })
+
+  it('trims surrounding whitespace', () => {
+    expect(parseCalendarFind('  PO-1000  ')).toBe('PO-1000')
+  })
+
+  it('ignores a missing param', () => {
+    expect(parseCalendarFind(undefined)).toBeNull()
+  })
+
+  it('ignores an empty or whitespace-only param', () => {
+    expect(parseCalendarFind('')).toBeNull()
+    expect(parseCalendarFind('   ')).toBeNull()
+  })
+
+  it('ignores a repeated param, which arrives as an array', () => {
+    // The same shape trap `parseCalendarWeek` documents: a string method on an
+    // array would throw at request time rather than falling back (SEC-02).
+    expect(parseCalendarFind(['PO-1000', 'PO-2000'])).toBeNull()
+  })
+
+  it('ignores a value longer than a PO number can be', () => {
+    expect(parseCalendarFind('x'.repeat(PO_NUMBER_MAX + 1))).toBeNull()
+    expect(parseCalendarFind('x'.repeat(PO_NUMBER_MAX))).toBe('x'.repeat(PO_NUMBER_MAX))
   })
 })
