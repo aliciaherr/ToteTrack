@@ -762,3 +762,47 @@ The defect is what the sentence would have done to whoever reads it next. Somebo
 - **If you ever want the second lock to be real**, it is a small database change — switching on the setting that makes the owner obey its own rules. It is not free: it has to be done on every table, and any query that legitimately needs to run outside a session would then need a deliberate exemption. Worth doing if a second user ever appears; not worth doing today.
 
 **What this closes off:** Nothing. The correction is a description, not a decision, and it leaves both futures open — carry on with one lock, or switch the second one on later with eyes open.
+
+---
+
+## FB-35 — Two Switches Became One Dial, and the Calendar Learned to Find Things
+
+**Date:** 2026-09-18
+**Architecture section:** `docs/architecture.md` → The Two-List Calendar (Feature 15) — `CalendarViewCycle`, `CalendarSearch`, `useCalendarSearch`, `useCardReveal`, and the `Current week` behaviour.
+**Constraint changed:** CONSTRAINT-25 amended — the calendar's visibility control is now three views on one button, not two independent switches.
+**Requested by:** Builder, during the session.
+
+**Decided:** The calendar header had two separate on/off switches — one for orders, one for pickups. They are now a single button you tap to move between three views: Orders, Pickups, Both. A search box was added next to it, and the "Current week" button was repaired.
+
+**Why two switches became one.**
+
+Two switches can be set four ways, and one of those four was "both off" — an empty calendar. Nobody opens a calendar to see no cards. It was a setting the control *allowed*, never one anyone designed, and every day column carried a message explaining the blank space.
+
+The header is also narrow. At the width of an iPad held sideways there is no room to spare, and two switches took roughly twice the space of one button.
+
+The new button has three stops and no fourth. The empty state is not "discouraged" — it is no longer a thing the app can be in.
+
+**What the search box does.**
+
+Tap the magnifying glass, start typing a PO number, and a list of matching orders appears and narrows as you type. Pick one and the calendar goes to it and flashes the card for about a second.
+
+Three things about it are deliberate:
+
+- **Typing never moves anything.** Only picking a result does. Getting to an order can mean jumping the calendar to a different month, and you do not want that happening halfway through typing a number.
+- **It searches the whole book, not just what is on screen.** The calendar only ever holds about nine weeks. A search that only looked at those would say "no such order" about an order three months out — a wrong answer that looks exactly like a right one.
+- **It searches orders only.** Pickups have no PO number at all, so there is nothing to search them by. The box says "Search orders" on its face rather than letting you find that out the confusing way.
+
+**The button that did nothing.**
+
+"Current week" scrolled you back to today. If today was not among the weeks currently loaded, it quietly did nothing at all — no movement, no message. You would press it and assume it was broken.
+
+Until now that was unreachable: nothing in the app could take you far enough away to trigger it. Search can. So it was fixed in the same breath: when today is not loaded, the calendar reloads around today instead of silently giving up.
+
+**Means for your product:** Less clutter in a header that had none to give, and a way to find one order among hundreds without scrolling for it. The old empty-calendar state is gone — if you ever used it to clear the screen deliberately, that is the one thing you have lost. The red "needs a production date" count now stays visible in every view: choosing to look at pickups says which cards to draw, not that you have stopped caring about unscheduled work.
+
+**Check before approving:**
+- **The list shows at most 8 matches** and tells you when there are more. If your PO numbers are similar enough that you routinely hit that, say so — it is one number to change.
+- **Long PO numbers are now shortened** in the search list and in the Orders table, with the full number a tap away. If most of your numbers are long, the cut-off may want raising.
+- **Dates now read "Jul 27" rather than "2026-07-27"** in the Orders table, which is what paid for the new Production Date column without making the table wider. The year is not shown; that is fine for a working window of a few weeks and would be wrong for anything spanning a year end.
+
+**What this closes off:** The "show me nothing" calendar state is gone and would have to be deliberately rebuilt. Searching by customer name was deliberately not built — this box exists to jump to one card, and a customer name would return that customer's whole book, which is a different feature wearing the same clothes.
