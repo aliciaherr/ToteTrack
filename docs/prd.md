@@ -960,6 +960,18 @@ of typing one.
 - Extraction runs through OpenRouter with zero-data-retention enforced, which
   routes via Azure only. An unavailable route fails loudly rather than falling
   back to a retaining endpoint.
+- **The ingestion inbox is a separate email account from the login account.** It is
+  never the address in `ADMIN_EMAIL`, which is a live auth credential for the app.
+  The two must not be the same mailbox under any configuration.
+- **Everything environment-specific is configurable, nothing is hardcoded:** the
+  ingestion address and its app password, the OpenRouter key, and the model
+  identifier all come from environment variables, so the feature can be tested
+  against one inbox and handed to the salesperson with their own.
+- **Zero data retention is the one setting that is not configurable.** The
+  per-request `zdr` flag is always sent as true, in code, with no environment
+  override. A switchable privacy guarantee is one that can be shipped turned off
+  by accident. The account-wide OpenRouter setting is the second layer, not the
+  only one.
 
 ### Acceptance Criteria
 - [ ] Given a forwarded PO with an attachment, when the trigger runs, then a

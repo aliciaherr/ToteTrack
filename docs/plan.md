@@ -3329,6 +3329,42 @@ core. That ordering only pays off if the core is genuinely used before they are 
 **A-12 is open** and gates Task 100 only: confirm `pg_trgm` is available on Supabase free
 before starting it. Do not assume it.
 
+**No magic numbers anywhere in Feature 16 — audited 2026-10-07.** Every tunable value below
+goes in `lib/ingest/ingest.constants.ts` (or `extraction.constants.ts` for Task 98),
+following the existing `db/queries/calendar.constants.ts` and
+`production-widget.constants.ts` precedent. Not literals buried in logic.
+
+| Value | Where it lives | Why not an env var |
+|---|---|---|
+| `INGEST_BATCH_SIZE` (POs per invocation, start at 4) | constant | Tied to the Vercel timeout and per-PO latency; changing it is a code decision, not a deployment one |
+| `MAX_EXTRACTION_ATTEMPTS` (retries before `extraction_failed`) | constant | Same |
+| `ACCEPTED_MIME_TYPES` (`image/*`, `application/pdf`) | constant | Changing it changes parsing behaviour |
+| `PO_DOCUMENTS_BUCKET` (`po-documents`) | constant | Fixed by the Supabase project; one source of truth beats a string repeated across files |
+| `COMPRESSED_IMAGE_MAX_DIMENSION` / quality | constant | Tuned against legibility, not environment |
+| `AMBIGUOUS_DATE_THRESHOLD` (12) | constant | Derived from the calendar, not configurable |
+
+**Environment variables** (all in `.env.example` with placeholder values):
+`GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`, `GMAIL_IMAP_HOST`, `OPENROUTER_API_KEY`,
+`OPENROUTER_MODEL`, `INGEST_TRIGGER_SECRET`.
+
+**The one deliberate hardcode, and the reasoning so it is not "fixed" later.** The
+per-request `zdr` flag is `true` in code with no override. The configuration-over-hardcoding
+rule exists so that values which legitimately *differ* between environments are not baked
+in. ZDR must never differ — it is an invariant, not a setting. Behind an environment
+variable it acquires a silent failure mode (wrong `.env`, a variable missed on a new deploy)
+where privacy is off and nothing breaks loudly. Hardcoding it serves the rule's intent
+rather than breaking it. Task 98 asserts it in a test.
+
+**Configuration rules for Task 98, agreed 2026-10-07 — settle these before writing it.**
+`OPENROUTER_API_KEY` and `OPENROUTER_MODEL` both come from environment variables, never
+hardcoded; `OPENROUTER_MODEL` defaults to `openai/gpt-4.1-mini` but is overridable without
+a code change, which is what makes swapping models cheap if accuracy disappoints. This
+matches the extraction playbook's rule that config is passed *into* the extraction layer
+and never read inside it. **The `zdr` flag is the exception: always `true`, in code, with
+no environment override** — a privacy guarantee that can be switched off by environment is
+one that will eventually ship switched off. `.env.example` gains both variables with
+placeholder values.
+
 ---
 
 ## Task 94: Amend CONSTRAINT-07 to permit a metered extraction API
@@ -3457,6 +3493,14 @@ with the 7-day testing-mode refresh-token trap noted in A-09.
       the password — and is never swallowed
 - [ ] No DB write, no storage write, no `db/` import in this module
 - [ ] Messages already in `processedIds` are not returned
+- [ ] **`GMAIL_IMAP_USER` must not equal `ADMIN_EMAIL`.** The ingestion inbox is a
+      separate account; `ADMIN_EMAIL` is a live Supabase Auth credential
+      (CONSTRAINT-04). A startup guard throws with context if the two match, rather
+      than quietly reading the login mailbox
+- [ ] `.env.example` gains `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD` and
+      `GMAIL_IMAP_HOST`, with a comment stating the separate-account rule and that
+      the app password requires 2FA plus IMAP enabled on that account. Placeholder
+      values only — that file is committed
 - [ ] Attachments are returned as bytes with their MIME type; body is returned as text
 - [ ] CQ-01: functions under 50 lines
 
