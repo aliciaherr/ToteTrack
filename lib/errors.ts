@@ -148,3 +148,58 @@ export class AttachmentNotFoundError extends Error {
     this.storagePath = storagePath
   }
 }
+
+/**
+ * Thrown when ingestion configuration is missing or unsafe — a Gmail IMAP
+ * variable absent from the environment, or `GMAIL_IMAP_USER` naming the same
+ * mailbox as `ADMIN_EMAIL`. Separate from a connection failure: nothing was
+ * attempted, the configuration itself is wrong, and the fix is an environment
+ * change rather than a retry.
+ */
+export class IngestConfigError extends Error {
+  /** The environment variable at fault, for the log line and for tests. */
+  readonly variable: string
+
+  constructor(variable: string, reason: string) {
+    super(`Ingestion configuration: ${variable} ${reason}`)
+    this.name = 'IngestConfigError'
+    this.variable = variable
+  }
+}
+
+/**
+ * Thrown when the IMAP connection, the login, or the inbox read fails. Carries
+ * the host and the username so the failure names the mailbox it could not
+ * reach — and **never the app password**, which is the only real secret here
+ * (SEC-01, CONSTRAINT-04's "the password is the only real secret").
+ */
+export class ImapConnectionError extends Error {
+  readonly host: string
+  readonly user: string
+
+  constructor(host: string, user: string, reason: string, options?: { cause?: unknown }) {
+    super(`IMAP connection to ${host} as ${user} failed: ${reason}`, options)
+    this.name = 'ImapConnectionError'
+    this.host = host
+    this.user = user
+  }
+}
+
+/**
+ * Thrown when a fetched message cannot be turned into an `InboundMessage` —
+ * unparseable MIME, or no `Message-ID` header. The header is not optional
+ * here: it is both dedupe layer 1 and the processed marker that replaces the
+ * IMAP `\Seen` flag, so a message without one has no identity to stage under
+ * and must fail loudly rather than be staged under a generated id.
+ */
+export class MimeParseError extends Error {
+  /** The IMAP UID when known, otherwise `null`. Never the message body. */
+  readonly uid: number | null
+
+  constructor(reason: string, uid: number | null, options?: { cause?: unknown }) {
+    const where = uid === null ? 'a raw message' : `IMAP UID ${uid}`
+    super(`parseMessage: ${where} could not be parsed: ${reason}`, options)
+    this.name = 'MimeParseError'
+    this.uid = uid
+  }
+}

@@ -72,11 +72,13 @@ A **type-only** import is erased at compile time and does not require the direct
 
 ### CONSTRAINT-05 — RLS on all tables
 
-**Decision:** Row Level Security is enabled on all 8 database tables. RLS is never disabled, bypassed, or relaxed.
+**Decision:** Row Level Security is enabled on ~~all 8 database tables~~ **every table in the database, without exception**. RLS is never disabled, bypassed, or relaxed.
 
-**What it means in practice:** Every `db/migrations/` file that creates a new table must also include the RLS enable + policy statements. Do not use the Supabase service role key to bypass RLS — use it only when there is no authenticated session context (e.g., server-side admin operations during setup).
+**Amended 2026-10-07 (Task 95): the count is deliberately no longer a number.** This line said "8 tables" while the database held 10, and `architecture.md:474` said 10 — a security-relevant claim that had quietly gone stale. A number here has to be re-counted by hand on every migration and has already drifted three times (`customer_addresses` in Feature 14, `pickups` in Feature 15, `inbound_emails` + `inbound_pos` in Feature 16). **"Every table, without exception" cannot go stale**, which is the only property that matters for a constraint someone reads to decide whether a table is covered. The authoritative per-table list stays in `docs/architecture.md`, where it is maintained alongside the schema; if a count is ever wanted, count `ENABLE ROW LEVEL SECURITY` across `db/migrations/*.sql` rather than trusting prose.
 
-**Who decided and when:** @cto (via @plan), 2026-04-20
+**What it means in practice:** Every `db/migrations/` file that creates a new table must also include the RLS enable + policy statements. Migration `0016` does this for `inbound_emails` and `inbound_pos`, in the same file that creates them. Do not use the Supabase service role key to bypass RLS — use it only when there is no authenticated session context (e.g., server-side admin operations during setup).
+
+**Who decided and when:** @cto (via @plan), 2026-04-20; count made non-numeric by Builder (Task 95), 2026-10-07
 
 **What this closes off:** Nothing meaningful. RLS is additive.
 
@@ -96,11 +98,17 @@ A **type-only** import is erased at compile time and does not require the direct
 
 ### CONSTRAINT-07 — $0 hosting — Vercel free + Supabase free tiers only
 
-**Decision:** The app must run entirely on Vercel free tier + Supabase free tier. No paid services.
+**Decision:** The app must run entirely on Vercel free tier + Supabase free tier. ~~No paid services.~~
 
-**What it means in practice:** Do not introduce any paid infrastructure (paid Supabase plan, Redis, external CDN, third-party services). If a feature requires paid infrastructure, it is out of scope until explicitly approved by the builder.
+**What it means in practice:** ~~Do not introduce any paid infrastructure (paid Supabase plan, Redis, external CDN, third-party services).~~ If a feature requires paid infrastructure, it is out of scope until explicitly approved by the builder.
 
-**Who decided and when:** Builder (kickoff), 2026-04-20
+**Amended 2026-10-07 (Task 94): one metered API is permitted, scoped to PO extraction only.** Email PO ingestion (Feature 16) cannot work without a vision-capable LLM, and nothing on a free tier serves one at usable accuracy — so this constraint now permits **a single metered LLM API, used only to extract fields from purchase-order documents**, billed through OpenRouter with **ZDR enforced account-wide** on the model group (A-08 — ZDR leaves the two Azure routes, and the per-request `zdr` flag is hardcoded `true` with no environment override). Any other use of that key — chat, summarisation, anything outside extraction — is a fresh decision, not covered by this amendment.
+
+**Everything else stays forbidden:** a paid Supabase plan, Redis, an external CDN, and any other paid infrastructure or third-party service. Hosting remains Vercel free + Supabase free, and a feature needing any of the above is still out of scope until the builder explicitly approves it.
+
+**No cost figure is pinned here, deliberately.** A-13 is the cost basis — ~$0.0015 per PO, roughly $8/year at 15 POs/day — cited as an estimate and **not** adopted as a binding limit. A number written before the first real document is a guess that later gets quoted as a budget. **Follow-up, dated 2026-10-07 and due after the first few days of real use:** read actual OpenRouter spend per PO and per month, and write the measured figure into this constraint then.
+
+**Who decided and when:** Builder (kickoff), 2026-04-20; amended by Builder (Task 94), 2026-10-07
 
 **What this closes off:** Background jobs (Supabase free has no pg_cron), additional storage beyond 1GB, high bandwidth features.
 
@@ -579,3 +587,5 @@ The residual described above is therefore a **choice** between an accepted data 
 | 28 | `DATABASE_URL` is always the **Session pooler** string | Supabase's Connect dialog offers three and only one works here. **Direct connection** (`db.[ref].supabase.co:5432`, user `postgres`) is IPv6-only and Vercel's runtime is IPv4-only — it fails as `getaddrinfo ENOTFOUND` before auth is ever attempted, and it took prod down on 2026-08-16. **Transaction pooler** (`:6543`) misroutes query responses on this project (FB-20). Correct string: `aws-0-[region].pooler.supabase.com:5432`, user `postgres.[project-ref]`. Swapping only the hostname is not enough — the username differs too. `ENOTFOUND` means wrong string, not wrong password | Builder | 2026-08-16 |
 | 29 | ~~Touch and drag disagree by one on same-day **downward** moves — accepted, not a bug~~ | **Superseded by Task 91.** The `- 1` at `armPlacement.ts:96` was deleted, so touch and drag now compute identical indices under one rule — *the armed card takes the tapped card's position; empty space appends to the bottom* — and a parity test guards it. The same `- 1` also made "tap the card directly below" a silent no-op, which is what reclassified it from accepted inconsistency to defect. Drag was still not the side that moved. **Extended to column targets 2026-08-17** (`@qa` NON-BLOCKING-3): drag now discounts the dragged card from its own column's `cardCount` too, so parity holds **universally**, not for card targets only, and the parity suite covers both target kinds | Builder | 2026-08-17 |
 | 30 | Screenshots of the running app are production data | Because local dev runs against prod (CONSTRAINT-20), **any** screenshot, HAR, console dump or network log from a running session is production data and must be written only to a gitignored artifact path. SEC-07's list names documents, not images, so two `@qa` screenshots showing nine real customers with PO numbers and dates landed in the root of this **public** repo, uncovered by any rule — never committed, caught as `@security` H-01 the same day, but one `git add -A` from being permanent. `.gitignore` now also carries `qa-*.png` and `*.screenshot.png` as a net under the rule. Framework half unfixed — see FI-06 strike 2 | Builder | 2026-08-17 |
+| 31 | CONSTRAINT-07 amended: one metered API, PO extraction only | A single metered LLM API is permitted **solely** to extract fields from purchase-order documents, billed via OpenRouter with ZDR enforced account-wide (A-08) and the per-request `zdr` flag hardcoded `true`; any other use of the key is a new decision. Paid Supabase plan, Redis, external CDN and all other paid infrastructure remain forbidden, and hosting stays Vercel free + Supabase free. **No cost figure is pinned** — A-13's ~$0.0015/PO, ~$8/year at 15/day is cited as the basis, not a limit; dated follow-up to write the measured spend in after the first few days of real use. Unblocks Task 98 | Builder | 2026-10-07 |
+| 32 | CONSTRAINT-05's table count is non-numeric by design | The line read "all 8 database tables" while the database held 10 and `architecture.md` said 10 — a security-relevant claim that had gone stale, and would have gone stale again at 12 with Feature 16's `inbound_emails` + `inbound_pos`. A hand-maintained count has already drifted three times. CONSTRAINT-05 now says **"every table in the database, without exception"**, which cannot go stale, and points at `architecture.md`'s per-table list (reconciled to 12 the same day) as the authoritative enumeration. To get a number, count `ENABLE ROW LEVEL SECURITY` across `db/migrations/*.sql` — do not trust prose | Builder | 2026-10-07 |

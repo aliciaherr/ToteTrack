@@ -3329,6 +3329,18 @@ core. That ordering only pays off if the core is genuinely used before they are 
 **A-12 is open** and gates Task 100 only: confirm `pg_trgm` is available on Supabase free
 before starting it. Do not assume it.
 
+**`check_results` shape — settled by Task 95, 2026-10-07.** The column is free-form
+`jsonb`, but one key is a contract the queue query already depends on: **a failure is an
+entry in a top-level `failures` array.** `db/queries/inbound.ts:82-93` sorts the review
+queue on `jsonb_array_length(check_results -> 'failures') > 0`, written total so a NULL
+column, a missing key or a non-array all count as "no failures" rather than breaking the
+queue. **Task 99 must emit that key**; what goes *inside* each entry is deliberately still
+open and Task 99 decides it. **Task 105** reads it to order and label the right pane.
+Note what the shape cannot express: every entry ranks equally — there is no hard-failure
+vs. warning distinction. Adding one is a change *inside* an entry, not to this contract.
+Checks rank attention and never gate acceptance: a failure sorts a row to the top, it does
+not keep it out of the list.
+
 **No magic numbers anywhere in Feature 16 — audited 2026-10-07.** Every tunable value below
 goes in `lib/ingest/ingest.constants.ts` (or `extraction.constants.ts` for Task 98),
 following the existing `db/queries/calendar.constants.ts` and
@@ -3378,18 +3390,18 @@ Task 98 requires, and `prd.md:178` already cites this task as the condition bein
   `~~strikethrough~~` + `**Amended [date]:**` convention; do not rewrite history
 
 **Acceptance criteria:**
-- [ ] CONSTRAINT-07 permits a metered LLM API **scoped to PO extraction only**, via
+- [x] CONSTRAINT-07 permits a metered LLM API **scoped to PO extraction only**, via
       OpenRouter with ZDR enforced account-wide
-- [ ] The amendment restates what remains forbidden: paid Supabase plan, Redis, external
+- [x] The amendment restates what remains forbidden: paid Supabase plan, Redis, external
       CDN, any other paid infrastructure
-- [ ] **No cost figure is pinned.** A dated follow-up action is recorded to write the
+- [x] **No cost figure is pinned.** A dated follow-up action is recorded to write the
       measured figure in after the first few days of real use
-- [ ] A-13 is cross-referenced for the cost basis (~$0.0015/PO, ~$8/year at 15/day)
-- [ ] The decisions-log table at `constraints.md:558` gains a row for the amendment
+- [x] A-13 is cross-referenced for the cost basis (~$0.0015/PO, ~$8/year at 15/day)
+- [x] The decisions-log table at `constraints.md:558` gains a row for the amendment
 
 **Tests required:** None — documentation change, no executable code.
 
-**Status:** [ ] Not started
+**Status:** [x] Done (2026-10-07) — all five criteria met. CONSTRAINT-07 amended in place with the established `~~strikethrough~~` + `**Amended [date]:**` convention; the original decision text stays readable under strikethrough. The API is permitted **only** for PO-document extraction, via OpenRouter with ZDR enforced account-wide (A-08) and the per-request `zdr` flag hardcoded; paid Supabase plan, Redis, external CDN and all other paid infrastructure remain forbidden. **No cost figure was pinned** — A-13 is cited as the basis (~$0.0015/PO, ~$8/year at 15/day), explicitly not as a limit, with a dated follow-up to write the measured spend in after the first few days of real use. Decisions-log row **31** added. No `docs/prd.md` entry, by design. **Note:** `docs/plan.md` has no summary task-status table — status lives only in these per-task `**Status:**` lines — so there was no table row to reconcile.
 **Depends on:** None
 
 ---
@@ -3397,7 +3409,9 @@ Task 98 requires, and `prd.md:178` already cites this task as the condition bein
 ## Task 95: Add the inbound-email staging schema
 
 **Files:**
-- `db/schema/inbound.ts` — create. `inbound_emails` + `inbound_pos`, two new enums
+- `db/schema/inbound.ts` — create. `inbound_emails` + `inbound_pos`, ~~two~~ **three**
+  new enums — corrected 2026-10-07: the spec body below defines three (`classification`,
+  `source_kind`, `status`); "two" was a miscount, not a scope change
 - `db/migrations/0016_inbound_email_ingestion.sql` — create (0015 is the latest)
 - `db/queries/inbound.ts` — create. Read/write helpers
 - `db/queries/__tests__/inbound.test.ts` — create
@@ -3437,16 +3451,24 @@ Tasks 109–111. Deleting either loses it permanently.
 - `countPendingReview(): Promise<number>`
 
 **Acceptance criteria:**
-- [ ] RLS is **enabled** on both new tables with policies matching the existing pattern —
-      never disabled or bypassed (CONSTRAINT-06)
-- [ ] `docs/constraints.md`'s "RLS is enabled on all 8 database tables" is updated to 10,
-      or the count is made non-numeric. A stale number here is a security-relevant claim
-- [ ] `message_id` is UNIQUE; a repeat insert returns `{ duplicate: true }` rather than
+- [x] RLS is **enabled** on both new tables with policies matching the existing pattern —
+      never disabled or bypassed (CONSTRAINT-06 — *the RLS constraint is actually
+      **CONSTRAINT-05**; CONSTRAINT-06 is private storage buckets. Implemented against 05*)
+- [x] `docs/constraints.md`'s "RLS is enabled on all 8 database tables" is updated to 10,
+      or the count is made non-numeric. A stale number here is a security-relevant claim —
+      **made non-numeric**: "8" was already stale against 10 live tables, so "10" would have
+      been wrong too (the real post-0016 figure is 12). CONSTRAINT-05 now reads "every table
+      in the database, without exception" and points at `architecture.md`'s per-table list,
+      which was reconciled to 12 the same day. Decisions-log row 32
+- [x] `message_id` is UNIQUE; a repeat insert returns `{ duplicate: true }` rather than
       throwing
-- [ ] `content_hash` is indexed and **not** unique; `duplicate_of_id` is a nullable self-FK
-- [ ] Migration 0016 is forward-only — no `DROP`, no destructive statement
-- [ ] `listPendingReview` orders check-failures first, then unskipped before skipped
-- [ ] CQ-01: every function under 50 lines
+- [x] `content_hash` is indexed and **not** unique; `duplicate_of_id` is a nullable self-FK
+      (`set null`, matching the `orders.invoice_id` nullable-FK precedent)
+- [x] Migration 0016 is forward-only — no `DROP`, no destructive statement. Asserted by
+      `db/migrations/__tests__/0016.test.ts`, which also pins the only two `ALTER TABLE`
+      targets to the two new tables
+- [x] `listPendingReview` orders check-failures first, then unskipped before skipped
+- [x] CQ-01: every function under 50 lines; CQ-02 all files under 300
 
 **Tests required:**
 - `insertInboundEmail` → happy: row created, id returned
@@ -3454,7 +3476,7 @@ Tasks 109–111. Deleting either loses it permanently.
   does not throw
 - `listPendingReview` → check-failures sort ahead of clean rows; skipped sort last
 
-**Status:** [ ] Not started
+**Status:** [x] Done (2026-10-07) — `db/schema/inbound.ts`, `db/migrations/0016_inbound_email_ingestion.sql`, `db/queries/inbound.ts` and `db/queries/__tests__/inbound.test.ts` created, plus `db/migrations/__tests__/0016.test.ts` (every migration since 0008 has one, and four criteria here are assertions about the SQL file). Three enums — the Files line says two, the body specifies three; the body wins. `content_hash` is NOT NULL + indexed + **not unique**, with the reason comments in both the schema and the migration and a test asserting no unique index, so it cannot be reverted by tidying. `message_id` NOT NULL UNIQUE; a repeat insert returns `{ duplicate: true }` without throwing. `duplicate_of_id` is a nullable self-FK; `duplicate_of_id` and `order_id` are `set null` (spec silent — follows the `orders.invoice_id` precedent). **New contract Task 99 must honour:** a check failure is an entry in a `failures` array on `check_results`, and the ORDER BY type-tests the jsonb before `jsonb_array_length` so an unexpected shape sorts as "no failures" rather than breaking the queue. CONSTRAINT-05's count made non-numeric (log row 32) and `architecture.md`'s RLS list reconciled to 12. **Migration 0016 written by hand and deliberately NOT applied** — no `db:*` command was run against the live database; applying it is the builder's call. `db/migrations/meta/` left untouched: it is a drizzle-kit artifact (`_journal.json` still lists only `0001`). No integration test split out — `db/queries/__tests__/` has never had one; all 11 files mock `@/db` and assert on compiled SQL, so there were no DB-dependent tests to move. Suite: 115 files / 1425 tests passing; `tsc` and `eslint` clean. **Open for Task 108:** `architecture.md:101` still calls `db/queries/*` "read-only DB functions", which this module's insert helpers contradict by spec.
 **Depends on:** None
 **Specialist:** @db
 
@@ -3485,24 +3507,24 @@ with the 7-day testing-mode refresh-token trap noted in A-09.
   receivedAt, bodyText, attachments: { filename, mimeType, bytes }[] }`
 
 **Acceptance criteria:**
-- [ ] SEC-01: `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`, `GMAIL_IMAP_HOST` read from
+- [x] SEC-01: `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`, `GMAIL_IMAP_HOST` read from
       environment only; no credential in source, in a default, or in a log line
-- [ ] The app password never reaches `console.*`. Test asserts its absence from all logged
+- [x] The app password never reaches `console.*`. Test asserts its absence from all logged
       arguments, following the precedent `LoginForm.test.tsx:79` set for the login password
-- [ ] EH-01 / EH-02: a connection or auth failure throws with context — host and user, never
+- [x] EH-01 / EH-02: a connection or auth failure throws with context — host and user, never
       the password — and is never swallowed
-- [ ] No DB write, no storage write, no `db/` import in this module
-- [ ] Messages already in `processedIds` are not returned
-- [ ] **`GMAIL_IMAP_USER` must not equal `ADMIN_EMAIL`.** The ingestion inbox is a
+- [x] No DB write, no storage write, no `db/` import in this module
+- [x] Messages already in `processedIds` are not returned
+- [x] **`GMAIL_IMAP_USER` must not equal `ADMIN_EMAIL`.** The ingestion inbox is a
       separate account; `ADMIN_EMAIL` is a live Supabase Auth credential
       (CONSTRAINT-04). A startup guard throws with context if the two match, rather
       than quietly reading the login mailbox
-- [ ] `.env.example` gains `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD` and
+- [x] `.env.example` gains `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD` and
       `GMAIL_IMAP_HOST`, with a comment stating the separate-account rule and that
       the app password requires 2FA plus IMAP enabled on that account. Placeholder
       values only — that file is committed
-- [ ] Attachments are returned as bytes with their MIME type; body is returned as text
-- [ ] CQ-01: functions under 50 lines
+- [x] Attachments are returned as bytes with their MIME type; body is returned as text
+- [x] CQ-01: functions under 50 lines
 
 **Tests required:**
 - `parseMessage` → happy: fixture MIME with one PDF attachment yields one attachment and
@@ -3510,7 +3532,7 @@ with the 7-day testing-mode refresh-token trap noted in A-09.
 - `fetchUnprocessedMail` → error: auth failure throws with host and user in the message and
   the app password absent from it
 
-**Status:** [ ] Not started
+**Status:** [x] Done (2026-10-07) — `lib/ingest/gmail.ts`, `lib/ingest/types.ts` and `lib/ingest/__tests__/gmail.test.ts` created (14 tests), plus `lib/ingest/ingest.constants.ts`, which this Files line omits but the feature preamble requires and Task 97 imports: it holds exactly the seven tunables the preamble names, each with its reason for being a constant rather than an env var. **No mailbox, network service or database was contacted** — `GmailDeps.openSession` is required with no default and `createImapSession` (the real `imapflow` session) is exported separately, so no test can reach a live inbox by forgetting to inject a fake. Three error classes went into `lib/errors.ts` beside the nine existing ones: `IngestConfigError`, `ImapConnectionError` (host + user in the message, app password actively scrubbed out of the interpolated reason) and `MimeParseError` (carries the IMAP UID, never body content). The `ADMIN_EMAIL` guard compares trimmed and case-insensitively and names `GMAIL_IMAP_USER`, `ADMIN_EMAIL` and CONSTRAINT-04 — but **not either address**, which CONSTRAINT-04 keeps out of every file including a log sink. Inbox opened `readOnly: true` and `imapflow`'s own logger disabled, so "`\Seen` is never touched" and "the LOGIN line is never printed" are properties of the connection, not promises about the code. **`GmailDeps` carries `config` and `sinceUid`, which the spec does not mention** — the spec requires a UID watermark but gives it no route into the pinned signature, so it travels in this task's own deps type, defaulting to the whole mailbox. **Nothing advances that watermark: Task 102 must decide where the high-water mark is persisted, or every run re-reads the whole mailbox** and relies on `processedIds` alone. **A-09 did NOT resolve** — the spec expects this task's first action to be a live IMAP connection, none was made, so a revoked app password is still undetected. Three constants the preamble names without pinning (`MAX_EXTRACTION_ATTEMPTS`, `COMPRESSED_IMAGE_MAX_DIMENSION`, `COMPRESSED_IMAGE_QUALITY`) were given starting values, each commented as such and pointing at the task that owns revising it. MIME fixture built in memory because `*.pdf` is gitignored repo-wide (CONSTRAINT-30). No integration-test file — nothing under `lib/` has ever had one. Suite: 116 files / 1439 tests passing (1425 before); `tsc` and `eslint` clean. **Doc defect, flagged not fixed:** this task's criteria cite SEC-01, SEC-05, EH-01, EH-02 and CQ-01, none of which exist in `docs/constraints.md` — they are framework rule ids, read as their obvious intent. No constraint was amended.
 **Depends on:** None
 
 ---

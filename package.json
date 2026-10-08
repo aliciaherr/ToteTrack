@@ -28,7 +28,9 @@
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
     "framer-motion": "^12.38.0",
+    "imapflow": "^2.2.10",
     "lucide-react": "^1.8.0",
+    "mailparser": "^3.9.36",
     "next": "^16.3.0",
     "postgres": "^3.4.9",
     "react": "^19.2.8",
@@ -43,6 +45,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
