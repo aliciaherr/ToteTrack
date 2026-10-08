@@ -203,3 +203,42 @@ export class MimeParseError extends Error {
     this.uid = uid
   }
 }
+
+/**
+ * Thrown when `contentHash` is given nothing to hash — an empty buffer, or a
+ * string that is empty once trimmed. Hashing it would return the well-known
+ * digest of the empty input, which every other empty candidate also produces,
+ * so the first one would be staged and every later one flagged as its
+ * duplicate. The caller has no PO content and must say so instead.
+ *
+ * Carries the input's kind and length only. The content itself is never put in
+ * the message: an email body is live customer data (SEC-01 / SEC-05).
+ */
+export class ContentHashError extends Error {
+  readonly inputKind: 'buffer' | 'string'
+
+  constructor(inputKind: 'buffer' | 'string', reason: string) {
+    super(`contentHash: refusing to hash an empty ${inputKind} — ${reason}`)
+    this.name = 'ContentHashError'
+    this.inputKind = inputKind
+  }
+}
+
+/**
+ * Thrown when a PO document could not be written to Supabase Storage. Names
+ * the bucket and the object key so the failed upload is identifiable; the key
+ * is content-addressed, so it is a hash rather than a filename and reveals
+ * nothing about the document (SEC-05). The staged PO row is never written
+ * when this throws — no row may point at a missing object.
+ */
+export class DocumentUploadError extends Error {
+  readonly bucket: string
+  readonly path: string
+
+  constructor(bucket: string, path: string, reason: string, options?: { cause?: unknown }) {
+    super(`Upload to ${bucket}/${path} failed: ${reason}`, options)
+    this.name = 'DocumentUploadError'
+    this.bucket = bucket
+    this.path = path
+  }
+}

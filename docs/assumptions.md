@@ -321,15 +321,21 @@ poked — no impact on schema, extraction, or review UI. A 20-PO batch would the
 The customer matcher ranks candidates by trigram similarity rather than exact match.
 This requires the `pg_trgm` extension.
 
-**Why not yet resolved:** research item, gates Task 100 only. To be closed before that
-task starts, not now — and not to be assumed from memory.
+**Resolution: confirmed available, not yet enabled — 2026-10-08.** The builder ran
+`select * from pg_available_extensions where name = 'pg_trgm'` against the live project:
+one row, `default_version` **1.6**, `installed_version` **null**. So the extension ships
+with this Supabase free-tier project and only needs switching on — `CREATE EXTENSION
+IF NOT EXISTS pg_trgm;` — which **Task 100 must carry in its own migration**, not as an
+ad-hoc statement. Until it runs, any `similarity()` or `%` operator fails as an unknown
+function rather than silently degrading, so the enable statement and the first query that
+needs it belong in the same migration.
 
 **Contingency if false:** fall back to normalised exact matching (strip `Ltd` / `Limited` /
 `PLC` / punctuation, lowercase) plus the address signal. Loses candidate *ranking* but keeps
 matching. The existing `lib/actions/leads.convert.ts` already matches customers with
 `ilike` on `company_name`, so there is precedent for the simpler approach.
 
-**Status:** [ ] Open — research item, close before Task 100
+**Status:** [x] Resolved 2026-10-08 — available (1.6), not installed; Task 100 enables it in its migration
 
 ### A-13 — Cost holds at real volume on free tiers
 

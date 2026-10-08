@@ -3566,26 +3566,26 @@ nothing auto-approves, and the save-time PO-number check is the backstop.
 - `normalizeBodyForHash(body: string): string`
 
 **Acceptance criteria:**
-- [ ] Idempotent: running twice over the same mailbox creates no new rows and no duplicate
+- [x] Idempotent: running twice over the same mailbox creates no new rows and no duplicate
       storage objects
-- [ ] Three accepted attachments on one email produce three `inbound_pos` rows
-- [ ] A body-only PO gets `source_kind = email_body`, a normalised-body hash, and no
+- [x] Three accepted attachments on one email produce three `inbound_pos` rows
+- [x] A body-only PO gets `source_kind = email_body`, a normalised-body hash, and no
       `document_path`
-- [ ] A repeat `content_hash` **still inserts** a row, with `duplicate_of_id` set and status
+- [x] A repeat `content_hash` **still inserts** a row, with `duplicate_of_id` set and status
       `pending_extraction`, so it reaches the review queue
-- [ ] An email with no candidate PO still writes its `inbound_emails` row with
+- [x] An email with no candidate PO still writes its `inbound_emails` row with
       classification `no_po_found` — nothing is silently discarded
-- [ ] CONSTRAINT-30: documents are written only to the `po-documents` bucket. No source
+- [x] CONSTRAINT-30: documents are written only to the `po-documents` bucket. No source
       document is ever written to the repository or any non-gitignored path. PO documents
       are production data by the same reasoning that applied to QA screenshots
-- [ ] EH-01 / EH-02: a failure on one message is caught, logged with its message id, sets
+- [x] EH-01 / EH-02: a failure on one message is caught, logged with its message id, sets
       that email's classification to `failed`, and the loop continues. One bad email must
       never abort the batch
-- [ ] A storage upload failure leaves **no** `inbound_pos` row — no row may point at a
+- [x] A storage upload failure leaves **no** `inbound_pos` row — no row may point at a
       missing object
-- [ ] Logged context carries identifiers only — message id, hash, counts. No body text, no
+- [x] Logged context carries identifiers only — message id, hash, counts. No body text, no
       customer names, no attachment contents (SEC-01 / SEC-05)
-- [ ] CQ-01: functions under 50 lines; `pipeline.ts` under the service file cap
+- [x] CQ-01: functions under 50 lines; `pipeline.ts` under the service file cap
 
 **Tests required:**
 - `ingestMessages` → happy: one email with one PDF yields one email row, one PO row, one
@@ -3595,5 +3595,5 @@ nothing auto-approves, and the save-time PO-number check is the backstop.
 - `normalizeBodyForHash` → happy: two forwarded variants of the same body hash equal
 - `contentHash` → error case: empty input throws rather than returning a hash of nothing
 
-**Status:** [ ] Not started
+**Status:** [x] Done (2026-10-07) — `lib/ingest/pipeline.ts` (240 lines), `lib/ingest/hash.ts`, `lib/ingest/candidates.ts` and the two test files created (22 tests; suite 118 files / 1461 tests passing, `tsc` and `eslint` clean); documents are hashed and uploaded **before** the `inbound_emails` row is written, because the Task 95 data layer has no classification-update helper and a storage failure must land as `classification = 'failed'` with no PO row on the first and only write; a repeat `content_hash` still inserts a row with `duplicate_of_id` set and `status` left to its column default, so a duplicate is flagged and reviewed rather than rejected; storage keys are content-addressed (`inbound/<sha256><ext>`, never the sender's filename), which is what makes a repeated batch create no duplicate object; `normalizeBodyForHash` unquotes `>` markers rather than dropping those lines (in a forward the PO *is* the quoted block) and strips forward/reply separators, attribution lines, re-emitted headers and the signature; `contentHash` throws `ContentHashError` on empty input; logs carry message ids, counts and 12-character hash prefixes only. **Deviations:** `candidates.ts` is a fifth file, split out because `pipeline.ts` was 331 lines against the 300-line cap this task's own CQ-01 criterion cites; `IngestDeps` / `IngestSummary` are declared in `pipeline.ts` because `types.ts` defines neither and was off-limits; `lib/errors.ts` gained `ContentHashError` and `DocumentUploadError`. **Flagged, not fixed:** a DB failure *after* the email row is written cannot correct that row's classification — it is logged with the message id and reported in `failedMessageIds`, but reconciling it needs an update helper in `db/queries/inbound.ts` (at 298/300 lines). **Owed by Task 102:** production wiring of `IngestDeps`, and a "list processed message ids" query, which `db/queries/inbound.ts` does not have.
 **Depends on:** Task 95, Task 96

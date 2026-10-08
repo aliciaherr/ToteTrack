@@ -98,3 +98,107 @@ export const COMPRESSED_IMAGE_QUALITY = 0.8
  * it means instead of as a bare `12`.
  */
 export const AMBIGUOUS_DATE_THRESHOLD = 12
+
+/**
+ * Hash algorithm and digest encoding for `content_hash` (Task 97).
+ *
+ * Not env vars: the stored hashes of every already-staged PO are hex SHA-256,
+ * so changing either value silently stops every future row from matching any
+ * existing one and dedupe goes quiet rather than loud. Changing it is a
+ * migration, not a setting.
+ */
+export const CONTENT_HASH_ALGORITHM = 'sha256'
+export const CONTENT_HASH_DIGEST_ENCODING = 'hex'
+
+/**
+ * Characters of a content hash quoted in a log line or an error message.
+ *
+ * Logs may carry identifiers only — never body text, attachment bytes,
+ * customer names or PO data (SEC-01 / SEC-05). A hash prefix is the safe way
+ * to correlate two log lines about the same document, and twelve hex
+ * characters is far beyond collision range for one mailbox while staying
+ * short enough to read.
+ */
+export const HASH_LOG_PREFIX_LENGTH = 12
+
+/**
+ * Folder prefix for every object written to `PO_DOCUMENTS_BUCKET`.
+ *
+ * Not an env var: it is part of the storage layout that the review modal's
+ * signed-URL reader also assumes, so it belongs with the bucket name in one
+ * place. Email-sourced documents are grouped under one prefix so a later
+ * upload path (a manual upload, say) can be told apart by key alone.
+ */
+export const PO_DOCUMENT_PATH_PREFIX = 'inbound'
+
+/**
+ * File extension per accepted content type, used to build the storage key.
+ *
+ * Not an env var: each entry pairs with `ACCEPTED_MIME_TYPES` and with what
+ * the extraction call can read. The sender's filename is deliberately **not**
+ * used — it is untrusted input that could carry a path (`types.ts`), so the
+ * extension is derived from the MIME type the parser reported instead.
+ * Anything accepted but unlisted falls back to `PO_DOCUMENT_FALLBACK_EXTENSION`.
+ */
+export const PO_DOCUMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+  'application/pdf': '.pdf',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/heic': '.heic',
+  'image/tiff': '.tiff',
+}
+
+/** Extension for an accepted `image/*` type not named above. */
+export const PO_DOCUMENT_FALLBACK_EXTENSION = '.bin'
+
+/**
+ * Quote markers stripped from the **front** of a body line before hashing
+ * (Task 97's `normalizeBodyForHash`): one or more `>`, however deeply nested.
+ *
+ * Stripped rather than used to drop the line, which is the whole point. In a
+ * Gmail-style forward the purchase order *is* the quoted block, so dropping
+ * quoted lines would throw the PO away and leave only the forwarder's "FYI"
+ * — and two forwards of one PO would then hash on their covering notes
+ * instead of on the order. Unquoting makes a quoted and an unquoted relay of
+ * the same text converge.
+ */
+export const QUOTE_MARKER_PATTERN = /^\s*(?:>\s?)+/
+
+/**
+ * Line patterns dropped entirely from an email body before hashing it, after
+ * `QUOTE_MARKER_PATTERN` has been stripped — so a quoted header block is
+ * matched here too.
+ *
+ * Not env vars: each pattern encodes how a specific mail client rewrites a
+ * body when it is forwarded or replied to, and the point of the set is that
+ * two forwards of one purchase order hash the same. Tuning it changes dedupe
+ * behaviour, so it changes in code with a test, never per environment. The
+ * set is deliberately conservative — over-stripping would collapse two
+ * genuinely different POs onto one hash, which is worse than letting a
+ * duplicate through to the review queue (the plan's stated trade-off).
+ */
+export const RELAY_NOISE_LINE_PATTERNS: readonly RegExp[] = [
+  // Gmail / Apple Mail forward and reply separators, in any wording that
+  // keeps the dashes: "---------- Forwarded message ----------".
+  /^\s*-{2,}\s*(original message|forwarded message)\s*-{2,}\s*$/i,
+  // Outlook's plain separator above a quoted block.
+  /^\s*_{5,}\s*$/,
+  // "On Tue, 6 Oct 2026 at 09:15, Acme Orders <…> wrote:" — Gmail's attribution
+  // line, which carries a timestamp that differs between two forwards.
+  /^\s*on .*wrote:\s*$/i,
+  // The header block a forward re-emits: these lines repeat data already held
+  // in columns on `inbound_emails`, and the client rewrites their order and
+  // spacing, so they are noise for hashing purposes.
+  /^\s*(from|sent|to|cc|bcc|date|subject|reply-to):/i,
+]
+
+/**
+ * Line that starts an email signature. Everything from it to the end of the
+ * body is dropped before hashing: RFC 3676's `-- ` sig separator, and the
+ * common unspaced `--` variant. Signatures carry phone numbers and taglines
+ * that change between forwards without changing the purchase order.
+ */
+export const SIGNATURE_DELIMITER_PATTERN = /^\s*--\s*$/
