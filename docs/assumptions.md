@@ -203,6 +203,8 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 
 **Open count:** 0 — every assumption is resolved or accepted with its contingency exercised. A-05, the one assumption flagged as likely to fire, did fire and is now closed: its replacement interaction shipped and passed the real-device check on 2026-07-27.
 
+> **Superseded 2026-10-07 by the "Added 2026-10-07" section below.** That count covered A-01 through A-06 only. Current open count across the whole file is **1** (A-12, a research item gating Task 100). The statement above remains accurate for A-01 through A-06.
+
 A-06 carries one outstanding action, not a blocker: **verify volume and sender count against real data before sizing the resolver.**
 
 ---
@@ -210,3 +212,170 @@ A-06 carries one outstanding action, not a blocker: **verify volume and sender c
 ## Spike Notes
 
 No spikes were required. All assumptions were resolvable through research or accepted with contingencies.
+
+---
+
+## Added 2026-10-07 — Feature 16 (Email PO Ingestion) introduces new third-party services, a new data source, and a paid API
+
+Mid-build re-run of `@assumptions`. A-01 through A-06 are closed and carried forward
+untouched. Builder declined all three proposed spikes (2026-10-07); the three
+assumptions they would have validated are therefore **accepted risks with
+contingencies** rather than left Open.
+
+**Why declining the spikes is reasonable here, recorded so it is not re-argued:** no PO
+is ever auto-approved, so the review gate is itself the measuring instrument. Day one of
+real use shows which fields came back empty, across every sender, at full volume — more
+evidence than the handful of samples currently on hand would have produced. The spikes
+were optional because the feature is self-diagnosing, not because the questions do not
+matter.
+
+Extends A-06, which already covers PO extraction operating parameters.
+
+### A-07 — POs state container size and type recoverably across all senders
+
+The six `qty_*` columns require both a size (275 / 330) and a type (reconditioned /
+rebottled / brand new) per line. This assumes POs from 50–100 distinct senders state
+both unambiguously enough to map. A PO reading "IBC x 40" with no size or type cannot
+be mapped at any model accuracy — this is a source-data limit, not an extraction limit.
+
+**Why not validated:** builder declined the spike. Cheaply validatable later from real
+traffic.
+
+**Contingency if false:** the quantity grid is left blank or partially filled and the
+salesperson types quantities while reading the document in the side-by-side review.
+Everything else — PO number, customer, address, delivery date, unit prices — still
+pre-fills, so the feature degrades rather than fails. If it proves false for a large
+share of senders, revisit whether per-sender field descriptions or exemplars close the
+gap before concluding the mapping is impossible.
+
+**Status:** [x] Accepted risk — detected automatically via the Feature 16 success metric
+and visible empty fields from day one
+
+### A-08 — OpenRouter serves GPT-4.1-mini with vision under ZDR enforcement
+
+**Resolution: Research, completed 2026-10-07.** OpenRouter's ZDR documentation states
+that enabling ZDR for the OpenAI model group "removes first-party OpenAI endpoints
+(Azure remains available)." Three endpoints exist for `openai/gpt-4.1-mini`: OpenAI,
+Azure, and Azure Sweden Central — all reporting `input_modalities: ["image","text","file"]`
+and 1,047,576-token context. ZDR therefore leaves the two Azure routes. ZDR is set
+account-wide per model group in privacy settings; the per-request `zdr` parameter ORs
+with that. OpenRouter explicitly does not count in-memory implicit caching as retention,
+which the `architecture-playbooks` document-extraction playbook already accepted.
+
+Builder independently confirmed ZDR working in prior testing.
+
+**Status:** [x] Resolved 2026-10-07
+
+### A-09 — Gmail IMAP with an app password remains available
+
+Ingestion authenticates to a dedicated Gmail account over IMAP using a 16-character app
+password, which requires 2FA on the account and IMAP enabled. Google has progressively
+restricted app passwords.
+
+**Why not validated:** builder declined the spike. Task 96's first action is to connect,
+so failure surfaces within minutes of starting that task.
+
+**Contingency if false:** migrate to Gmail API with OAuth. Known fallback, costs a Google
+Cloud project and an OAuth consent screen. Note the OAuth trap for whoever does it: while
+the app is in "testing" mode refresh tokens expire after 7 days, which would silently kill
+ingestion weekly until the app is published.
+
+**Status:** [x] Accepted risk — failure mode is a loud auth error, not silent data loss
+
+### A-10 — The salesperson actually checks extracted values rather than clicking through
+
+The feature's whole safety model is that a human reviews every PO. Reviewing 10–20 POs in
+one sitting trains reflexive approval, and items 8–15 receive less attention than 1–3.
+A rubber-stamped wrong quantity reaches a customer as a wrong shipment — the stated cost
+of error for this project.
+
+**Why not validated:** behavioural, cannot be tested before real use.
+
+**Contingency if false:** the Feature 16 success metric doubles as the tripwire — "% of POs
+approved with zero field edits" sitting near 100% is evidence of rubber-stamping, not of
+accuracy, and should be read that way. Mitigations already designed into the feature:
+check-failures ordered first while attention is highest, source-quote highlighting so a
+value can be traced to the document in one click, and deliberately sparse flagging so a
+flag retains meaning.
+
+**Status:** [x] Accepted risk — tripwire built into the success metric
+
+### A-11 — A self-chaining function can drain a 20-PO batch within Vercel free-tier limits
+
+Vercel Hobby caps a function at ~60s. One PO takes 5–8s, so a 20-PO batch cannot complete
+in a single invocation. The design has each run process 4–5 POs then immediately invoke
+itself, with the daily cron as a restart net. This assumes a fire-and-forget
+self-invocation reliably survives the parent returning on the Hobby tier.
+
+**Why not validated:** builder declined the spike. Surfaces at Task 101.
+
+**Contingency if false:** revert to an external cron draining the queue every 5 minutes
+(cron-job.org, already in use for the Supabase keep-alive). Changes only how the worker is
+poked — no impact on schema, extraction, or review UI. A 20-PO batch would then take
+~25 minutes instead of ~3, which the "partial with live count" dropdown already handles.
+
+**Status:** [x] Accepted risk — fallback is strictly a scheduling change
+
+### A-12 — `pg_trgm` is available on the Supabase free tier
+
+The customer matcher ranks candidates by trigram similarity rather than exact match.
+This requires the `pg_trgm` extension.
+
+**Why not yet resolved:** research item, gates Task 100 only. To be closed before that
+task starts, not now — and not to be assumed from memory.
+
+**Contingency if false:** fall back to normalised exact matching (strip `Ltd` / `Limited` /
+`PLC` / punctuation, lowercase) plus the address signal. Loses candidate *ranking* but keeps
+matching. The existing `lib/actions/leads.convert.ts` already matches customers with
+`ilike` on `company_name`, so there is precedent for the simpler approach.
+
+**Status:** [ ] Open — research item, close before Task 100
+
+### A-13 — Cost holds at real volume on free tiers
+
+**API:** GPT-4.1-mini at $0.40/M input and $1.60/M output. ~1,500 input + ~500 output
+tokens per PO is about **$0.0015 per PO**, or roughly **$8/year** at 15 POs/day. Builder's
+independent side-testing suggested under $5/year. CONSTRAINT-07 is amended in Task 94 to
+permit the spend without pinning a figure; the real number is measured over the first few
+days and written in then.
+
+**Storage:** Supabase free gives 1GB. At 15 POs/day with phone photos averaging ~500KB
+uncompressed, the cap arrives in roughly 6 months. Images are compressed after review
+completes (not before — full fidelity is needed during review), which stretches this to
+roughly 2 years.
+
+**Not applicable:** the command's 100-user and 1,000-user projections. The app is
+single-user by architecture — one `ADMIN_EMAIL` per environment. Recorded so the absence
+is not mistaken for an oversight.
+
+**Contingency:** when storage approaches the cap, apply a retention policy deleting source
+documents older than an agreed age. Orders retain their extracted values regardless; only
+the source image is lost.
+
+**Status:** [x] Accepted risk — contingency is a retention policy, not a paid upgrade
+
+### Summary of items added 2026-10-07
+
+| ID | Assumption | Category | Resolution | Outcome |
+|----|------------|----------|------------|---------|
+| A-07 | POs state size + type recoverably across senders | Data availability | Accepted risk | Degrades to manual quantity entry; detected day one |
+| A-08 | OpenRouter serves GPT-4.1-mini vision under ZDR | Service capability | Research | **Resolved 2026-10-07** — ZDR routes via Azure |
+| A-09 | Gmail IMAP app password remains available | Service capability | Accepted risk | Fallback: Gmail API OAuth |
+| A-10 | Salesperson checks rather than rubber-stamps | User behavior | Accepted risk | Tripwire: zero-edit rate near 100% |
+| A-11 | Self-chaining drains a batch within free-tier limits | Technical feasibility | Accepted risk | Fallback: 5-minute external cron |
+| A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Open** — close before Task 100 |
+| A-13 | ~$8/yr API, 1GB storage holds ~2 years compressed | Cost | Accepted risk | Retention policy when cap nears |
+
+**Open count after this addition: 1** — A-12 only, a research item gating Task 100.
+A-01 through A-06 remain closed. Tasks 94–97 depend on none of the above and are
+unblocked.
+
+### Spike note (2026-10-07)
+
+Three spikes were proposed (IMAP connect, extraction accuracy on real POs, Vercel
+self-chaining) and all three were declined by the builder. Two were genuinely redundant —
+Task 96 opens with an IMAP connection and Task 101 opens with a self-invocation, so each
+task is its own spike with a known fallback. The third (extraction accuracy) was the one
+with real information value; it is absorbed by A-07 and A-10, both of which are detected
+automatically from real use because nothing auto-approves. Consistent with the original
+note above: no spike has yet been required on this project.

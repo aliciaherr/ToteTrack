@@ -3286,3 +3286,248 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 **Not verified:** the rejection paths are exercised through a mocked action in vitest, never against a real server outage. The two support sites named in BLOCKING-2 are still unfixed by explicit decision.
 
 **Depends on:** — (independent of Task 92, though the two together close the compound failure described above)
+
+---
+
+# Feature 16 — Email PO Ingestion (Tasks 94–111)
+
+**Source:** `docs/prd.md` → "Feature 16: Email PO Ingestion". Supersedes the cut recorded at
+`prd.md:178` (Tasks 19 and 33). New assumptions A-07 through A-13 in `docs/assumptions.md`.
+
+**Manifest pre-check waived across this feature** (FI-01) — `manifest.md` is absent and this
+project predates the requirement. Following the Task 49 precedent: the waiver is recorded
+here, and `**Specialist:**` fields use the existing `@db` / `@ui-totetrack` convention rather
+than being omitted.
+
+**Only Tasks 94–97 are written.** Tasks 98–111 are planned in shape but deliberately not yet
+specced — they depend on the extraction schema and field descriptions, which are informed by
+the first real documents. The agreed sequence:
+
+| # | Task | Specialist |
+|---|---|---|
+| 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
+| 99 | Check suite — quote verification, arithmetic, date ambiguity | — |
+| 100 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
+| 101 | Extraction worker — drain, self-chain, retry | — |
+| 102 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret | — |
+| 103 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
+| 104 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
+| 105 | Review modal — right pane, quote highlighting, pickers | @ui-totetrack |
+| 106 | Approve / skip / delete — duplicates blocked with a message | — |
+| 107 | Auto-advance and "You are all caught up" | @ui-totetrack |
+| 108 | Architecture + `document-extraction.md` updates | — |
+| — | **core complete — re-evaluate before continuing** | |
+| 109 | Duplicate diff + update-existing-order path | — |
+| 110 | Inline customer creation, pre-filled, secondary to the picker | @ui-totetrack |
+| 111 | Learned per-customer name aliases | @db |
+
+Tasks 109–111 are **in scope but sequenced last by decision (2026-10-07)**. They were
+proposed for cutting as exception-path work; the builder kept them and moved them behind the
+core. That ordering only pays off if the core is genuinely used before they are started —
+`prd.md` records them as "sequenced after the core, pending real usage", not as committed.
+
+**A-12 is open** and gates Task 100 only: confirm `pg_trgm` is available on Supabase free
+before starting it. Do not assume it.
+
+---
+
+## Task 94: Amend CONSTRAINT-07 to permit a metered extraction API
+
+**Constraint amendment — no `docs/prd.md` entry by design.** Changes no code and no
+user-visible behaviour. It is a gate: CONSTRAINT-07 currently forbids the paid API that
+Task 98 requires, and `prd.md:178` already cites this task as the condition being met.
+
+**Files:**
+- `docs/constraints.md` — modify. Amend CONSTRAINT-07 in place using the established
+  `~~strikethrough~~` + `**Amended [date]:**` convention; do not rewrite history
+
+**Acceptance criteria:**
+- [ ] CONSTRAINT-07 permits a metered LLM API **scoped to PO extraction only**, via
+      OpenRouter with ZDR enforced account-wide
+- [ ] The amendment restates what remains forbidden: paid Supabase plan, Redis, external
+      CDN, any other paid infrastructure
+- [ ] **No cost figure is pinned.** A dated follow-up action is recorded to write the
+      measured figure in after the first few days of real use
+- [ ] A-13 is cross-referenced for the cost basis (~$0.0015/PO, ~$8/year at 15/day)
+- [ ] The decisions-log table at `constraints.md:558` gains a row for the amendment
+
+**Tests required:** None — documentation change, no executable code.
+
+**Status:** [ ] Not started
+**Depends on:** None
+
+---
+
+## Task 95: Add the inbound-email staging schema
+
+**Files:**
+- `db/schema/inbound.ts` — create. `inbound_emails` + `inbound_pos`, two new enums
+- `db/migrations/0016_inbound_email_ingestion.sql` — create (0015 is the latest)
+- `db/queries/inbound.ts` — create. Read/write helpers
+- `db/queries/__tests__/inbound.test.ts` — create
+
+**Approach:** two tables, not one. An email yields 0..n POs (three attachments are three
+POs), so the email row is the processed-marker and the PO rows are the review queue.
+
+`inbound_emails`: `message_id` text **NOT NULL UNIQUE** — this is both dedupe layer 1 and
+the processed marker that replaces the IMAP `\Seen` flag; `classification` enum
+(`po_found` | `no_po_found` | `failed`), `from_address`, `subject`, `received_at`,
+`processed_at`.
+
+`inbound_pos`: `inbound_email_id` FK cascade; `source_kind` enum (`image` | `pdf` |
+`email_body`); `document_path` nullable (null for `email_body`); `content_hash` text
+**NOT NULL, indexed, NOT unique**; `duplicate_of_id` uuid self-FK nullable; `status` enum
+(`pending_extraction` | `extracting` | `pending_review` | `approved` | `discarded` |
+`extraction_failed`); `attempt_count` int default 0; `extracted` jsonb nullable;
+`check_results` jsonb nullable; `confirmed` jsonb nullable; `order_id` FK to orders
+nullable; `skipped_at` timestamptz nullable.
+
+**Why `content_hash` is not unique:** a duplicate document must still be insertable,
+because the agreed design keeps duplicates in the review queue flagged rather than
+rejecting them. Uniqueness would make that impossible. This corrects an earlier brainstorm
+note that called for a unique index here.
+
+**Why `extracted` and `confirmed` are both retained:** together they are the Feature 16
+success metric (% approved with zero edits) and the only correction signal available to
+Tasks 109–111. Deleting either loses it permanently.
+
+**Functions to implement:**
+- `insertInboundEmail(input): Promise<{ id: string } | { duplicate: true }>` — unique
+  violation on `message_id` is caught and reported, not thrown
+- `insertInboundPo(input): Promise<{ id: string }>`
+- `findPoByContentHash(hash: string): Promise<{ id: string } | null>`
+- `listPendingReview(): Promise<InboundPoRow[]>` — check-failures first, then
+  `skipped_at NULLS FIRST`, then `created_at`
+- `countPendingReview(): Promise<number>`
+
+**Acceptance criteria:**
+- [ ] RLS is **enabled** on both new tables with policies matching the existing pattern —
+      never disabled or bypassed (CONSTRAINT-06)
+- [ ] `docs/constraints.md`'s "RLS is enabled on all 8 database tables" is updated to 10,
+      or the count is made non-numeric. A stale number here is a security-relevant claim
+- [ ] `message_id` is UNIQUE; a repeat insert returns `{ duplicate: true }` rather than
+      throwing
+- [ ] `content_hash` is indexed and **not** unique; `duplicate_of_id` is a nullable self-FK
+- [ ] Migration 0016 is forward-only — no `DROP`, no destructive statement
+- [ ] `listPendingReview` orders check-failures first, then unskipped before skipped
+- [ ] CQ-01: every function under 50 lines
+
+**Tests required:**
+- `insertInboundEmail` → happy: row created, id returned
+- `insertInboundEmail` → error: duplicate `message_id` returns `{ duplicate: true }`,
+  does not throw
+- `listPendingReview` → check-failures sort ahead of clean rows; skipped sort last
+
+**Status:** [ ] Not started
+**Depends on:** None
+**Specialist:** @db
+
+---
+
+## Task 96: Read unprocessed mail over IMAP
+
+**Files:**
+- `lib/ingest/gmail.ts` — create
+- `lib/ingest/types.ts` — create. `InboundMessage`, `InboundAttachment`, `GmailDeps`
+- `lib/ingest/__tests__/gmail.test.ts` — create
+
+**Approach:** `imapflow` for the connection, `mailparser` for MIME. This module performs
+**no database and no storage writes** — it takes the set of already-processed message IDs
+as an argument and returns parsed messages. Keeping it pure is what lets its tests run
+without a database, matching the extraction playbook's package-boundary rule.
+
+**Read state is never used.** Selection is by UID watermark plus the supplied processed-ID
+set, never the `\Seen` flag — opening the inbox in Gmail must not affect ingestion.
+
+**A-09 resolves itself here.** The first action of this task is an IMAP connection; if the
+app password no longer works, that surfaces within minutes. Fallback is Gmail API OAuth,
+with the 7-day testing-mode refresh-token trap noted in A-09.
+
+**Functions to implement:**
+- `fetchUnprocessedMail(processedIds: Set<string>, deps: GmailDeps): Promise<InboundMessage[]>`
+- `parseMessage(raw: Buffer): Promise<InboundMessage>` — `{ messageId, from, subject,
+  receivedAt, bodyText, attachments: { filename, mimeType, bytes }[] }`
+
+**Acceptance criteria:**
+- [ ] SEC-01: `GMAIL_IMAP_USER`, `GMAIL_IMAP_APP_PASSWORD`, `GMAIL_IMAP_HOST` read from
+      environment only; no credential in source, in a default, or in a log line
+- [ ] The app password never reaches `console.*`. Test asserts its absence from all logged
+      arguments, following the precedent `LoginForm.test.tsx:79` set for the login password
+- [ ] EH-01 / EH-02: a connection or auth failure throws with context — host and user, never
+      the password — and is never swallowed
+- [ ] No DB write, no storage write, no `db/` import in this module
+- [ ] Messages already in `processedIds` are not returned
+- [ ] Attachments are returned as bytes with their MIME type; body is returned as text
+- [ ] CQ-01: functions under 50 lines
+
+**Tests required:**
+- `parseMessage` → happy: fixture MIME with one PDF attachment yields one attachment and
+  the body text
+- `fetchUnprocessedMail` → error: auth failure throws with host and user in the message and
+  the app password absent from it
+
+**Status:** [ ] Not started
+**Depends on:** None
+
+---
+
+## Task 97: Ingest fetched mail into the staging queue
+
+**Files:**
+- `lib/ingest/pipeline.ts` — create
+- `lib/ingest/hash.ts` — create. `contentHash`, `normalizeBodyForHash`
+- `lib/ingest/__tests__/pipeline.test.ts`, `lib/ingest/__tests__/hash.test.ts` — create
+
+**Approach:** for each message — skip if its `message_id` already exists; write the
+`inbound_emails` row; identify candidate POs (attachments of `image/*` or
+`application/pdf`, else the body text); for each, hash it, upload to the `po-documents`
+bucket, and write an `inbound_pos` row at `pending_extraction`, setting `duplicate_of_id`
+when the hash has been seen before.
+
+**Classification here is provisional.** This task can only classify *structurally* — an
+accepted-type attachment means "probably a PO", and body-only text cannot be judged
+without the model. Task 98 may retroactively set `no_po_found`. Stated so the two tasks do
+not contradict each other.
+
+**Body-only hashing is the weakest dedupe layer.** A twice-forwarded email quotes
+differently each time, so `normalizeBodyForHash` strips quoted replies, signatures and
+whitespace, and some duplicates will still reach the queue as new POs. Accepted —
+nothing auto-approves, and the save-time PO-number check is the backstop.
+
+**Functions to implement:**
+- `ingestMessages(messages: InboundMessage[], deps: IngestDeps): Promise<IngestSummary>`
+- `contentHash(input: Buffer | string): string` — SHA-256, hex
+- `normalizeBodyForHash(body: string): string`
+
+**Acceptance criteria:**
+- [ ] Idempotent: running twice over the same mailbox creates no new rows and no duplicate
+      storage objects
+- [ ] Three accepted attachments on one email produce three `inbound_pos` rows
+- [ ] A body-only PO gets `source_kind = email_body`, a normalised-body hash, and no
+      `document_path`
+- [ ] A repeat `content_hash` **still inserts** a row, with `duplicate_of_id` set and status
+      `pending_extraction`, so it reaches the review queue
+- [ ] An email with no candidate PO still writes its `inbound_emails` row with
+      classification `no_po_found` — nothing is silently discarded
+- [ ] CONSTRAINT-30: documents are written only to the `po-documents` bucket. No source
+      document is ever written to the repository or any non-gitignored path. PO documents
+      are production data by the same reasoning that applied to QA screenshots
+- [ ] EH-01 / EH-02: a failure on one message is caught, logged with its message id, sets
+      that email's classification to `failed`, and the loop continues. One bad email must
+      never abort the batch
+- [ ] A storage upload failure leaves **no** `inbound_pos` row — no row may point at a
+      missing object
+- [ ] Logged context carries identifiers only — message id, hash, counts. No body text, no
+      customer names, no attachment contents (SEC-01 / SEC-05)
+- [ ] CQ-01: functions under 50 lines; `pipeline.ts` under the service file cap
+
+**Tests required:**
+- `ingestMessages` → happy: one email with one PDF yields one email row, one PO row, one
+  storage upload
+- `ingestMessages` → error: storage upload rejects, so no PO row is created, classification
+  is `failed`, and the remaining messages still process
+- `normalizeBodyForHash` → happy: two forwarded variants of the same body hash equal
+- `contentHash` → error case: empty input throws rather than returning a hash of nothing
+
+**Status:** [ ] Not started
+**Depends on:** Task 95, Task 96

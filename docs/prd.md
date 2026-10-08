@@ -175,7 +175,10 @@ Two-panel: order table (left ~40%) + order detail (right ~60%)
 
 Status at creation is fixed as `scheduled` (not user-selectable) per CONSTRAINT-15. No PO document field (upload cut from v1 scope — see below).
 
-### PO Document Upload — CUT FROM v1 (2026-04-22)
+### PO Document Upload — CUT FROM v1 (2026-04-22) — **SUPERSEDED by Feature 16 (2026-10-07)**
+
+> **Revived as Feature 16 — Email PO Ingestion.** The three revival conditions listed below are being met in order: CONSTRAINT-07 is amended in Task 94, the accuracy spike runs as an `@assumptions` pass before Task 98, and Tasks 94–111 are the fresh plan. The residual state noted below is now load-bearing rather than vestigial — `orders.document_url` and the `po-documents` bucket are what Feature 16 writes to, and the `PODocumentUpload` placeholder is no longer permanent. The bullets below are kept as the historical record of the cut.
+
 - Originally specced as Task 19 (upload) + Task 33 (Claude vision extraction)
 - Task 33 cut: Anthropic Claude API is a paid service, conflicting with CONSTRAINT-07 ($0 hosting). Upload-without-extraction provides no real value (salesperson would still re-type every field), so Task 19 cut as well
 - Residual state: `orders.document_url` column and `po-documents` Supabase Storage bucket exist but are unused. `PODocumentUpload` component in OrderDetail.tsx is a permanent labeled placeholder
@@ -903,3 +906,129 @@ As the salesperson, I want to create and schedule tote pickups the way I create 
 
 ### Success Metric
 Collections stop living on paper — every scheduled pickup is on the calendar.
+
+---
+
+## Feature 16: Email PO Ingestion
+
+### Problem Statement
+Every purchase order is typed in by hand. The salesperson reads a PDF, photo or
+email and re-enters ~17 fields per order, 10–20 times a day, across 50–100
+customers. The data already exists in a structured document — the typing is pure
+transfer cost, and every keystroke is a chance to put the wrong quantity on the
+wrong production day.
+
+### User Story
+As the salesperson, I want to forward a purchase order to an email address and
+have its values pre-filled for me to check, so that I confirm an order instead
+of typing one.
+
+### User Flow
+1. Salesperson forwards a PO — PDF, image, or typed into the email body — to the
+   dedicated ingestion inbox.
+2. Salesperson opens the app and clicks the trigger in the review dropdown. A
+   06:00 `America/Chicago` cron also runs daily, every day including Sunday, as a
+   safety net for the days they forget.
+3. App reads unprocessed mail, stores each document, extracts field values, runs
+   the check suite, and queues each PO as pending review.
+4. A dropdown on the home, orders and calendar pages shows "xx pending" and when
+   ingestion last ran.
+5. Salesperson opens a review: source document on the left (click to expand to
+   full screen), extracted values on the right. POs that failed a check are
+   ordered first.
+6. Salesperson edits anything wrong, fills anything blank, and confirms — which
+   creates the order through the normal order-creation path.
+7. Queue auto-advances to the next PO. When the queue empties: "You are all
+   caught up."
+
+### Business Logic
+- **Nothing is auto-approved.** Every PO is reviewed by a human, at any
+  confidence level. The checks rank attention, not acceptance.
+- **Nothing is silently discarded.** Every email yields a tracked record, even
+  when it contains no PO.
+- Duplicates are detected by email `Message-ID` and by document hash at
+  ingestion, and re-checked at save time against the PO number as edited.
+- `price` and `production_date` are **derived, never extracted** — `price` from
+  Σ(qty × unit price), `production_date` from `prevBusinessDay(delivery date)`.
+- Confidence is derived from check outcomes, never from the model's self-report.
+- Every extracted field carries the source text it came from, and that text is
+  verified to appear in the document. An unverifiable quote means the value was
+  invented, and is flagged.
+- A customer must already exist in `customers` to be matched. Unmatched POs park.
+- Extra charges are extracted for the arithmetic check only, and are not persisted.
+- Review order puts check-failures first. Skipped POs go to the back of the queue.
+- Extraction runs through OpenRouter with zero-data-retention enforced, which
+  routes via Azure only. An unavailable route fails loudly rather than falling
+  back to a retaining endpoint.
+
+### Acceptance Criteria
+- [ ] Given a forwarded PO with an attachment, when the trigger runs, then a
+      pending review appears with its fields pre-filled.
+- [ ] Given the same email arrives twice, when the trigger runs, then one review
+      is queued and the second is marked duplicate.
+- [ ] Given a PO arrives as text in the email body with no attachment, when the
+      trigger runs, then a review appears with the body shown as the source.
+- [ ] Given extraction fails, when retries are exhausted, then the PO appears in
+      the queue with the document shown and its fields empty, usable as a manual
+      entry screen.
+- [ ] Given a confirmed review, when saved, then an order exists with the source
+      document attached and viewable on the order detail panel.
+- [ ] Given a review is skipped, when the queue advances, then it remains counted
+      as pending and reappears at the back.
+- [ ] Given no pending reviews, when the queue is opened, then "You are all
+      caught up" is shown.
+- [ ] Given ingestion has not run since the previous day, when the dropdown is
+      opened, then the last-checked time is visible — so silence is
+      distinguishable from failure.
+- [ ] SEC-01: IMAP credentials and the OpenRouter key are read from environment
+      variables only, never committed.
+- [ ] CONSTRAINT-30: source documents are written only to the gitignored
+      `po-documents` bucket, never to the repository.
+
+### Edge Cases
+- **Ambiguous date format** (both components ≤ 12, e.g. `05/11/2026`): flagged,
+  never auto-filled. Where either component exceeds 12 the format is provable.
+- **Several candidate dates** (order date, required by, expected): presented as
+  one-tap options with their labels, none pre-selected.
+- **Stated total ≠ Σ(qty × unit price)**: other labelled money values on the
+  document are checked against the delta. If they account for it, pass and show
+  them; if not, flag the shortfall. The gap is never silently absorbed.
+- **Line total but no unit price**: divided by quantity; flagged when it does not
+  divide evenly.
+- **No PO number found**: review gate allows manual entry, or discard.
+- **No delivery address**: flagged, with the customer's address on file offered
+  as a one-tap fill.
+- **Several candidate customers**: ranked list, nothing pre-selected. A
+  mid-confidence match is never pre-filled — a wrong customer that gets
+  rubber-stamped is the worst outcome this feature can produce.
+- **No customer match**: PO parks as "unknown customer". The existing-customer
+  picker is the primary action; creating a customer is deliberately secondary, to
+  avoid duplicate customer records.
+- **Email containing no PO**: recorded as `no_po_found`, no review queued.
+- **Duplicate PO number at save**: approval blocked with an explanatory message
+  in the core scope; the diff-and-update path arrives in Task 109.
+- **Multiple attachments in one email**: each becomes a separate PO.
+- **Forwarder's own note on top of a forwarded email**: not captured.
+
+### Out of Scope
+**Permanently out of scope:**
+- Auto-approval of any kind, at any confidence level.
+- Line-item or SKU extraction — no product catalog exists. Quantities map to the
+  six fixed `qty_*` columns.
+- Persisting extra charges to `orders` — used for the arithmetic check only.
+- `customer_collects` extraction — a standing arrangement per customer, not
+  reliably stated on a PO, and a wrong value misfiles the order.
+- Push or instant email notification — polling only, by choice.
+
+**Sequenced after the core, pending real usage (not excluded):**
+- Updating an existing order from a revised PO, with a diff view (Task 109).
+- Inline customer creation from within the review modal (Task 110).
+- Learned per-customer name aliases feeding the matcher (Task 111).
+
+### Success Metric
+**% of POs approved with zero field edits.** Measured from the staged model
+output against the confirmed values, both of which are retained — so it is a
+query, not new instrumentation. A low figure means extraction is weak; a high
+figure means the typing is genuinely gone.
+
+Secondary: elapsed time from forwarding a PO to a confirmed order.
