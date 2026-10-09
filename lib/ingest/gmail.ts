@@ -1,13 +1,14 @@
-import { ImapFlow } from 'imapflow'
-import { simpleParser, type Attachment, type ParsedMail } from 'mailparser'
-import { ImapConnectionError, IngestConfigError, MimeParseError } from '@/lib/errors'
+import { ImapConnectionError, IngestConfigError } from '@/lib/errors'
+import { assertUsableWatermark, FIRST_IMAP_UID } from './imap-session'
+import { admitMessage, exceedsMessageCount } from './limits'
+import { MAX_MESSAGES_PER_RUN } from './limits.constants'
+import { identityForDeclared, parseMessage, refusalFor, unreadableMessage } from './message'
 import type {
+  DeclaredMessage,
   GmailDeps,
   GmailImapConfig,
   ImapSession,
-  InboundAttachment,
   InboundMessage,
-  RawImapMessage,
 } from './types'
 
 /**
@@ -16,22 +17,17 @@ import type {
  * This module performs **no database and no storage write** and imports
  * nothing from `@/db`. It takes the already-processed message ids as an
  * argument and hands back parsed messages; staging them is Task 97's job.
- * Keeping it pure is what lets its tests run with no database and no socket.
+ * Keeping it pure is what lets its tests run with no database and no socket —
+ * the live connection lives behind `ImapSession`, in `imap-session.ts`.
  *
  * Read state is never used. Selection is by UID watermark plus the supplied
  * processed-id set — the inbox is opened read-only and the `\Seen` flag is
  * neither read nor written, so opening the mailbox in Gmail cannot change
  * what ingestion sees.
+ *
+ * Every message is admitted or refused on its **declared** size before any of
+ * its bytes are downloaded; `limits.ts` owns that decision (H-01).
  */
-
-/** IMAPS. Fixed by the protocol, not a Feature 16 tunable, so not a constants-file entry. */
-const IMAPS_PORT = 993
-
-/** The lowest valid IMAP UID — i.e. "the whole mailbox". Also protocol-fixed. */
-const FIRST_IMAP_UID = 1
-
-/** Gmail's inbox path. The only mailbox ingestion reads. */
-const INBOX_PATH = 'INBOX'
 
 /** Stands in for the app password anywhere a message could otherwise echo it. */
 const REDACTED = '[redacted]'
@@ -107,96 +103,6 @@ function describeCause(cause: unknown, config: GmailImapConfig): string {
   return `${reason}. Check GMAIL_IMAP_APP_PASSWORD — the account needs 2FA enabled and IMAP turned on, and Google has been retiring app passwords (A-09).`
 }
 
-/**
- * Opens a real `imapflow` session against `config`, read-only.
- *
- * This is the production value for `GmailDeps.openSession`. It is exported
- * separately rather than defaulted inside `fetchUnprocessedMail`, so no test
- * can reach a live mailbox by forgetting to inject a fake.
- */
-export async function createImapSession(config: GmailImapConfig): Promise<ImapSession> {
-  const client = new ImapFlow({
-    host: config.host,
-    port: IMAPS_PORT,
-    secure: true,
-    auth: { user: config.user, pass: config.appPassword },
-    // The client's own logger writes the IMAP conversation, LOGIN line
-    // included, to stdout. Off, unconditionally (SEC-01).
-    logger: false,
-  })
-  await client.connect()
-  const lock = await client.getMailboxLock(INBOX_PATH, { readOnly: true })
-  return {
-    async *fetchFrom(sinceUid: number): AsyncIterable<RawImapMessage> {
-      const range = { uid: `${sinceUid}:*` }
-      for await (const message of client.fetch(range, { uid: true, source: true }, { uid: true })) {
-        if (!message.source) {
-          throw new ImapConnectionError(
-            config.host,
-            config.user,
-            `UID ${message.uid} returned no source bytes`
-          )
-        }
-        yield { uid: message.uid, source: message.source }
-      }
-    },
-    async close(): Promise<void> {
-      lock.release()
-      await client.logout()
-    },
-  }
-}
-
-function toInboundAttachment(attachment: Attachment): InboundAttachment {
-  return {
-    filename: attachment.filename ?? null,
-    mimeType: attachment.contentType.toLowerCase(),
-    bytes: attachment.content,
-  }
-}
-
-function toInboundMessage(parsed: ParsedMail, uid: number | null): InboundMessage {
-  const messageId = parsed.messageId?.trim()
-  if (!messageId) {
-    throw new MimeParseError(
-      'it carries no Message-ID header, so it has no identity to dedupe on or to mark processed',
-      uid
-    )
-  }
-  return {
-    messageId,
-    from: parsed.from?.text ?? null,
-    subject: parsed.subject ?? null,
-    receivedAt: parsed.date ?? null,
-    bodyText: parsed.text ?? '',
-    attachments: parsed.attachments.map(toInboundAttachment),
-  }
-}
-
-/**
- * Parses one raw RFC822 message into an `InboundMessage`.
- *
- * Every attachment is returned as bytes with its MIME type, unfiltered —
- * deciding which are PO candidates is Task 97's job. Throws `MimeParseError`
- * when the source is unparseable or carries no `Message-ID`; the message is
- * never returned in a degraded form, because one with no id cannot be deduped
- * or marked processed.
- *
- * @param raw The full message source as fetched from IMAP.
- * @param uid The IMAP UID, named in a failure so the bad message is
- *            identifiable without logging any of its contents (SEC-05).
- */
-export async function parseMessage(raw: Buffer, uid: number | null = null): Promise<InboundMessage> {
-  let parsed: ParsedMail
-  try {
-    parsed = await simpleParser(raw)
-  } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause)
-    throw new MimeParseError(reason, uid, { cause })
-  }
-  return toInboundMessage(parsed, uid)
-}
-
 async function openSession(deps: GmailDeps): Promise<ImapSession> {
   try {
     return await deps.openSession(deps.config)
@@ -227,34 +133,141 @@ async function closeSession(session: ImapSession, config: GmailImapConfig): Prom
 }
 
 /**
+ * Reports a run that hit the message-count cap (M-05).
+ *
+ * A `defer`, like the byte budget's: the remaining messages are perfectly fine
+ * and simply wait for the next run. Nothing is staged and nothing is marked
+ * processed, so nothing is lost.
+ */
+function reportMessageCapReached(admittedCount: number): void {
+  console.error(
+    'fetchUnprocessedMail: message-count cap reached, leaving the rest of the mailbox for the next run',
+    { admittedCount, limit: MAX_MESSAGES_PER_RUN }
+  )
+}
+
+/**
+ * Reports the rest of the mailbox being left for the next run.
+ *
+ * Not a silent drop, and not a refusal: nothing was staged and no
+ * `message_id` was written, so the message is still in the mailbox and the
+ * next invocation starts with a full budget and picks it up. The loop stops
+ * here rather than skipping ahead to smaller messages, so the backlog drains
+ * in arrival order and a large purchase order cannot be starved by a stream of
+ * small ones behind it.
+ */
+function reportBudgetReached(declared: DeclaredMessage, remainingBytes: number): void {
+  console.error(
+    'fetchUnprocessedMail: invocation byte budget reached, leaving the rest of the mailbox for the next run',
+    { uid: declared.uid, declaredSize: declared.declaredSize, remainingBytes }
+  )
+}
+
+/**
+ * Downloads and parses one admitted message, turning a parse failure into a
+ * staged row rather than letting it end the run (H-02).
+ *
+ * The `catch` is scoped to this one message on purpose. A re-raise of
+ * `ImapConnectionError` is deliberate and load-bearing: if the socket has
+ * gone, that is not this message's fault, and swallowing it would stage every
+ * remaining message in the listing as unparseable — filling the review queue
+ * with false rows and marking real purchase orders processed without ever
+ * having read them.
+ */
+async function readOne(
+  declared: DeclaredMessage,
+  session: ImapSession,
+  parseRaw: (raw: Buffer, uid: number) => Promise<InboundMessage>
+): Promise<InboundMessage> {
+  try {
+    return await parseRaw(await session.fetchSource(declared.uid), declared.uid)
+  } catch (cause) {
+    if (cause instanceof ImapConnectionError) throw cause
+    return unreadableMessage(declared, cause)
+  }
+}
+
+/**
+ * Walks the listing, applies the byte budget to each declared size, and
+ * downloads only what it admits. Separated from the session lifecycle so the
+ * close in `fetchUnprocessedMail`'s `finally` covers every exit from this loop.
+ *
+ * The post-parse `processedIds` re-check the original loop had is gone: the
+ * pre-filter above now covers it, and in the one case the two could disagree —
+ * an envelope with no `Message-ID` whose MIME body has one — the unique
+ * `message_id` index is the real guard and `insertEmail` already reports that
+ * as `{ duplicate: true }` rather than failing.
+ */
+async function collectUnprocessed(
+  session: ImapSession,
+  processedIds: Set<string>,
+  deps: GmailDeps
+): Promise<InboundMessage[]> {
+  const parseRaw = deps.parseRaw ?? parseMessage
+  const collected: InboundMessage[] = []
+  let bytesAdmitted = 0
+  const sinceUid = deps.sinceUid ?? FIRST_IMAP_UID
+  assertUsableWatermark(sinceUid)
+  for await (const declared of session.listFrom(sinceUid)) {
+    if (exceedsMessageCount(collected.length)) {
+      reportMessageCapReached(collected.length)
+      break
+    }
+    // Skipped from the listing, before any download — unlike the original
+    // version of this loop, where the same filter ran after a full fetch and
+    // parse and so saved nothing. The stand-in identity is matched here too,
+    // so a message staged under one is not re-staged next run.
+    if (processedIds.has(identityForDeclared(declared))) continue
+    const admission = admitMessage(declared, bytesAdmitted)
+    if (admission.verdict === 'defer') {
+      reportBudgetReached(declared, admission.remainingBytes)
+      break
+    }
+    if (admission.verdict === 'refuse') {
+      collected.push(refusalFor(declared, admission.failure))
+      continue
+    }
+    bytesAdmitted += declared.declaredSize
+    collected.push(await readOne(declared, session, parseRaw))
+  }
+  return collected
+}
+
+/**
  * Fetches every message at or above the UID watermark that is not already
- * known to have been processed.
+ * known to have been processed, and that the invocation's byte budget admits.
  *
  * `processedIds` holds the caller's `inbound_emails.message_id` values — this
  * module reads no database, so the set is supplied rather than queried. The
  * watermark comes from `deps.sinceUid` and defaults to the whole mailbox;
  * advancing it between runs belongs to the trigger (Task 102).
  *
+ * **The byte budget is the memory half of H-01.** Each message is admitted or
+ * refused on the size IMAP declares for it, before `fetchSource` transfers
+ * anything, so an oversized message costs no memory at all. A message that
+ * can never fit is returned carrying `rejection` so the pipeline stages it for
+ * review; one that merely does not fit this run stops the loop and stays in
+ * the mailbox. See `limits.ts` for why those are different outcomes.
+ *
  * Throws `ImapConnectionError` on a connection or authentication failure, with
  * the host and username in the message and the app password scrubbed out of
- * it. Nothing is caught and ignored: a parse failure aborts the fetch, because
- * a message silently dropped here would never reach the review queue.
+ * it. **A parse failure does not abort the fetch** — it costs that one message,
+ * which is staged for review under a stand-in identity so it is neither lost
+ * nor re-fetched forever (H-02). Nothing is caught and ignored.
+ *
+ * @param processedIds `message_id` values already staged, skipped from the
+ *   listing without being downloaded.
+ * @param deps The IMAP config, session factory and optional parser override.
+ * @returns The messages to stage, refused ones included.
  */
 export async function fetchUnprocessedMail(
   processedIds: Set<string>,
   deps: GmailDeps
 ): Promise<InboundMessage[]> {
-  const parseRaw = deps.parseRaw ?? ((raw: Buffer) => parseMessage(raw))
-  const sinceUid = deps.sinceUid ?? FIRST_IMAP_UID
   const session = await openSession(deps)
-  const unprocessed: InboundMessage[] = []
   try {
-    for await (const raw of session.fetchFrom(sinceUid)) {
-      const message = await parseRaw(raw.source)
-      if (!processedIds.has(message.messageId)) unprocessed.push(message)
-    }
+    return await collectUnprocessed(session, processedIds, deps)
   } finally {
     await closeSession(session, deps.config)
   }
-  return unprocessed
 }

@@ -2,13 +2,14 @@ import type {
   InboundEmailClassification,
   InboundPoSourceKind,
   InsertInboundEmailInput,
-  InsertInboundPoInput,
 } from '@/db/queries/inbound'
 import { DocumentUploadError } from '@/lib/errors'
 import { documentPathFor, selectCandidates, type PoCandidate } from './candidates'
 import { contentHash } from './hash'
 import { HASH_LOG_PREFIX_LENGTH, PO_DOCUMENTS_BUCKET } from './ingest.constants'
-import type { InboundMessage } from './types'
+import { surrogateContentHash } from './identity'
+import { refusalColumns, REFUSED_SOURCE_KIND, type StagedPoInput } from './limits'
+import type { IngestLimitFailure, InboundMessage } from './types'
 
 /**
  * Stages fetched mail into the ingestion queue (Feature 16, Task 97).
@@ -43,7 +44,7 @@ export interface IngestDeps {
   /** Records the email. `{ duplicate: true }` means it was already staged. */
   insertEmail: (input: InsertInboundEmailInput) => Promise<{ id: string } | { duplicate: true }>
   /** Stages one PO candidate. Always inserts, duplicates included. */
-  insertPo: (input: InsertInboundPoInput) => Promise<{ id: string }>
+  insertPo: (input: StagedPoInput) => Promise<{ id: string }>
   /** Earliest row carrying this hash, or `null` on a first sighting. */
   findPoByHash: (hash: string) => Promise<{ id: string } | null>
   /**
@@ -66,6 +67,12 @@ export interface IngestSummary {
   posStaged: number
   /** Of `posStaged`, how many carry a `duplicate_of_id`. */
   duplicatesFlagged: number
+  /**
+   * Rows recording a refused message or attachment (H-01). Counted apart from
+   * `posStaged` so a run that refused a hostile email does not read as a run
+   * that staged purchase orders.
+   */
+  refusalsRecorded: number
   /** Message ids classified `failed`. One bad email never aborts the batch. */
   failedMessageIds: string[]
 }
@@ -74,8 +81,10 @@ export interface IngestSummary {
 interface StagedCandidate {
   sourceKind: InboundPoSourceKind
   hash: string
-  /** The object key, or `null` for a body candidate. */
+  /** The object key, or `null` for a body candidate or a refusal. */
   documentPath: string | null
+  /** The refusal this row records, or `null` for a real PO candidate. */
+  failure: IngestLimitFailure | null
 }
 
 function hashPrefix(hash: string): string {
@@ -95,7 +104,7 @@ function describe(cause: unknown): string {
 async function stageCandidate(candidate: PoCandidate, deps: IngestDeps): Promise<StagedCandidate> {
   const hash = contentHash(candidate.hashInput)
   if (!candidate.bytes || !candidate.mimeType) {
-    return { sourceKind: candidate.sourceKind, hash, documentPath: null }
+    return { sourceKind: candidate.sourceKind, hash, documentPath: null, failure: null }
   }
   const documentPath = documentPathFor(hash, candidate.mimeType)
   try {
@@ -103,7 +112,21 @@ async function stageCandidate(candidate: PoCandidate, deps: IngestDeps): Promise
   } catch (cause) {
     throw new DocumentUploadError(PO_DOCUMENTS_BUCKET, documentPath, describe(cause), { cause })
   }
-  return { sourceKind: candidate.sourceKind, hash, documentPath }
+  return { sourceKind: candidate.sourceKind, hash, documentPath, failure: null }
+}
+
+/**
+ * The row that records one refusal. Nothing is uploaded and no bytes are read
+ * — for a message-level refusal they never were — so `document_path` stays
+ * NULL and the hash is a surrogate over identity (`limits.ts`).
+ */
+function refusedRow(messageId: string, failure: IngestLimitFailure): StagedCandidate {
+  return {
+    sourceKind: REFUSED_SOURCE_KIND,
+    hash: surrogateContentHash(messageId, failure),
+    documentPath: null,
+    failure,
+  }
 }
 
 function emailRow(
@@ -139,23 +162,34 @@ async function insertStagedPos(
       document_path: candidate.documentPath,
       content_hash: candidate.hash,
       duplicate_of_id: original?.id ?? null,
+      ...refusalColumns(candidate.failure),
     })
   }
   return { inserted: staged.length, duplicates }
 }
 
 /**
- * Hashes and uploads every candidate before the email row is written, so the
- * stored classification already reflects whether the documents made it into
- * the bucket. On a failure the email is classified `failed` and no candidate
- * is staged — the Task 95 data layer has no classification update, so the
- * value has to be right the first time it is written.
+ * An email that staged at least one real PO is `po_found`, whatever else it
+ * also carried. One that staged none but refused something is `failed` — the
+ * operator needs to know a document arrived and was not taken. One that
+ * carried nothing recognisable is `no_po_found`.
  */
+function classifyStaged(poCount: number, refusalCount: number): InboundEmailClassification {
+  if (poCount > 0) return 'po_found'
+  return refusalCount > 0 ? 'failed' : 'no_po_found'
+}
+
 async function stageDocuments(
   message: InboundMessage,
   deps: IngestDeps
 ): Promise<{ staged: StagedCandidate[]; classification: InboundEmailClassification }> {
-  const candidates = selectCandidates(message)
+  // Refused on its declared size, before a byte of it was fetched. There is
+  // nothing to select from and nothing to upload — only a row to write.
+  if (message.rejection) {
+    return { staged: [refusedRow(message.messageId, message.rejection)], classification: 'failed' }
+  }
+  const { candidates, rejections } = selectCandidates(message)
+  const refused = rejections.map((failure) => refusedRow(message.messageId, failure))
   const staged: StagedCandidate[] = []
   try {
     for (const candidate of candidates) staged.push(await stageCandidate(candidate, deps))
@@ -166,9 +200,14 @@ async function stageDocuments(
       stagedBeforeFailure: staged.map((item) => hashPrefix(item.hash)),
       cause,
     })
-    return { staged: [], classification: 'failed' }
+    // The refusals still go in: an upload failure elsewhere in the email is no
+    // reason to lose the record that something was turned away.
+    return { staged: refused, classification: 'failed' }
   }
-  return { staged, classification: staged.length > 0 ? 'po_found' : 'no_po_found' }
+  return {
+    staged: [...staged, ...refused],
+    classification: classifyStaged(staged.length, refused.length),
+  }
 }
 
 async function ingestOne(
@@ -185,7 +224,9 @@ async function ingestOne(
   }
   summary.emailsStaged += 1
   const { inserted, duplicates } = await insertStagedPos(email.id, staged, deps)
-  summary.posStaged += inserted
+  const refusals = staged.filter((candidate) => candidate.failure !== null).length
+  summary.posStaged += inserted - refusals
+  summary.refusalsRecorded += refusals
   summary.duplicatesFlagged += duplicates
 }
 
@@ -196,6 +237,7 @@ function emptySummary(messagesSeen: number): IngestSummary {
     alreadyStaged: 0,
     posStaged: 0,
     duplicatesFlagged: 0,
+    refusalsRecorded: 0,
     failedMessageIds: [],
   }
 }

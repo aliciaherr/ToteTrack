@@ -1,0 +1,123 @@
+import { INGEST_BATCH_SIZE } from './ingest.constants'
+
+/**
+ * The boundary caps on inbound email, in one place (H-01 / H-02 / M-05 /
+ * M-06, all SEC-02).
+ *
+ * Separated from `ingest.constants.ts` because these five answer a different
+ * question from the rest of that file. The others tune how the pipeline
+ * behaves; these decide what it will refuse from an **unauthenticated**
+ * sender — the ingestion mailbox is the only inbound content path in this
+ * application that anyone can write to with no credential and no session.
+ * They are enforced in `limits.ts` and `identity.ts`.
+ *
+ * Every one is a constant rather than an env var for the same reason: a cap
+ * that differs between environments means a message refused in production
+ * cannot be reproduced locally, and a boundary check that can be loosened by
+ * a deployment setting is not a boundary check. No DB import, no runtime
+ * dependency, safe to import from anywhere including tests.
+ */
+
+/**
+ * Largest single attachment, in decoded bytes, that will be staged.
+ *
+ * **Builder decision, 2026-10-08: 15MB.** A high-resolution photo of a paper
+ * purchase order, taken on a phone, is the realistic worst case for a genuine
+ * document. 15MB sits comfortably above that and below Gmail's own 25MB send
+ * limit — so nothing a customer can successfully send is ever refused for
+ * size, while an attachment above it is not a photographed PO. This supersedes
+ * the 10MB figure in `docs/plan.md:644`, which covers the manual upload path.
+ *
+ * Not an env var: it is the boundary length check SEC-02 requires on an
+ * unauthenticated input path (H-01, CWE-770). A per-environment cap would mean
+ * production and local accept different documents, so a rejection found in one
+ * could not be reproduced in the other. Same shape and the same reasoning as
+ * `MAX_FILE_BYTES` on the authenticated support path
+ * (`lib/actions/support.ts:23`), which this path failed to inherit.
+ */
+export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
+
+/**
+ * Attachments from one email that will be staged as PO candidates.
+ *
+ * Bounds a single hostile message: without it, one email with 500 accepted
+ * parts yields 500 storage objects, 500 `inbound_pos` rows, 1000 database
+ * round trips and — once Task 98 lands — 500 billed extraction calls. No
+ * genuine purchase-order email carries ten documents, so the cap costs a real
+ * sender nothing.
+ *
+ * Not an env var, for the same reason as the size cap: it is a boundary check,
+ * and anything past it is recorded as a refusal rather than dropped, which is
+ * behaviour rather than configuration. The authenticated support path pins the
+ * equivalent at 3 (`lib/actions/support.ts:25`); this is looser because a
+ * customer may legitimately attach several POs to one email.
+ */
+export const MAX_ATTACHMENTS_PER_EMAIL = 10
+
+/**
+ * Ceiling on message bytes buffered across one invocation.
+ *
+ * **Derived, deliberately:** `INGEST_BATCH_SIZE * MAX_ATTACHMENT_BYTES`. One
+ * invocation stages at most `INGEST_BATCH_SIZE` POs, and the largest document
+ * any one of them may carry is `MAX_ATTACHMENT_BYTES`, so that product is the
+ * most a well-behaved run ever needs to hold. Written as the product rather
+ * than as a literal so the relationship survives a change to either input —
+ * raising the per-attachment cap without raising this one would otherwise
+ * quietly make the batch ceiling bind first.
+ *
+ * This is the number that actually protects memory, because it is the one
+ * checked against the size IMAP declares *before* a message is downloaded. A
+ * message whose declared size exceeds it on its own can never be admitted and
+ * is staged for review; one that merely does not fit the bytes left in the
+ * current run is left in the mailbox and drains on the next run.
+ *
+ * Not an env var: a serverless function that holds more than its memory
+ * ceiling does not run slower, it dies mid-batch (H-01), so the value is a
+ * code decision taken against the runtime, not a deployment knob.
+ */
+export const MAX_TOTAL_INGEST_BYTES = INGEST_BATCH_SIZE * MAX_ATTACHMENT_BYTES
+
+/**
+ * Messages admitted per invocation, whatever their size.
+ *
+ * `MAX_TOTAL_INGEST_BYTES` bounds memory but does not bound *count*: 60MB of
+ * two-kilobyte emails is roughly thirty thousand of them, each becoming an
+ * `inbound_emails` row, an `inbound_pos` row via the body fallback, two
+ * database round trips and — from Task 98 — one billed extraction call (M-05).
+ * The byte budget has no opinion on any of that, so this is the cap that does.
+ *
+ * 200 is set against legitimate volume with wide headroom: a cron running
+ * every fifteen minutes admits 19,200 messages a day at this cap, which is
+ * orders of magnitude above what a business of this size receives, while a
+ * flood costs 200 rows a run instead of thirty thousand. Exceeding it defers
+ * rather than refuses — the remaining messages are perfectly fine and simply
+ * wait for the next run, exactly as the byte budget's `defer` already does.
+ *
+ * Not an env var: like the byte ceiling, it is pinned by what one serverless
+ * invocation can finish before its timeout, which is a property of the runtime
+ * and the per-message round trips, not of the deployment. Task 102 owns the
+ * cron interval and should revise this against it and against measured
+ * per-message latency.
+ */
+export const MAX_MESSAGES_PER_RUN = 200
+
+/**
+ * Longest header string, in UTF-8 bytes, written to `inbound_emails`.
+ *
+ * `message_id`, `from_address` and `subject` are all sender-controlled and all
+ * reached the database unbounded (M-06). The sharp edge is `message_id`: it is
+ * `NOT NULL UNIQUE`, and a Postgres btree index key is limited to 2704 bytes,
+ * so a longer value cannot be stored at all. That insert failure is not
+ * SQLSTATE 23505, so the duplicate path does not catch it — the message is
+ * never marked processed and comes back on every run forever, which is H-02's
+ * outcome reached by another route.
+ *
+ * 998 is RFC 5322's recommended maximum header line length, so no legitimate
+ * header is affected — a real `Message-ID` is a few dozen characters. Measured
+ * in **bytes, not characters**, because the btree limit is in bytes and 998
+ * characters of four-byte UTF-8 would be 3992 of them.
+ *
+ * Not an env var: it is a boundary length check (SEC-02) pinned by a database
+ * limit and an RFC, neither of which varies by environment.
+ */
+export const MAX_HEADER_BYTES = 998

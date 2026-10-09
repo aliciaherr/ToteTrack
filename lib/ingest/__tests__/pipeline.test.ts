@@ -1,11 +1,14 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { InsertInboundEmailInput, InsertInboundPoInput } from '@/db/queries/inbound'
+import type { InsertInboundEmailInput } from '@/db/queries/inbound'
 import { ingestMessages, type IngestDeps } from '../pipeline'
 import { contentHash, normalizeBodyForHash } from '../hash'
 import { PO_DOCUMENTS_BUCKET, PO_DOCUMENT_PATH_PREFIX } from '../ingest.constants'
-import type { InboundAttachment, InboundMessage } from '../types'
+import { MAX_ATTACHMENTS_PER_EMAIL, MAX_ATTACHMENT_BYTES, MAX_TOTAL_INGEST_BYTES } from '../limits.constants'
+import { surrogateContentHash } from '../identity'
+import { type StagedPoInput } from '../limits'
+import type { IngestLimitFailure, InboundAttachment, InboundMessage } from '../types'
 
 // No database, no bucket, no mailbox. Every field of `IngestDeps` is required
 // with no default, so the fake below is the only thing these tests can write
@@ -29,6 +32,7 @@ function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
     receivedAt: new Date('2026-10-07T14:15:00.000Z'),
     bodyText: 'Please see the attached purchase order.',
     attachments: [attachment('application/pdf', FAKE_PDF_BYTES, 'po-10042.pdf')],
+    rejection: null,
     ...overrides,
   }
 }
@@ -36,7 +40,7 @@ function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
 interface Recorder {
   deps: IngestDeps
   emails: InsertInboundEmailInput[]
-  pos: InsertInboundPoInput[]
+  pos: StagedPoInput[]
   uploads: { path: string; contentType: string; bytes: number }[]
 }
 
@@ -48,7 +52,7 @@ interface Recorder {
  */
 function recorder(overrides: Partial<IngestDeps> = {}): Recorder {
   const emails: InsertInboundEmailInput[] = []
-  const pos: InsertInboundPoInput[] = []
+  const pos: StagedPoInput[] = []
   const uploads: { path: string; contentType: string; bytes: number }[] = []
   const deps: IngestDeps = {
     insertEmail: async (input) => {
@@ -87,6 +91,7 @@ describe('ingestMessages', () => {
       emailsStaged: 1,
       posStaged: 1,
       duplicatesFlagged: 0,
+      refusalsRecorded: 0,
       alreadyStaged: 0,
       failedMessageIds: [],
     })
@@ -276,6 +281,179 @@ describe('ingestMessages', () => {
     expect(JSON.stringify(consoleError.mock.calls.flat())).toContain('<db-fails@invalid.test>')
   })
 
+  // H-01. A refusal is staged, never dropped: `document_path` is NULL, the
+  // hash is a surrogate over identity, and the reason is a `failures` entry —
+  // which is what sorts the row to the top of the review queue.
+  describe('refused messages and attachments', () => {
+    const SIZE_FAILURE: IngestLimitFailure = {
+      check: 'ingest_limit',
+      reason: 'message_too_large',
+      part: 'message',
+      measured: MAX_TOTAL_INGEST_BYTES + 1,
+      limit: MAX_TOTAL_INGEST_BYTES,
+      unit: 'bytes',
+    }
+
+    it('stages a row at pending_review for a message refused before download', async () => {
+      const fake = recorder()
+      const refused = message({
+        messageId: '<too-big@orders.invalid.test>',
+        bodyText: '',
+        attachments: [],
+        rejection: SIZE_FAILURE,
+      })
+
+      const summary = await ingestMessages([refused], fake.deps)
+
+      expect(fake.uploads).toEqual([])
+      expect(summary).toMatchObject({ posStaged: 0, refusalsRecorded: 1, emailsStaged: 1 })
+      expect(fake.emails[0].classification).toBe('failed')
+      expect(fake.pos).toHaveLength(1)
+      expect(fake.pos[0]).toMatchObject({
+        source_kind: 'email_body',
+        document_path: null,
+        content_hash: surrogateContentHash('<too-big@orders.invalid.test>', SIZE_FAILURE),
+        // Straight to the queue: there is no document, so extraction could
+        // never advance it off the `pending_extraction` default.
+        status: 'pending_review',
+        check_results: { failures: [SIZE_FAILURE] },
+      })
+    })
+
+    // H-02. The row is what makes a genuinely malformed PO visible instead of
+    // vanishing into a log line, and what marks the message processed so it
+    // does not come back on every run forever.
+    it('stages an unparseable message at pending_review with no fabricated figures', async () => {
+      const fake = recorder()
+      const unreadable = message({
+        messageId: 'ingest-uid:11',
+        bodyText: '',
+        attachments: [],
+        rejection: { check: 'ingest_limit', reason: 'unparseable', part: 'message' },
+      })
+
+      const summary = await ingestMessages([unreadable], fake.deps)
+
+      expect(fake.uploads).toEqual([])
+      expect(summary).toMatchObject({ posStaged: 0, refusalsRecorded: 1, emailsStaged: 1 })
+      expect(fake.emails[0].classification).toBe('failed')
+      expect(fake.pos[0]).toMatchObject({
+        source_kind: 'email_body',
+        document_path: null,
+        status: 'pending_review',
+        check_results: { failures: [{ reason: 'unparseable', part: 'message' }] },
+      })
+      // No measured value and no limit: nothing was exceeded, so inventing
+      // either would put a fabricated number in front of a reviewer.
+      const [failure] = (fake.pos[0].check_results as { failures: IngestLimitFailure[] }).failures
+      expect(failure.measured).toBeUndefined()
+      expect(failure.limit).toBeUndefined()
+      // Still a valid NOT NULL content_hash, via the identity surrogate.
+      expect(fake.pos[0].content_hash).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('produces the same surrogate hash each time the same refusal is seen', async () => {
+      const first = recorder()
+      const second = recorder()
+      const refused = message({
+        messageId: '<stable@orders.invalid.test>',
+        attachments: [],
+        rejection: SIZE_FAILURE,
+      })
+
+      await ingestMessages([refused], first.deps)
+      await ingestMessages([refused], second.deps)
+
+      // Stability is what keeps a re-fetch idempotent rather than piling up a
+      // fresh unrelated row every run.
+      expect(second.pos[0].content_hash).toBe(first.pos[0].content_hash)
+    })
+
+    it('refuses only the oversized attachment and still stages its valid sibling', async () => {
+      const fake = recorder()
+      const mixed = message({
+        attachments: [
+          attachment('image/jpeg', Buffer.alloc(MAX_ATTACHMENT_BYTES + 1), 'huge-photo.jpg'),
+          attachment('application/pdf', FAKE_PDF_BYTES, 'po-10042.pdf'),
+        ],
+      })
+
+      const summary = await ingestMessages([mixed], fake.deps)
+
+      // The valid PO is unaffected — the whole point of refusing per part.
+      expect(summary).toMatchObject({ posStaged: 1, refusalsRecorded: 1 })
+      expect(fake.emails[0].classification).toBe('po_found')
+      expect(fake.uploads).toHaveLength(1)
+      expect(fake.uploads[0].contentType).toBe('application/pdf')
+
+      const refusal = fake.pos.find((row) => row.check_results !== undefined)
+      expect(refusal?.document_path).toBeNull()
+      expect(refusal?.check_results).toEqual({
+        failures: [
+          {
+            check: 'ingest_limit',
+            reason: 'attachment_too_large',
+            part: 'attachment-0',
+            measured: MAX_ATTACHMENT_BYTES + 1,
+            limit: MAX_ATTACHMENT_BYTES,
+            unit: 'bytes',
+          },
+        ],
+      })
+    })
+
+    it('truncates to the per-email attachment cap and records the full count', async () => {
+      const fake = recorder()
+      const overCap = MAX_ATTACHMENTS_PER_EMAIL + 1
+      const many = message({
+        attachments: Array.from({ length: overCap }, (_, index) =>
+          attachment('image/png', Buffer.from(`fake png bytes ${index}`), null)
+        ),
+      })
+
+      const summary = await ingestMessages([many], fake.deps)
+
+      expect(summary.posStaged).toBe(MAX_ATTACHMENTS_PER_EMAIL)
+      expect(summary.refusalsRecorded).toBe(1)
+      expect(fake.uploads).toHaveLength(MAX_ATTACHMENTS_PER_EMAIL)
+      const refusal = fake.pos.find((row) => row.check_results !== undefined)
+      expect(refusal?.check_results).toEqual({
+        failures: [
+          {
+            check: 'ingest_limit',
+            reason: 'too_many_attachments',
+            part: 'message',
+            measured: overCap,
+            limit: MAX_ATTACHMENTS_PER_EMAIL,
+            unit: 'attachments',
+          },
+        ],
+      })
+    })
+
+    // CONSTRAINT-30 / SEC-05. `check_results` is persisted and read back by the
+    // review UI, so it must carry no production customer data.
+    it('puts no filename, subject, sender or body text in the failures entry', async () => {
+      const fake = recorder()
+      const mixed = message({
+        subject: 'PO 10042 attached',
+        from: 'Acme Orders <orders@invalid.test>',
+        bodyText: BODY_PO_TEXT,
+        attachments: [
+          attachment('image/jpeg', Buffer.alloc(MAX_ATTACHMENT_BYTES + 1), 'secret-customer.jpg'),
+        ],
+      })
+
+      await ingestMessages([mixed], fake.deps)
+
+      const recorded = JSON.stringify(fake.pos.map((row) => row.check_results))
+      expect(recorded).not.toContain('secret-customer')
+      expect(recorded).not.toContain('PO 10042')
+      expect(recorded).not.toContain('orders@invalid.test')
+      expect(recorded).not.toContain('totes')
+    })
+  })
+
   it('returns a zero summary for an empty batch without touching the data layer', async () => {
     const fake = recorder()
 
@@ -287,6 +465,7 @@ describe('ingestMessages', () => {
       alreadyStaged: 0,
       posStaged: 0,
       duplicatesFlagged: 0,
+      refusalsRecorded: 0,
       failedMessageIds: [],
     })
     expect(fake.emails).toHaveLength(0)
@@ -299,9 +478,12 @@ describe('ingestMessages', () => {
 describe('pipeline.ts source constraints', () => {
   const source = readFileSync(path.join(__dirname, '..', 'pipeline.ts'), 'utf8')
   const candidates = readFileSync(path.join(__dirname, '..', 'candidates.ts'), 'utf8')
+  const limits = readFileSync(path.join(__dirname, '..', 'limits.ts'), 'utf8')
+  const identity = readFileSync(path.join(__dirname, '..', 'identity.ts'), 'utf8')
+  const messageModule = readFileSync(path.join(__dirname, '..', 'message.ts'), 'utf8')
 
   it('imports no runtime value from the database or the Supabase client', () => {
-    for (const moduleSource of [source, candidates]) {
+    for (const moduleSource of [source, candidates, limits, identity, messageModule]) {
       expect(moduleSource).not.toMatch(/^import \{[^}]*\} from '@\/db/m)
       expect(moduleSource).not.toMatch(/from '@\/lib\/supabase/)
       expect(moduleSource).toMatch(/^import type \{/m)
