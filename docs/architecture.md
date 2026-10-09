@@ -359,6 +359,52 @@ Feature 15 added an `operation` param (defaulting to `'createOrder'`) purely so 
 
 ---
 
+## Email PO Ingestion — the processed marker (Feature 16)
+
+A dedicated Gmail account receives forwarded purchase orders. The salesperson forwards each PO from their main inbox to it; nothing else legitimately arrives there, so the rest of the traffic is spam. **No human reads this mailbox** — it is a feed, not an inbox. Every run must answer one question: *which messages have I already handled?*
+
+### The marker is UID + UIDVALIDITY, and nothing else
+
+**The marker is the pair `(UIDVALIDITY, UID)` — two integers the IMAP server assigns.** A UID is permanent and strictly increasing for the lifetime of a mailbox; `UIDVALIDITY` changes only if the mailbox is destroyed and recreated, which invalidates every UID at once. Neither value is derived from message content, so **no sender can influence either, and no MIME library can renormalise them.**
+
+The run persists a **watermark** — the highest UID it finished — and the next run asks the server for `UID FETCH <watermark+1>:*`. Handled mail is therefore never listed again. This is the ordering guarantee the whole design rests on: the server, not the application, decides what "new" means.
+
+### What this replaces, and why
+
+Tasks 95–97 used **`Message-ID`** as the processed marker: fetch the listing, compute an identity per message, and skip any whose identity was already a row in `inbound_emails`. `message_id` was `NOT NULL UNIQUE` and carried two jobs at once — dedupe key *and* processed marker.
+
+`Message-ID` is a **header the sender writes**. `imapflow` (which produces the listing) and `mailparser` (which parses the message) normalise it differently: RFC 2047 encoded-words, non-breaking-space folding and duplicate headers all diverge between the two. **A message whose marker is stored under one spelling and recomputed under the other looks new forever** — it is re-downloaded every run, and because each run is capped at `MAX_MESSAGES_PER_RUN`, a handful of such messages consume the entire quota and legitimate POs are never read. Ingestion stops, silently, with no error.
+
+**Five `@security` findings across five rounds were five instances of that one root cause.** Angle brackets were reconciled and proven non-divergent; the remaining divergences were not, and `@security`'s own closing judgement was that it could close instances but not argue a sixth did not exist. The mailbox being spam-dominated makes this worse rather than better — malformed `Message-ID` headers are precisely what spam carries.
+
+**The sender-controlled marker is what generated the findings; removing it removes the class.** `lib/ingest/identity.ts` exists only to bound and disambiguate that string — the three synthetic `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` prefixes, the SHA-256 fallbacks for over-long headers and the forgery guard against senders claiming a reserved prefix. With UID as the marker, an unidentifiable message is still perfectly addressable, so none of that machinery has a job.
+
+### Three binding rules
+
+**1. `(UIDVALIDITY, UID)` is the only guard before bytes move.** Admission is decided from the declared-size listing and the watermark alone (this preserves H-01: admission precedes the only byte transfer). No parsed header participates in that decision.
+
+**2. `message_id` is a label, not a gate.** It is stored for display and tracing, it is **not UNIQUE**, and no control flow branches on it. Content-level deduplication stays with `content_hash` (indexed, deliberately not unique), which is derived from the message body and attachments rather than from a header.
+
+**3. The post-parse re-check is restored as defence in depth.** After parsing, the message's UID is checked against the watermark a second time. A single-layer guard is what let M-07 and M-08 ship.
+
+### Failure modes, and why they are acceptable
+
+| Event | Result |
+|---|---|
+| Crash mid-run, before the watermark advances | The run's messages are listed again next run. `content_hash` recognises them; a duplicate is flagged for review, not rejected. |
+| Mailbox deleted and recreated | `UIDVALIDITY` changes, the watermark is discarded, mail may ingest once more. `content_hash` absorbs it. This closes L-15 — a UID collision can no longer mint a colliding identity, because identity is no longer minted. |
+| Message arrives mid-run | Its UID is above the watermark, so the next run reads it. Nothing is skipped; UID ordering is the server's, not a clock's. |
+
+**The inbox stays `readOnly: true`.** Marking messages `\Seen` was considered as a second marker and deliberately rejected: it requires a write-mode connection, and Task 96 made read-only a property of the connection rather than a promise about the code. Flag state is also not transactional with the database write, so a crash between the two either loses a PO permanently or re-reads it — and the watermark already handles the latter at no cost. Available in reserve; not in v1.
+
+**Time-based selection was rejected.** IMAP's `SINCE` search is **date-granular — whole days, not timestamps** — so "since the last run" degrades to "since today" and re-fetches the day's mail on every run. Worse, late or out-of-order delivery below a time watermark is never seen again: a silently missed PO. UID is the same idea expressed in the unit the server actually guarantees.
+
+### Deployment coupling
+
+The watermark is Gmail-IMAP-specific. **Moving to the Gmail API later means a new watermark type** (that API has `historyId`, not UIDs); the ingestion contract would survive, the marker would not.
+
+---
+
 ## Database Layer
 
 ```

@@ -806,3 +806,44 @@ Until now that was unreachable: nothing in the app could take you far enough awa
 - **Dates now read "Jul 27" rather than "2026-07-27"** in the Orders table, which is what paid for the new Production Date column without making the table wider. The year is not shown; that is fine for a working window of a few weeks and would be wrong for anything spanning a year end.
 
 **What this closes off:** The "show me nothing" calendar state is gone and would have to be deliberately rebuilt. Searching by customer name was deliberately not built — this box exists to jump to one card, and a customer name would return that customer's whole book, which is a different feature wearing the same clothes.
+
+---
+
+## FB-36 — The Mailbox Was Being Tracked by Something the Sender Writes, and Spam Could Switch It Off
+
+**Date:** 2026-10-09
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion — the processed marker (Feature 16)*. New CONSTRAINT row 33.
+**Tasks:** decided before Task 102 is written. Amends the design built in Tasks 95–97.
+
+**Decided:** The ingestion mailbox now tracks what it has already read using **two numbers the mail server assigns**, instead of a line of text written into the email by whoever sent it.
+
+**What was wrong.**
+
+Every run has to answer one question: *which of these emails have I already dealt with?* Get it wrong in one direction and you process the same PO twice. Get it wrong in the other and you never process it at all.
+
+The original design answered it using the email's `Message-ID` — a label that lives inside the email itself. Two problems with that, and they compound.
+
+The first is that **the sender writes it**, so it can be anything. The second is subtler and is what actually bites: the software that *lists* the mailbox and the software that *opens* an email tidy that label up in slightly different ways. Accented characters, odd spacing, a label that appears twice — the two disagree. So an email gets filed as handled under one spelling, and when the next run checks, it computes the other spelling, finds no match, and concludes the email is new.
+
+That email is then downloaded again. And again. Every run, forever.
+
+**Why that is worse than it sounds.** Each run only reads a fixed number of emails, to keep costs and memory bounded. A few permanently-unmatched emails fill that allowance completely. Real purchase orders sit behind them and are never read — and nothing fails, nothing logs an error, nothing tells you. Ingestion just quietly stops working.
+
+And the emails most likely to carry a malformed label are spam. This mailbox is mostly spam by design, since it exists only to receive your forwarded POs. **The thing that breaks it is the thing it receives most of.**
+
+**Why it is being redesigned rather than patched.** The security review found this five separate times across five rounds — five different symptoms of the same single cause. Its own closing note was that it could keep closing individual cases but could not promise a sixth did not exist. That is the signal to change the design, not to write a sixth patch.
+
+**What replaces it.** Mail servers number every message they receive, in order, permanently. The run remembers the highest number it finished and next time simply asks the server for *everything after that number*. The sender has no say in it. No software has to interpret anything. Handled mail is never even mentioned again, so it cannot clog the allowance.
+
+The email's own `Message-ID` is still recorded, because it is useful when tracing a specific message — it just no longer decides anything.
+
+**Means for your product:** Ingestion stops being able to silently switch itself off, which was the real risk — not a wrong PO, but no POs and no warning. Spam volume no longer competes with real orders. And this is *less* machinery than before: an entire module built to tame that sender-written label (234 lines, the source of all five findings) has nothing left to do.
+
+**Check before approving:**
+- **If the app crashes halfway through a run, the next run may re-read those few emails.** That is harmless — the app separately recognises a PO it has already seen by its content and flags it for your review rather than filing it twice. Accepting this is what keeps the design simple.
+- **The mailbox stays read-only, so nothing in it will ever show as "read" in Gmail.** If you log in and look, everything will appear unread, always. Using read/unread as the tracker was considered and rejected: it needs write access to your mailbox, and if you ever opened the account and Gmail marked something read, that PO would be skipped permanently.
+- **One rule is being relaxed:** the database previously refused two emails with the same `Message-ID`. It no longer does, because the label is no longer trusted enough to enforce anything. Duplicate protection is unchanged and comes from the content of the message instead. **The tables are empty today, so this costs nothing — after the first real email lands it becomes a migration.** That is why this was decided now.
+
+**What this closes off:** The tracking is specific to reading mail over IMAP, which is how Gmail is read today. If this ever moves to Google's own mail API, that API numbers things differently and the tracker would need replacing — the rest of the ingestion would survive. Also deliberately not built: anything that treats a sender-supplied header as a decision. Read them, store them, show them; never branch on them.
+
+**Also settled by this.** The security report was BLOCKED on this issue, rated High, with a disagreement on record: `@security` said High, Claude assessed it Medium on the grounds that none of the code is reachable yet. That argument no longer needs settling — the cause is being removed rather than rated. A separate low-priority item about reused message numbers if the mailbox were ever recreated (L-15) is absorbed by the same change.
