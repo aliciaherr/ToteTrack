@@ -399,6 +399,36 @@ Tasks 95–97 used **`Message-ID`** as the processed marker: fetch the listing, 
 
 **Time-based selection was rejected.** IMAP's `SINCE` search is **date-granular — whole days, not timestamps** — so "since the last run" degrades to "since today" and re-fetches the day's mail on every run. Worse, late or out-of-order delivery below a time watermark is never seen again: a silently missed PO. UID is the same idea expressed in the unit the server actually guarantees.
 
+### No silent skips — every email produces a visible outcome
+
+**A wrong reading is acceptable. A missed ingestion with no notification is not.** This is the governing rule for the whole feature, and it ranks above extraction accuracy, cost and tidiness of the queue.
+
+The asymmetry is in who can recover. A field read wrong is **visible** — the salesperson reviews every extraction before it becomes an order, sees the error and corrects it. An email that vanishes is **invisible**: nothing is wrong on any screen, no error is logged for a human, and the miss surfaces days later as a customer chasing an order that was never entered. The first costs a correction; the second costs the order and the trust.
+
+**Therefore every message that enters the mailbox must terminate in a row the salesperson can see** — ingested as a PO, or in the review queue with a reason. There is no third outcome. Specifically, each of these lands in the queue rather than in silence:
+
+| Condition | Outcome |
+|---|---|
+| Format the model cannot read | Queue, reason names the format and asks for a re-send as PDF or JPG |
+| Extraction call fails or returns nothing usable | Queue, flagged for manual entry |
+| Attachment refused on size (`refuse`) or deferred on budget (`defer`) | Queue (`refuse`) or left in the mailbox for the next run (`defer`) — never marked handled and dropped |
+| No PO found in the message at all | Queue as `no_po_found`, not discarded — spam is reviewed and dismissed by a human, not by a guess |
+| Database or storage failure mid-write | Loud failure with the message id, and the message is not marked handled |
+
+**"Ignore" is never a terminal state.** Where the code today has a path that drops a message — an unlisted MIME type, an empty candidate set — that path must write a review row instead. This is what makes the UID watermark safe: advancing past a message is only acceptable because the message is already durably visible.
+
+### PDFs and images are read the same way
+
+Both are read **visually by the model**. Nothing extracts text locally, and no branch exists for "does this PDF have a text layer".
+
+One asymmetry survives, and it is mechanical rather than conceptual: **the model is sent images, so a PDF is rendered to one image per page first.** Verified against the real provider in the `Test_openrouter` project — `src/pdf_images.py` renders each page with `pypdfium2` and sends base64 PNG data URLs, and extraction read the fields correctly across the sample set. **That test never sent a PDF as a PDF**, so native PDF passthrough is unproven and is not relied on.
+
+The renderer is a PDF rasteriser, **not** the image re-encoder that carries M-02's advisories — rendering a PDF to pixels and re-compressing a sender's JPEG are different operations with different dependencies. Images are **passed through unmodified**: no resize, no re-encode, no format conversion. `COMPRESSED_IMAGE_MAX_DIMENSION` and `COMPRESSED_IMAGE_QUALITY` are cost optimisations, not correctness requirements — the provider scales images its own side, and at ~15 POs/day the saving does not justify the dependency.
+
+**Accepted types are named explicitly, never a wildcard.** `ACCEPTED_MIME_TYPES` currently holds `image/*`, which admits SVG (M-01 — not a document, and a script vector when served back) and maps `.heic` and `.tiff` as accepted extensions (`ingest.constants.ts:150-151`) that the model cannot read. The list becomes exact: **`application/pdf`, `image/jpeg`, `image/png`, `image/webp`**. Anything else is a review row, per the rule above — the salesperson learns the vendor sent something unusual, rather than the PO disappearing.
+
+---
+
 ### Deployment coupling
 
 The watermark is Gmail-IMAP-specific. **Moving to the Gmail API later means a new watermark type** (that API has `historyId`, not UIDs); the ingestion contract would survive, the marker would not.

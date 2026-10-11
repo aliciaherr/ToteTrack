@@ -847,3 +847,36 @@ The email's own `Message-ID` is still recorded, because it is useful when tracin
 **What this closes off:** The tracking is specific to reading mail over IMAP, which is how Gmail is read today. If this ever moves to Google's own mail API, that API numbers things differently and the tracker would need replacing — the rest of the ingestion would survive. Also deliberately not built: anything that treats a sender-supplied header as a decision. Read them, store them, show them; never branch on them.
 
 **Also settled by this.** The security report was BLOCKED on this issue, rated High, with a disagreement on record: `@security` said High, Claude assessed it Medium on the grounds that none of the code is reachable yet. That argument no longer needs settling — the cause is being removed rather than rated. A separate low-priority item about reused message numbers if the mailbox were ever recreated (L-15) is absorbed by the same change.
+
+---
+
+## FB-37 — A Wrong Reading You Can Fix; A Missing Order You Will Never Know About
+
+**Date:** 2026-10-11
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion* → "No silent skips" and "PDFs and images are read the same way". New CONSTRAINT rows 34, 35, 36.
+**Tasks:** decided before Tasks 98+ are specced. Sets the rule they are written against.
+
+**Decided:** Every email that arrives in the ingestion mailbox must end up somewhere you can see it — either as a purchase order, or in the review queue with a reason. Nothing is ever quietly ignored.
+
+**Why this is the rule, in your words.** A wrong reading is fine. A missed ingestion with no notification is not.
+
+That asymmetry is the whole thing. If the system reads a quantity wrong, you see it on the review screen before it becomes an order, and you fix it in a few seconds. If an email with a real PO silently disappears, **every screen looks normal.** There is no error, no red count, nothing to notice. You find out when a customer rings up asking where their order is — and by then the trail is cold.
+
+So the first costs you a correction. The second costs you the order and the customer's confidence. They are not the same kind of mistake, and the system should not treat them as the same kind of mistake.
+
+**What this means concretely.** All of these now land in the review queue rather than vanishing: a file format the AI cannot read, an extraction that fails, an attachment too large, an email with no PO in it at all, and a database or storage failure part-way through. Spam included — it gets reviewed and dismissed by you, not guessed away by the system.
+
+"Just ignore it" is no longer an option the code is allowed to take.
+
+**On PDFs and photos — they are now treated identically.** You asked why photos should be any harder than PDFs, given the AI reads both by looking at them. You were right; they are not. Both go to the AI as pictures of the page and it reads them the same way.
+
+One mechanical detail survives: the AI is sent images, so a PDF gets turned into a picture of each page first. Your own OpenRouter test already did exactly this and read the fields correctly, so the path is proven rather than theoretical. Worth recording precisely because it is easy to mistake for an unnecessary step later and remove.
+
+**Means for your product:** The failure you were most worried about is now structurally prevented rather than hoped against. Your floor becomes "I have to type this one in myself" — which is exactly where you are today, so ingestion can only improve on the status quo, never fall below it. Photos and screenshots of POs work, not just PDFs.
+
+**Check before approving:**
+- **The review queue will contain spam.** That is deliberate — the alternative is the system deciding on its own that something was junk, which is the silent-miss failure wearing a different hat. If the volume becomes tiresome, the fix is a one-click dismiss, not an automatic one.
+- **Only four file types are accepted: PDF, JPG, PNG and WebP.** Anything else is flagged asking the vendor to re-send. Notably **iPhone's default HEIC photo format is not readable** and will be flagged — relevant if a vendor ever sends one.
+- **Nothing is compressed or resized before the AI reads it.** That keeps an extra piece of software — one with known security problems, which would have been handling files from an inbox anyone can email — out of the project entirely. The cost of skipping it is a few pennies a year.
+
+**What this closes off:** The system can no longer be made quieter. Any future change that adds a "skip this" path has to write a review row instead, and that is now a rule rather than a preference. It also means the queue is the single place to look — so it has to stay usable as volume grows, which is a UI concern this decision creates and does not solve.

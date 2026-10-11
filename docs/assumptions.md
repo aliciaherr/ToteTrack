@@ -203,7 +203,7 @@ No spike was run. The builder accepted the rework risk on 2026-07-26 and chose t
 
 **Open count:** 0 — every assumption is resolved or accepted with its contingency exercised. A-05, the one assumption flagged as likely to fire, did fire and is now closed: its replacement interaction shipped and passed the real-device check on 2026-07-27.
 
-> **Superseded 2026-10-07 by the "Added 2026-10-07" section below.** That count covered A-01 through A-06 only. Current open count across the whole file is **1** (A-12, a research item gating Task 100). The statement above remains accurate for A-01 through A-06.
+> **Superseded 2026-10-07 by the "Added 2026-10-07" section below.** That count covered A-01 through A-06 only. Current open count across the whole file is **0** (A-12 closed 2026-10-08). The statement above remains accurate for A-01 through A-06.
 
 A-06 carries one outstanding action, not a blocker: **verify volume and sender count against real data before sizing the resolver.**
 
@@ -369,12 +369,14 @@ the source image is lost.
 | A-09 | Gmail IMAP app password remains available | Service capability | Accepted risk | Fallback: Gmail API OAuth |
 | A-10 | Salesperson checks rather than rubber-stamps | User behavior | Accepted risk | Tripwire: zero-edit rate near 100% |
 | A-11 | Self-chaining drains a batch within free-tier limits | Technical feasibility | Accepted risk | Fallback: 5-minute external cron |
-| A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Open** — close before Task 100 |
+| A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Resolved 2026-10-08** — available (1.6), not installed; Task 100 enables it |
 | A-13 | ~$8/yr API, 1GB storage holds ~2 years compressed | Cost | Accepted risk | Retention policy when cap nears |
 
-**Open count after this addition: 1** — A-12 only, a research item gating Task 100.
-A-01 through A-06 remain closed. Tasks 94–97 depend on none of the above and are
-unblocked.
+**Open count: 0.** A-12 closed 2026-10-08 (see its entry above — the table row read
+"Open" until 2026-10-11, three days after the entry itself recorded the resolution; a
+hand-maintained count beside a hand-maintained entry drifts, which is the same failure
+CONSTRAINT-32 took the number out of CONSTRAINT-05 for). A-01 through A-06 remain closed.
+Tasks 94–97 depended on none of the above.
 
 ### Spike note (2026-10-07)
 
