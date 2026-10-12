@@ -29,7 +29,7 @@ import {
 import { requireLocalDatabaseUrl } from './local-guard'
 
 // Throws unless DATABASE_URL is localhost — this script TRUNCATEs every table.
-requireLocalDatabaseUrl('seed')
+const DATABASE_URL = requireLocalDatabaseUrl('seed')
 
 const WIPE_ONLY = process.argv.includes('--wipe-only')
 const TODAY = new Date()
@@ -199,7 +199,7 @@ const CUSTOMER_ARCHETYPES: CustomerArchetype[] = [
 
 // ===== Database connection =====
 
-const client = postgres(process.env.DATABASE_URL, { prepare: false, max: 1 })
+const client = postgres(DATABASE_URL, { prepare: false, max: 1 })
 const db = drizzle(client)
 
 // ===== Wipe =====
@@ -434,7 +434,7 @@ async function seedSupport(): Promise<void> {
 // ===== Main =====
 
 async function main() {
-  const host = process.env.DATABASE_URL!.split('@')[1]?.split('/')[0] ?? 'unknown'
+  const host = DATABASE_URL.split('@')[1]?.split('/')[0] ?? 'unknown'
   console.log(`[seed] Target: ${host}`)
 
   try {

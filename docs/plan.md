@@ -3597,3 +3597,128 @@ nothing auto-approves, and the save-time PO-number check is the backstop.
 
 **Status:** [x] Done (2026-10-07) — `lib/ingest/pipeline.ts` (240 lines), `lib/ingest/hash.ts`, `lib/ingest/candidates.ts` and the two test files created (22 tests; suite 118 files / 1461 tests passing, `tsc` and `eslint` clean); documents are hashed and uploaded **before** the `inbound_emails` row is written, because the Task 95 data layer has no classification-update helper and a storage failure must land as `classification = 'failed'` with no PO row on the first and only write; a repeat `content_hash` still inserts a row with `duplicate_of_id` set and `status` left to its column default, so a duplicate is flagged and reviewed rather than rejected; storage keys are content-addressed (`inbound/<sha256><ext>`, never the sender's filename), which is what makes a repeated batch create no duplicate object; `normalizeBodyForHash` unquotes `>` markers rather than dropping those lines (in a forward the PO *is* the quoted block) and strips forward/reply separators, attribution lines, re-emitted headers and the signature; `contentHash` throws `ContentHashError` on empty input; logs carry message ids, counts and 12-character hash prefixes only. **Deviations:** `candidates.ts` is a fifth file, split out because `pipeline.ts` was 331 lines against the 300-line cap this task's own CQ-01 criterion cites; `IngestDeps` / `IngestSummary` are declared in `pipeline.ts` because `types.ts` defines neither and was off-limits; `lib/errors.ts` gained `ContentHashError` and `DocumentUploadError`. **Flagged, not fixed:** a DB failure *after* the email row is written cannot correct that row's classification — it is logged with the message id and reported in `failedMessageIds`, but reconciling it needs an update helper in `db/queries/inbound.ts` (at 298/300 lines). **Owed by Task 102:** production wiring of `IngestDeps`, and a "list processed message ids" query, which `db/queries/inbound.ts` does not have.
 **Depends on:** Task 95, Task 96
+
+---
+
+## Task 98: Extraction call — OpenRouter + ZDR, schema, source quotes
+
+**Written 2026-10-12 after reading the first 4 real POs** (four senders, four layouts, all
+single-page digital PDFs). Sample documents are production data and are **not** committed
+or quoted here — not even sender names (`constraints.md:536`).
+
+**Scope: one pure function, document in → structured reading out.** No database writes, no
+queue, no retries — those are Task 101's worker. No checks — those are Task 99. This task
+produces the JSON that `inbound_pos.extracted` will hold.
+
+**Decisions from the brainstorm (2026-10-12), binding on this task:**
+- **Tote types are interpreted, not matched.** Six types — 275/330 × Recon / Rebottled /
+  New. Field descriptions give *examples* of each (Recon: `RECON`, `REC`,
+  `Reconditioned`; Rebottled: `REB`, `REBOT`, `Rebottled`; sizes `275`/`330` with or
+  without `GAL`/`G`), and the model is told to interpret unseen abbreviations. Extra
+  descriptors (`Limited Use`, `NAT`, valve/bung specs) are ignored. **When the type is
+  undeterminable the line is returned as `unknown` with its quote — never guessed.**
+- **Every PO is a delivery.** `customer_collects` is not extracted (also PRD Out of Scope);
+  the salesperson marks a pickup in review.
+- **Delivery-date synonyms include ship date.** `Sched. Delivery Date`, `Need Date`,
+  `Expected`, `Ship Date` are delivery-date candidates; `Order Date` / `P.O. Date` are
+  not. All labelled dates are returned with label and role — choosing among several is
+  Task 99/105's job (PRD: none pre-selected).
+- **Price = Σ(qty × unit price) over tote lines only.** Non-tote lines (service notes,
+  accruals, freight) are returned as `other` lines with any amount, **for Task 99's
+  arithmetic check only — never persisted to `orders`.** A dedicated "Other" order field was
+  proposed and **parked by the builder** — the existing order structure is unchanged.
+- **One PO per document.** Confirmed by the builder; multi-PO PDFs are not handled.
+
+**The vendor-block trap.** Every sample names *us* in a "Vendor" block, under varying legal
+names. The prompt states the vendor is never the customer; the customer is the issuer
+(letterhead / buyer / bill-to). Our name variants live in `extraction.constants.ts`.
+
+**The several-numbers trap.** One sample carries its PO number under a bare `Number` label
+*plus* an end-customer `CUST PO` and a `REF#`. The schema returns **all** PO-number
+candidates with labels; the field description says the issuer's own PO number is the one
+in the header, not one quoted inside a line description.
+
+**Files:**
+- `lib/extraction/extraction.constants.ts` — create. Default model (`openai/gpt-4.1-mini`),
+  temperature 0, request timeout, `MAX_PDF_PAGES`, render scale, our vendor-name variants
+- `lib/extraction/types.ts` — create. `ExtractionInput`, `ExtractedPo`, `ExtractedLine`,
+  `ExtractedDate`, `Quoted<T>` (`{ value, quote }`)
+- `lib/extraction/schema.ts` — create. JSON schema sent as `response_format`, per-field
+  descriptions, and the zod schema validating the response
+- `lib/extraction/prompt.ts` — create. System prompt
+- `lib/extraction/config.ts` — create. `readExtractionConfig(env)`, mirroring
+  `readGmailImapConfig`: `OPENROUTER_API_KEY` required, `OPENROUTER_MODEL` optional
+- `lib/extraction/render-pdf.ts` — create. PDF → one PNG per page (CONSTRAINT-35/36)
+- `lib/extraction/openrouter.ts` — create. The HTTP call
+- `lib/extraction/extract.ts` — create. `extractPo` orchestrator + `toOrderQuantities`
+- `lib/extraction/__tests__/*.test.ts` — create
+- `.env.example` — modify. `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` placeholders
+- `package.json` — modify. Adds the PDF renderer
+
+**Approach:**
+1. **Input by kind.** PDF → rendered to page images. Image (`jpeg`/`png`/`webp`) → passed
+   through unmodified. Email body → sent as text. Over `MAX_PDF_PAGES` → a typed error
+   naming the page count, which Task 101 turns into a visible review row (CONSTRAINT-34) —
+   **never silently truncated**.
+2. **PDF renderer: `pdfjs-dist` + `@napi-rs/canvas`** (Apache-2.0 / MIT, prebuilt Linux
+   binaries for Vercel). Rejected: `mupdf` — one package, but **AGPL**; native PDF
+   passthrough — unverified with this provider (CONSTRAINT-36). **Assumption to verify in
+   this task:** `@napi-rs/canvas` loads in a Vercel function. If not, stop and re-decide.
+3. **The call.** `POST /api/v1/chat/completions` with a strict `json_schema`
+   `response_format` and `provider: { zdr: true, require_parameters: true }`. **`zdr: true`
+   is a literal in code, no env override** (plan header). No usable ZDR route → OpenRouter
+   errors → we throw loudly; there is no fallback.
+4. **Response handling.** Parsed with zod. Malformed JSON, schema mismatch, non-2xx and
+   timeout each throw a distinct typed error with model, status and context — **never
+   document content** (SEC-01/05).
+5. **Output shape (stored as `extracted`).** Per field `{ value, quote }`: PO-number
+   candidates, customer name, ship-to address, bill-to address, labelled dates (value,
+   label, role: `order` | `delivery` | `other`), stated total, and lines — each
+   `{ kind: 'tote' | 'other', toteType: one of 6 | 'unknown', qty, unitPrice, lineTotal,
+   quote }`. Plus `isPurchaseOrder: boolean`, so a non-PO document can become
+   `no_po_found` (Task 97's provisional classification).
+6. **`toOrderQuantities(extracted)`** — pure; sums tote lines into the six `qty_*` /
+   `unit_price_*` slots and derives `price`. Two lines of one type at **different** unit
+   prices → reported as a conflict, not averaged.
+
+**Evaluation — acceptance gate, outputs never committed.** Run `extractPo` on the 4 real POs
+via a scratchpad script; the builder checks every field against the document. Pass bar:
+tote type, qty and unit price right on every tote line; PO number and delivery date right
+where present; nothing invented where the document is blank.
+
+**Functions to implement:**
+- `extractPo(input: ExtractionInput, config: ExtractionConfig, deps?): Promise<ExtractedPo>`
+- `renderPdfPages(pdf: Buffer, maxPages: number): Promise<Buffer[]>`
+- `callOpenRouter(request, config, fetchImpl): Promise<unknown>`
+- `readExtractionConfig(env): ExtractionConfig`
+- `toOrderQuantities(extracted: ExtractedPo): OrderQuantities`
+
+**Acceptance criteria:**
+- [x] `zdr: true` on every request; a test fails if it is absent or env-controlled
+- [x] `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` from env only; a missing key throws at
+      config read, naming the variable
+- [x] PDFs reach the model as page images, never as a PDF; images unmodified
+- [x] Every returned value carries a quote; `unknown` tote type is a valid output, not an error
+- [x] Over-page-limit, malformed response, non-2xx and timeout each throw a distinct typed
+      error; none caught and swallowed (EH-01/02)
+- [x] Logs carry model, status, page count, durations — no document text, no field values
+- [x] Evaluation passes on all 4 POs, confirmed by the builder
+- [x] CQ-01/02: functions < 50 lines, files < 300
+- [x] Full suite green; `tsc` and `lint` clean
+
+**Tests required:**
+- `readExtractionConfig` → happy; missing key throws
+- `callOpenRouter` → body has `zdr: true`, strict schema, model from config; non-2xx
+  throws with status; timeout throws
+- `extractPo` → happy with mocked fetch; malformed JSON throws; schema mismatch throws
+- `renderPdfPages` → synthetic in-test PDF (never a real PO) yields N PNGs; over limit throws
+- `toOrderQuantities` → lines sum into the right slots; one type at two prices reports a
+  conflict; `other` lines excluded from price
+
+**Open for Task 99, surfaced so it is not lost:** quote verification against a **rendered
+image** has no local text to check — CONSTRAINT-35 forbids local text extraction.
+Body-text POs verify trivially; images do not. Task 99 must decide how.
+
+**Specialist:** —
+**Status:** [x] Done 2026-10-12 — `lib/extraction/`: constants, types, errors, schema, prompt, config, render-pdf, openrouter, extract (largest file 150 lines, longest function ~30). Built by three parallel subagents against a hand-written shared contract (types, schema, errors). **Evaluation passed on all 4 real POs, confirmed by the builder** — tote type, qty and unit price right on every tote line; PO number and delivery date right where present; nothing invented. **It took two prompt iterations:** first run named one PO's ship-to company as the customer; second named a buyer's initials; the customer rule is now "Bill To company, else letterhead — never ship-to, never a person". Empty `$0.00` template rows were also being returned as lines; now skipped. **Deviations:** errors live in `lib/extraction/errors.ts` rather than `lib/errors.ts` (merging would push that file to ~319 lines, over CQ-02); `toOrderQuantities` stayed in `extract.ts` (141 lines). **New deps:** `pdfjs-dist` 6.4.299, `@napi-rs/canvas` 1.0.11, pinned — **not yet run on Vercel** (A-14 records the `serverExternalPackages` + Node ≥ 22.13 prerequisites for Task 101/102). Timeout covers the response body too, not just headers. Suite 127 files / 1591 tests; `tsc` and `eslint` clean. Also fixed in passing: a `db/seed.ts` type error introduced by the CONSTRAINT-20 guard commit.
+**Depends on:** Task 94 (done)

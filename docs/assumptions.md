@@ -360,6 +360,27 @@ the source image is lost.
 
 **Status:** [x] Accepted risk — contingency is a retention policy, not a paid upgrade
 
+### A-14 — The PDF renderer runs in a Vercel function
+
+**Added 2026-10-12, Task 98.** CONSTRAINT-35/36 make rendering PDFs to page images
+load-bearing. The chosen renderer is `pdfjs-dist` drawing onto `@napi-rs/canvas`, a
+**native** module (prebuilt binaries, no system libraries). It is verified locally on
+Windows; it is **not** yet verified inside a Vercel serverless function (Linux), which is
+where Task 101's worker will run it.
+
+**Resolution:** accepted risk, approved with the Task 98 plan. **Verify at the first Vercel
+deploy that exercises extraction** (Task 101/102) — render one synthetic PDF in a preview
+deployment before any real PO depends on it.
+
+**Deploy prerequisites found while building (2026-10-12), for Task 101/102:**
+`next.config.js` will need `serverExternalPackages: ['pdfjs-dist', '@napi-rs/canvas']` — a
+native `.node` binary cannot be bundled, and the renderer locates pdfjs's font/CMap files in
+`node_modules`. The Vercel project must run **Node ≥ 22.13** (pdfjs-dist 6). The Linux
+canvas binary is ~25–30 MB unpacked, counted against the function size limit.
+
+**Contingency:** a WebAssembly renderer needs no native binary. `mupdf` was rejected for
+its AGPL licence, so the fallback must be re-chosen then, not assumed.
+
 ### Summary of items added 2026-10-07
 
 | ID | Assumption | Category | Resolution | Outcome |
@@ -371,6 +392,7 @@ the source image is lost.
 | A-11 | Self-chaining drains a batch within free-tier limits | Technical feasibility | Accepted risk | Fallback: 5-minute external cron |
 | A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Resolved 2026-10-08** — available (1.6), not installed; Task 100 enables it |
 | A-13 | ~$8/yr API, 1GB storage holds ~2 years compressed | Cost | Accepted risk | Retention policy when cap nears |
+| A-14 | `@napi-rs/canvas` PDF renderer runs on Vercel (added 2026-10-12) | Technical feasibility | Accepted risk | Verify on first preview deploy; fallback: WASM renderer, re-chosen |
 
 **Open count: 0.** A-12 closed 2026-10-08 (see its entry above — the table row read
 "Open" until 2026-10-11, three days after the entry itself recorded the resolution; a

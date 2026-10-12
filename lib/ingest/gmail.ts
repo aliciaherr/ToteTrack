@@ -44,7 +44,7 @@ function requireEnv(env: EnvLookup, name: string): string {
   if (!value) {
     throw new IngestConfigError(
       name,
-      'is missing or empty. Set it in .env.local and in the Vercel environment; .env.example lists the expected shape.'
+      'is missing or empty. Set it in .env and in the Vercel environment; .env.example lists the expected shape.'
     )
   }
   return value
