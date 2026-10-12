@@ -31,6 +31,14 @@ function listing(overrides: Partial<FetchMessageObject> = {}): FetchMessageObjec
 }
 
 describe('toDeclaredMessage', () => {
+  it('carries INTERNALDATE as arrivedAt, and null when absent or unusable', () => {
+    const arrived = new Date('2026-10-12T05:00:00.000Z')
+    expect(toDeclaredMessage(listing({ internalDate: arrived }), FAKE_CONFIG).arrivedAt).toEqual(arrived)
+    expect(toDeclaredMessage(listing({ internalDate: '2026-10-12T05:00:00Z' }), FAKE_CONFIG).arrivedAt).toEqual(arrived)
+    expect(toDeclaredMessage(listing(), FAKE_CONFIG).arrivedAt).toBeNull()
+    expect(toDeclaredMessage(listing({ internalDate: 'not a date' }), FAKE_CONFIG).arrivedAt).toBeNull()
+  })
+
   it('carries the declared size and the envelope headers across', () => {
     const declared = toDeclaredMessage(listing(), FAKE_CONFIG)
 

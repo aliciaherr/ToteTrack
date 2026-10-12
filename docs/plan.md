@@ -3308,7 +3308,7 @@ the first real documents. The agreed sequence:
 | 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
 | 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **[x] done 2026-10-12, security CLEAR** | @db |
 | 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **[x] done 2026-10-12** (HIGH-02R still open, not in spec) | — |
-| 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **specced 2026-10-12**; runs before 101, gates 104 | @db |
+| 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **[x] done 2026-10-12**; `@security` re-run owed; 0019 applied in prod 2026-10-12 | @db |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
 | 103 | Extraction worker — drain, self-chain, retry | — |
@@ -3918,19 +3918,19 @@ watermark. Design: `docs/architecture.md` → "Give-up rule".
 4. `advanceWatermark` as today; summary reports `gaveUpUids`.
 
 **Acceptance criteria:**
-- [ ] 3 failing runs but < 1 hour since the first → no placeholder, watermark still halted
-- [ ] ≥ 1 hour but < 3 failing runs → no placeholder
-- [ ] 3 runs **and** ≥ 1 hour → one `failed` `inbound_emails` row (`message_id`, `from_address`,
+- [x] 3 failing runs but < 1 hour since the first → no placeholder, watermark still halted
+- [x] ≥ 1 hour but < 3 failing runs → no placeholder
+- [x] 3 runs **and** ≥ 1 hour → one `failed` `inbound_emails` row (`message_id`, `from_address`,
       `subject` NULL; `received_at` = INTERNALDATE) + one `staging_failed` row at
       `pending_review`; the watermark passes the UID
-- [ ] Deferred UIDs never increment a counter
-- [ ] A UID that commits on retry has its counter row deleted
-- [ ] Placeholder write fails (DB down) → UID stays failed, counter kept, retried next run
-- [ ] A UIDVALIDITY change clears counters belonging to the old validity
-- [ ] SEC-05: no sender-written value in the placeholder, `check_results` or logs
-- [ ] H-01: the listing still never requests `source` (existing test stays green)
-- [ ] EH-01/02: counter failures throw `DatabaseError` with UIDs only, no headers
-- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] Deferred UIDs never increment a counter
+- [x] A UID that commits on retry has its counter row deleted
+- [x] Placeholder write fails (DB down) → UID stays failed, counter kept, retried next run
+- [x] A UIDVALIDITY change clears counters belonging to the old validity
+- [x] SEC-05: no sender-written value in the placeholder, `check_results` or logs
+- [x] H-01: the listing still never requests `source` (existing test stays green)
+- [x] EH-01/02: counter failures throw `DatabaseError` with UIDs only, no headers
+- [x] CQ-01/02; full suite green; `tsc` and `eslint` clean
 
 **Tests required:**
 - `shouldGiveUp` → both thresholds on each side of the boundary
@@ -3944,7 +3944,7 @@ watermark. Design: `docs/architecture.md` → "Give-up rule".
 
 **Depends on:** Task 100 (done)
 **Specialist:** @db
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). `giveUpOnFailures` (in `give-up.ts`) owns increment → threshold → placeholder staging; `runIngestion` calls it through `settleFailures` and then clears the counter. Two small additions beyond the spec: (1) `clearFailures` also clears **already-staged** UIDs, so a crash between a commit and its clear leaves no stale row; (2) `recordFailures` rejects an unparseable timestamp read back from the DB instead of returning `Invalid Date`. New `npm run test:integration` loads `.env` and runs `*.integration.test.ts` against the local stack (guarded to localhost); `npm test` skips those visibly. 0019 applied locally and pasted into prod by the builder (2026-10-12). Mutation-checked: OR'd thresholds, counting deferred UIDs and dropping the clear all fail tests. Suite 137 files / 1670 passed + 3 integration skipped.
 
 ---
 

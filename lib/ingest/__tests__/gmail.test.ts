@@ -95,6 +95,8 @@ interface FakeMessage {
   declaredSize?: number
   /** Envelope `Message-ID` label. Defaults to absent. */
   messageId?: string | null
+  /** IMAP `INTERNALDATE`. Defaults to absent. */
+  arrivedAt?: Date | null
 }
 
 interface FakeSession {
@@ -133,6 +135,7 @@ function sessionOf(...messages: FakeMessage[]): FakeSession {
             from: null,
             subject: null,
             receivedAt: null,
+            arrivedAt: fake.arrivedAt ?? null,
           }
         }
       })()
@@ -329,6 +332,20 @@ describe('collectUnprocessed', () => {
     expect(fetchedUids).toEqual([5, 6])
     expect(collected.messages.map((message) => message.uid)).toEqual([5, 6])
     expect(collected).toMatchObject({ alreadyStagedUids: [], deferredUids: [], rejectedUids: [] })
+  })
+
+  // CONSTRAINT-37: a failed UID's placeholder reads its arrival time here.
+  it('records INTERNALDATE for every listed UID and carries it onto the parsed message', async () => {
+    const arrived = new Date('2026-10-12T05:00:00.000Z')
+    const { session } = sessionOf(
+      { uid: 5, source: Buffer.from(PDF_MESSAGE), arrivedAt: arrived },
+      { uid: 6, source: Buffer.from(NO_MESSAGE_ID) }
+    )
+
+    const collected = await collectUnprocessed(session, windowOf(4, [6]))
+
+    expect(collected.arrivals).toEqual(new Map([[5, arrived], [6, null]]))
+    expect(collected.messages[0].arrivedAt).toEqual(arrived)
   })
 
   // The crash-between-staging-and-advance case: the UID is listed again, but
@@ -646,6 +663,12 @@ describe('imap-session.ts listing constraints', () => {
     expect(listingQuery).toContain('size: true')
     expect(listingQuery).toContain('envelope: true')
     expect(listingQuery).not.toContain('source: true')
+  })
+
+  // CONSTRAINT-37: the give-up placeholder's only time is the server's.
+  it('asks the listing for INTERNALDATE', () => {
+    const listingQuery = code.slice(code.indexOf('listFrom'), code.indexOf('fetchSource'))
+    expect(listingQuery).toContain('internalDate: true')
   })
 
   it('transfers message bytes from exactly one call', () => {

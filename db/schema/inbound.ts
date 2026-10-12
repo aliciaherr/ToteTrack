@@ -8,6 +8,7 @@ import {
   timestamp,
   index,
   unique,
+  primaryKey,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import {
@@ -131,3 +132,20 @@ export const ingestMailboxState = pgTable('ingest_mailbox_state', {
   last_uid: bigint('last_uid', { mode: 'number' }).notNull(),
   last_run_at: timestamp('last_run_at', { withTimezone: true }),
 })
+
+/**
+ * Failing runs per UID, for the give-up rule (Feature 16, migration 0019;
+ * CONSTRAINT-37). A UID failing on `GIVE_UP_MIN_ATTEMPTS` runs and for at
+ * least `GIVE_UP_MIN_AGE_MS` becomes a header-free placeholder, so no message
+ * can pin the watermark. The row is deleted when the UID commits or gives up.
+ * Integers and timestamps only: nothing a sender wrote (SEC-05).
+ */
+export const ingestUidFailures = pgTable('ingest_uid_failures', {
+  uid_validity: bigint('uid_validity', { mode: 'number' }).notNull(),
+  uid: bigint('uid', { mode: 'number' }).notNull(),
+  attempts: integer('attempts').notNull(),
+  first_failed_at: timestamp('first_failed_at', { withTimezone: true }).notNull(),
+  last_failed_at: timestamp('last_failed_at', { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ name: 'ingest_uid_failures_pkey', columns: [t.uid_validity, t.uid] }),
+])

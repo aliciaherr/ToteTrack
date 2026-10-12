@@ -70,10 +70,12 @@ export async function createImapSession(config: GmailImapConfig): Promise<ImapSe
     async *listFrom(sinceUid: number): AsyncIterable<DeclaredMessage> {
       assertUsableWatermark(sinceUid)
       const range = { uid: `${sinceUid}:*` }
-      // `size` and `envelope`, and pointedly **not** `source`: this listing is
-      // what the byte budget decides on, so it must cost no attachment bytes.
-      // Adding `source` here would silently restore H-01 (`types.ts`).
-      const query = { uid: true, size: true, envelope: true }
+      // `size`, `envelope` and `internalDate`, and pointedly **not** `source`:
+      // this listing is what the byte budget decides on, so it must cost no
+      // attachment bytes. Adding `source` here would silently restore H-01
+      // (`types.ts`). `internalDate` is the server's arrival time, which the
+      // give-up placeholder carries (CONSTRAINT-37).
+      const query = { uid: true, size: true, envelope: true, internalDate: true }
       for await (const message of client.fetch(range, query, { uid: true })) {
         yield toDeclaredMessage(message, config)
       }
@@ -157,6 +159,12 @@ function envelopeDate(envelope: MessageEnvelopeObject | undefined): Date | null 
   return boundDate(date instanceof Date ? date : new Date(date))
 }
 
+/** IMAP `INTERNALDATE` as a `Date`, or `null` when absent or out of range. */
+function internalDate(value: Date | string | undefined): Date | null {
+  if (!value) return null
+  return boundDate(value instanceof Date ? value : new Date(value))
+}
+
 /**
  * One listing entry as a `DeclaredMessage`.
  *
@@ -199,5 +207,6 @@ export function toDeclaredMessage(
     from: boundHeader(envelopeFrom(message.envelope)),
     subject: boundHeader(message.envelope?.subject ?? null),
     receivedAt: envelopeDate(message.envelope),
+    arrivedAt: internalDate(message.internalDate),
   }
 }

@@ -48,6 +48,13 @@ export type IngestLimitReason =
    * never dismissed by the system.
    */
   | 'no_po_found'
+  /**
+   * Staging failed on `GIVE_UP_MIN_ATTEMPTS` runs over at least
+   * `GIVE_UP_MIN_AGE_MS` (CONSTRAINT-37). The message is staged as a
+   * header-free placeholder so it cannot pin the watermark; `measured` is the
+   * failing runs. The salesperson finds it in Gmail by its arrival time.
+   */
+  | 'staging_failed'
 
 /**
  * One refusal, written verbatim as an entry in the `failures` array on
@@ -78,7 +85,7 @@ export interface IngestLimitFailure {
   measured?: number
   /** The cap `measured` was compared against. Omitted when there was no cap. */
   limit?: number
-  unit?: 'bytes' | 'attachments'
+  unit?: 'bytes' | 'attachments' | 'runs'
   /**
    * The attachment's content type, for `unsupported_format` and
    * `empty_attachment` only. Sanitised to a bare `type/subtype` of at most
@@ -125,6 +132,12 @@ export interface InboundMessage {
   subject: string | null
   /** The `Date:` header, or `null` when absent or unparseable. */
   receivedAt: Date | null
+  /**
+   * IMAP `INTERNALDATE`: when the server received the message, or `null` when
+   * the listing did not report a usable one. Server-assigned, so no sender can
+   * write it — the only time the give-up placeholder may carry (CONSTRAINT-37).
+   */
+  arrivedAt: Date | null
   /** The plain-text body, or `''` when the message carried no text part. */
   bodyText: string
   /** Every attachment, unfiltered — Task 97 decides which are PO candidates. */
@@ -171,6 +184,8 @@ export interface DeclaredMessage {
   subject: string | null
   /** The `Date:` header, or `null` when absent or unparseable. */
   receivedAt: Date | null
+  /** IMAP `INTERNALDATE`, server-assigned, or `null` when not reported usably. */
+  arrivedAt: Date | null
 }
 
 /**
@@ -269,4 +284,10 @@ export interface CollectedMail {
    * rule 3). Never staged, so they halt the watermark — loudly.
    */
   rejectedUids: number[]
+  /**
+   * IMAP `INTERNALDATE` for every UID the listing returned above the
+   * watermark, by UID. The give-up placeholder reads its arrival time from
+   * here, since a failed or rejected UID may have no message to carry it.
+   */
+  arrivals: Map<number, Date | null>
 }

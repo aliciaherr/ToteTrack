@@ -20,6 +20,7 @@ function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
     from: null,
     subject: null,
     receivedAt: null,
+    arrivedAt: null,
     bodyText: '',
     attachments: [],
     rejection: null,

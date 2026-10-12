@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { InsertInboundEmailInput } from '@/db/queries/inbound-emails'
+import type { FailureRecord } from '@/db/queries/ingest-failures'
 import type { IngestState } from '@/db/queries/ingest-state'
 import { ImapConnectionError } from '@/lib/errors'
 import { advanceWatermark, runIngestion, type IngestRunDeps, type UidOutcome } from '../run'
-import { MAX_TOTAL_INGEST_BYTES } from '../limits.constants'
+import { GIVE_UP_MIN_AGE_MS, MAX_TOTAL_INGEST_BYTES } from '../limits.constants'
 import type { DeclaredMessage, ImapSession } from '../types'
 
 // No mailbox, database or bucket: every collaborator of `runIngestion` is
@@ -56,6 +57,7 @@ interface FakeMail {
   uid: number
   source: Buffer
   declaredSize?: number
+  arrivedAt?: Date | null
 }
 
 /** A mailbox, a database and a state row, all in memory. */
@@ -66,6 +68,8 @@ function world(mail: FakeMail[], initial: IngestState | null = null, uidValidity
   let state = initial
   const writes: IngestState[] = []
   const close = vi.fn(async () => {})
+  // The give-up counter, keyed `uidValidity/uid` like the table's primary key.
+  const failures = new Map<string, FailureRecord>()
 
   const session: ImapSession = {
     uidValidity,
@@ -74,7 +78,7 @@ function world(mail: FakeMail[], initial: IngestState | null = null, uidValidity
       return (async function* listing(): AsyncGenerator<DeclaredMessage> {
         for (const message of mail.filter((item) => item.uid >= sinceUid)) {
           const declaredSize = message.declaredSize ?? message.source.length
-          yield { uid: message.uid, declaredSize, messageId: null, from: null, subject: null, receivedAt: null }
+          yield { uid: message.uid, declaredSize, messageId: null, from: null, subject: null, receivedAt: null, arrivedAt: message.arrivedAt ?? null }
         }
       })()
     },
@@ -112,9 +116,24 @@ function world(mail: FakeMail[], initial: IngestState | null = null, uidValidity
     },
     stagedUidsAbove: async (validity, uid) =>
       new Set(emails.filter((row) => row.uid_validity === validity && row.uid > uid).map((row) => row.uid)),
+    recordFailures: async (validity, uids, now) =>
+      uids.map((uid) => {
+        const previous = failures.get(`${validity}/${uid}`)
+        const next: FailureRecord = previous
+          ? { ...previous, attempts: previous.attempts + 1, lastFailedAt: now }
+          : { uidValidity: validity, uid, attempts: 1, firstFailedAt: now, lastFailedAt: now }
+        failures.set(`${validity}/${uid}`, next)
+        return next
+      }),
+    clearFailures: async (validity, uids) => {
+      for (const uid of uids) failures.delete(`${validity}/${uid}`)
+    },
+    clearOtherValidities: async (validity) => {
+      for (const [key, row] of failures) if (row.uidValidity !== validity) failures.delete(key)
+    },
     now: () => RUN_AT,
   }
-  return { deps, emails, fetched, listedFrom, writes, close, session }
+  return { deps, emails, fetched, listedFrom, writes, close, session, failures }
 }
 
 function stateAt(lastUid: number, uidValidity = UID_VALIDITY): IngestState {
@@ -326,5 +345,150 @@ describe('runIngestion', () => {
     await expect(runIngestion(env.deps)).rejects.toThrow(ImapConnectionError)
     expect(env.writes).toEqual([])
     expect(env.close).toHaveBeenCalledOnce()
+  })
+})
+
+// Task 114 (CONSTRAINT-37, HIGH-02R): no message can pin the watermark.
+describe('runIngestion — give-up rule', () => {
+  const HOUR = GIVE_UP_MIN_AGE_MS
+  const ARRIVED = new Date('2026-10-12T05:59:00.000Z')
+
+  /** UID 2 throws on every stage attempt, unless it is the placeholder. */
+  function poisonedWorld() {
+    const env = world([
+      { uid: 1, source: rawMessage('PO 1') },
+      { uid: 2, source: rawMessage('Hostile PO 2'), arrivedAt: ARRIVED },
+      { uid: 3, source: rawMessage('PO 3') },
+    ])
+    const stageEmail = env.deps.ingest.stageEmail
+    env.deps.ingest.stageEmail = async (email, pos) => {
+      if (email.uid === 2 && email.subject !== null) throw new Error('value Postgres refuses')
+      return stageEmail(email, pos)
+    }
+    return env
+  }
+
+  /** Runs once per offset, each at `RUN_AT + offset`. */
+  async function runAt(env: ReturnType<typeof world>, ...offsetsMs: number[]) {
+    const summaries = []
+    for (const offset of offsetsMs) {
+      env.deps.now = () => new Date(RUN_AT.getTime() + offset)
+      summaries.push(await runIngestion(env.deps))
+    }
+    return summaries
+  }
+
+  it('stages a placeholder after 3 failing runs over an hour, advances past it and clears the counter', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = poisonedWorld()
+
+    const [, , third] = await runAt(env, 0, HOUR / 2, HOUR)
+
+    expect(third).toMatchObject({ watermark: 3, haltedAtUid: null, failedUids: [], gaveUpUids: [2] })
+    const placeholder = env.emails.find((row) => row.uid === 2)
+    expect(placeholder).toEqual({
+      uid_validity: UID_VALIDITY,
+      uid: 2,
+      message_id: null,
+      classification: 'failed',
+      from_address: null,
+      subject: null,
+      received_at: ARRIVED,
+    })
+    expect(env.failures.size).toBe(0)
+    // SEC-05: nothing the sender wrote reaches a log line.
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain('Hostile')
+  })
+
+  it('keeps the watermark halted after 3 failing runs inside the hour', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = poisonedWorld()
+
+    const [, , third] = await runAt(env, 0, 1, HOUR - 1)
+
+    expect(third).toMatchObject({ watermark: 1, haltedAtUid: 2, failedUids: [2], gaveUpUids: [] })
+    expect(env.emails.some((row) => row.uid === 2)).toBe(false)
+    expect(env.failures.get(`${UID_VALIDITY}/2`)?.attempts).toBe(3)
+  })
+
+  it('keeps the watermark halted after an hour but fewer than 3 failing runs', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = poisonedWorld()
+
+    const [, second] = await runAt(env, 0, HOUR * 5)
+
+    expect(second).toMatchObject({ watermark: 1, gaveUpUids: [] })
+    expect(env.emails.some((row) => row.uid === 2)).toBe(false)
+  })
+
+  it('never counts a deferred UID', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const twoThirds = Math.ceil(MAX_TOTAL_INGEST_BYTES * (2 / 3))
+    const env = world([
+      { uid: 1, source: rawMessage('PO 1'), declaredSize: twoThirds },
+      { uid: 2, source: rawMessage('PO 2'), declaredSize: twoThirds },
+    ])
+    const [summary] = await runAt(env, 0)
+
+    expect(summary).toMatchObject({ deferredUids: [2], failedUids: [], haltedAtUid: 2 })
+    expect(env.failures.size).toBe(0)
+  })
+
+  it('clears the counter when a failed UID commits on retry', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = poisonedWorld()
+    await runAt(env, 0)
+    expect(env.failures.get(`${UID_VALIDITY}/2`)?.attempts).toBe(1)
+
+    env.deps.ingest.stageEmail = world([]).deps.ingest.stageEmail
+    const recovered = world([
+      { uid: 1, source: rawMessage('PO 1') },
+      { uid: 2, source: rawMessage('PO 2') },
+      { uid: 3, source: rawMessage('PO 3') },
+    ])
+    recovered.emails.push(...env.emails)
+    recovered.failures.set(`${UID_VALIDITY}/2`, env.failures.get(`${UID_VALIDITY}/2`)!)
+    recovered.deps.readState = async () => stateAt(1)
+
+    const summary = await runIngestion(recovered.deps)
+
+    expect(summary).toMatchObject({ watermark: 3, failedUids: [], gaveUpUids: [] })
+    expect(recovered.failures.size).toBe(0)
+  })
+
+  it('keeps the UID failed and its counter when the placeholder write fails too', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = poisonedWorld()
+    await runAt(env, 0, HOUR / 2)
+    env.deps.ingest.stageEmail = async (email) => {
+      if (email.uid === 2) throw new Error('database unavailable')
+      return { duplicate: true }
+    }
+
+    const [third] = await runAt(env, HOUR)
+
+    expect(third).toMatchObject({ watermark: 1, haltedAtUid: 2, failedUids: [2], gaveUpUids: [] })
+    expect(env.failures.get(`${UID_VALIDITY}/2`)?.attempts).toBe(3)
+  })
+
+  it('clears counters of an old UIDVALIDITY when the server reports a new one', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = world([{ uid: 1, source: rawMessage('PO 1') }], stateAt(40, 3))
+    env.failures.set('3/41', { uidValidity: 3, uid: 41, attempts: 2, firstFailedAt: RUN_AT, lastFailedAt: RUN_AT })
+
+    await runIngestion(env.deps)
+
+    expect(env.failures.size).toBe(0)
+  })
+
+  it('writes no state when the counter cannot be written', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = poisonedWorld()
+    env.deps.recordFailures = async () => {
+      throw new Error('counter down')
+    }
+
+    await expect(runIngestion(env.deps)).rejects.toThrow(/counter down/)
+    expect(env.writes).toEqual([])
   })
 })

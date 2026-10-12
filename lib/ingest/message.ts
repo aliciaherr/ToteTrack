@@ -84,6 +84,8 @@ function toInboundMessage(parsed: ParsedMail, uid: number): InboundMessage {
     from: boundHeader(parsed.from?.text ?? null),
     subject: boundHeader(parsed.subject ?? null),
     receivedAt: boundDate(parsed.date ?? null),
+    // The source carries no INTERNALDATE; `gmail.ts` fills it from the listing.
+    arrivedAt: null,
     bodyText: parsed.text ?? '',
     attachments: parsed.attachments.map(toInboundAttachment),
     // The normal path: this message's bytes were admitted and downloaded.

@@ -160,3 +160,24 @@ export const MAX_RECORDED_MIME_TYPE_LENGTH = 100
  * else is dropped from the refusal rather than stored.
  */
 export const RECORDABLE_MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/
+
+/**
+ * Failing runs before a UID gives up and becomes a placeholder (CONSTRAINT-37,
+ * HIGH-02R). **Builder decision, 2026-10-12: 3.** One failure is a blip; three
+ * in a row is a message that will not stage, and leaving it would pin the
+ * watermark forever. Counted only when staging threw or the post-parse
+ * re-check refused it — a deferred UID never counts.
+ *
+ * Not an env var: it decides when a message stops halting the watermark, and
+ * production and local must agree on that to reproduce a give-up.
+ */
+export const GIVE_UP_MIN_ATTEMPTS = 3
+
+/**
+ * Least time since a UID's first failure before it may give up (CONSTRAINT-37).
+ * **Builder decision, 2026-10-12: 1 hour.** The run count alone could be
+ * reached inside a short Storage or database outage on a tight cron; the age
+ * lets that heal before a good PO is turned into a placeholder. Both
+ * thresholds must hold. Not an env var, for the same reason as the count.
+ */
+export const GIVE_UP_MIN_AGE_MS = 60 * 60 * 1000

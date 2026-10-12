@@ -185,7 +185,8 @@ async function readOne(
   parseRaw: (raw: Buffer, uid: number) => Promise<InboundMessage>
 ): Promise<InboundMessage> {
   try {
-    return await parseRaw(await session.fetchSource(declared.uid), declared.uid)
+    const message = await parseRaw(await session.fetchSource(declared.uid), declared.uid)
+    return { ...message, arrivedAt: declared.arrivedAt }
   } catch (cause) {
     if (cause instanceof ImapConnectionError) throw cause
     return unreadableMessage(declared, cause)
@@ -217,7 +218,7 @@ function passesRecheck(
 }
 
 function emptyCollection(): CollectedMail {
-  return { messages: [], alreadyStagedUids: [], deferredUids: [], rejectedUids: [] }
+  return { messages: [], alreadyStagedUids: [], deferredUids: [], rejectedUids: [], arrivals: new Map() }
 }
 
 /**
@@ -254,6 +255,7 @@ export async function collectUnprocessed(
     // `UID FETCH n:*` answers with the newest message even when n is above
     // every UID, so the server can list one the watermark already passed.
     if (declared.uid <= window.watermark) continue
+    result.arrivals.set(declared.uid, declared.arrivedAt)
     if (!isAdmissible(declared.uid, window)) {
       result.alreadyStagedUids.push(declared.uid)
       continue

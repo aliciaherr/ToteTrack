@@ -35,6 +35,7 @@ function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
     from: 'Acme Orders <orders@invalid.test>',
     subject: 'PO 10042 attached',
     receivedAt: new Date('2026-10-07T14:15:00.000Z'),
+    arrivedAt: null,
     bodyText: 'Please see the attached purchase order.',
     attachments: [attachment('application/pdf', FAKE_PDF_BYTES, 'po-10042.pdf')],
     rejection: null,

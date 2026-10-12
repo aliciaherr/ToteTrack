@@ -32,6 +32,7 @@ function declared(overrides: Partial<DeclaredMessage> = {}): DeclaredMessage {
     from: null,
     subject: null,
     receivedAt: null,
+    arrivedAt: null,
     ...overrides,
   }
 }

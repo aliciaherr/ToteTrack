@@ -222,6 +222,7 @@ export function refusedMessage(declared: DeclaredMessage, failure: IngestLimitFa
     from: declared.from,
     subject: declared.subject,
     receivedAt: declared.receivedAt,
+    arrivedAt: declared.arrivedAt,
     bodyText: '',
     attachments: [],
     rejection: failure,

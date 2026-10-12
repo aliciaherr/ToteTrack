@@ -1,4 +1,6 @@
+import type { FailureRecord } from '@/db/queries/ingest-failures'
 import type { IngestState } from '@/db/queries/ingest-state'
+import { giveUpOnFailures, type GiveUpResult } from './give-up'
 import { closeMailbox, collectUnprocessed, openMailbox } from './gmail'
 import { INBOX_PATH } from './imap-session'
 import { ingestMessages, type IngestDeps, type IngestSummary } from './pipeline'
@@ -8,8 +10,9 @@ import type { CollectedMail, GmailDeps } from './types'
  * One ingestion run, end to end (Feature 16, Task 99; CONSTRAINT-33).
  *
  * read state → open mailbox → compare UIDVALIDITY → list and fetch above the
- * watermark → stage each message in its own transaction → advance the
- * watermark → write it with `last_run_at`.
+ * watermark → stage each message in its own transaction → count failures and
+ * give up on the persistent ones (Task 114) → advance the watermark → write
+ * it with `last_run_at`.
  *
  * **The watermark only passes a UID once that message is durably visible.** It
  * stops below the first listed UID that failed, was deferred or was refused by
@@ -30,6 +33,12 @@ export interface IngestRunDeps {
   readState: (mailbox: string) => Promise<IngestState | null>
   writeState: (state: IngestState) => Promise<void>
   stagedUidsAbove: (uidValidity: number, uid: number) => Promise<Set<number>>
+  /** The give-up counter (CONSTRAINT-37): one more failing run per UID. */
+  recordFailures: (uidValidity: number, uids: number[], now: Date) => Promise<FailureRecord[]>
+  /** Deletes the counter for UIDs that committed or gave up. */
+  clearFailures: (uidValidity: number, uids: number[]) => Promise<void>
+  /** Deletes every counter outside this UIDVALIDITY, on a reset. */
+  clearOtherValidities: (uidValidity: number) => Promise<void>
   /** The clock `last_run_at` is read from. Injected so a test can pin it. */
   now: () => Date
 }
@@ -51,6 +60,11 @@ export interface IngestRunSummary {
   haltedAtUid: number | null
   /** Staging threw, or the post-parse re-check refused it. Retried next run. */
   failedUids: number[]
+  /**
+   * Failed on enough runs, for long enough, to be staged as a header-free
+   * placeholder this run (CONSTRAINT-37). The watermark may pass them.
+   */
+  gaveUpUids: number[]
   /** Left for the next run by the byte budget or message-count cap. */
   deferredUids: number[]
   staging: IngestSummary
@@ -124,15 +138,40 @@ async function readMailbox(deps: IngestRunDeps, state: IngestState | null): Prom
   }
 }
 
-function outcomesOf(collected: CollectedMail, staging: IngestSummary): UidOutcome[] {
+function outcomesOf(collected: CollectedMail, staging: IngestSummary, settled: GiveUpResult): UidOutcome[] {
   const tag = (uids: number[], status: UidOutcome['status']) =>
     uids.map((uid): UidOutcome => ({ uid, status }))
   return [
-    ...tag(staging.committedUids, 'committed'),
+    ...tag([...staging.committedUids, ...settled.gaveUpUids], 'committed'),
     ...tag(collected.alreadyStagedUids, 'already_staged'),
-    ...tag([...staging.failedUids, ...collected.rejectedUids], 'failed'),
+    ...tag(settled.failedUids, 'failed'),
     ...tag(collected.deferredUids, 'deferred'),
   ]
+}
+
+/**
+ * Counts this run's failures and gives up on the persistent ones, then clears
+ * the counter for every UID that now has a row. Deferred UIDs are never
+ * counted. Already-staged UIDs are cleared too, so a crash between a commit
+ * and its clear leaves no stale counter behind.
+ *
+ * Runs before the watermark is written: a counter failure throws, the state
+ * is not written, and the next run starts from the same watermark.
+ */
+async function settleFailures(
+  deps: IngestRunDeps,
+  read: MailboxRead,
+  staging: IngestSummary,
+  now: Date,
+  validityReset: boolean
+): Promise<GiveUpResult> {
+  const { uidValidity, collected } = read
+  if (validityReset) await deps.clearOtherValidities(uidValidity)
+  const failed = [...staging.failedUids, ...collected.rejectedUids]
+  const settled = await giveUpOnFailures(failed, uidValidity, collected.arrivals, now, deps)
+  const committed = [...staging.committedUids, ...collected.alreadyStagedUids, ...settled.gaveUpUids]
+  await deps.clearFailures(uidValidity, committed)
+  return settled
 }
 
 function reportHalt(summary: IngestRunSummary): void {
@@ -152,32 +191,37 @@ function reportHalt(summary: IngestRunSummary): void {
  * (`ImapConnectionError`) or the state cannot be read — the next run then
  * starts from the same watermark, so nothing is skipped. A failure staging one
  * message does **not** throw: it halts the watermark and is reported in the
- * summary.
+ * summary, until the give-up rule stages a placeholder for it (CONSTRAINT-37).
  *
  * @param deps The mailbox, staging, state and clock collaborators.
  * @returns What the run did, including where the watermark halted and why.
  * @throws {ImapConnectionError} on a connection or authentication failure.
- * @throws {DatabaseError} when the state cannot be read or written.
+ * @throws {DatabaseError} when the state or the give-up counter cannot be
+ *   read or written.
  */
 export async function runIngestion(deps: IngestRunDeps): Promise<IngestRunSummary> {
   const state = await deps.readState(INBOX_PATH)
   const read = await readMailbox(deps, state)
+  const validityReset = state !== null && state.uidValidity !== read.uidValidity
   const staging = await ingestMessages(read.collected.messages, read.uidValidity, deps.ingest)
-  const outcomes = outcomesOf(read.collected, staging)
+  const now = deps.now()
+  const settled = await settleFailures(deps, read, staging, now, validityReset)
+  const outcomes = outcomesOf(read.collected, staging, settled)
   const watermark = advanceWatermark(read.watermark, outcomes)
   await deps.writeState({
     mailbox: INBOX_PATH,
     uidValidity: read.uidValidity,
     lastUid: watermark,
-    lastRunAt: deps.now(),
+    lastRunAt: now,
   })
   const summary: IngestRunSummary = {
     uidValidity: read.uidValidity,
-    validityReset: state !== null && state.uidValidity !== read.uidValidity,
+    validityReset,
     previousWatermark: read.watermark,
     watermark,
     haltedAtUid: haltedAt(watermark, outcomes),
-    failedUids: [...staging.failedUids, ...read.collected.rejectedUids],
+    failedUids: settled.failedUids,
+    gaveUpUids: settled.gaveUpUids,
     deferredUids: read.collected.deferredUids,
     staging,
   }
