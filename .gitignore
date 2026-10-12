@@ -92,3 +92,6 @@ yarn-error.log*
 
 # Prod values parked here while .env points at the local Supabase stack (docs/local-dev-setup.md)
 .env.prod.reference
+
+# Prod customer exports for local evaluations (Task 102). Real customer data, never committed.
+docs/*.csv

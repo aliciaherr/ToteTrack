@@ -1,3 +1,4 @@
+import type { CustomerMatch } from '@/lib/matching/types'
 import type { CHECK_RESULTS_VERSION } from './checks.constants'
 
 /**
@@ -24,6 +25,9 @@ export type CheckName =
   | 'conflicting_unit_price'
   | 'quantity_out_of_bounds'
   | 'unit_price_out_of_bounds'
+  // Customer (Task 102, `customerMatchFailures`)
+  | 'no_customer_match'
+  | 'ambiguous_customer'
 
 /**
  * One entry in the `failures` array on `inbound_pos.check_results` — the
@@ -59,4 +63,9 @@ export interface CheckResults {
   version: typeof CHECK_RESULTS_VERSION
   failures: CheckFailure[]
   quotes: QuoteResult[]
+  /**
+   * Added by Task 103's worker from `matchCustomer` (Task 102). Optional and
+   * additive, so `version` stays 1: rows written before it simply lack it.
+   */
+  customerMatch?: CustomerMatch
 }

@@ -3310,7 +3310,7 @@ the first real documents. The agreed sequence:
 | 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **[x] done 2026-10-12** (HIGH-02R still open, not in spec) | — |
 | 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **[x] done 2026-10-12**; `@security` re-run owed; 0019 applied in prod 2026-10-12 | @db |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **[x] done 2026-10-12**; eval passed on 4 POs, builder confirmed | — |
-| 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
+| 102 | Customer matcher — normalise + `pg_trgm` + address signal — **[x] done 2026-10-12**; 0020 prod paste owed before Task 104 | @db |
 | 103 | Extraction worker — drain, self-chain, retry | — |
 
 **Task 103 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
@@ -4056,19 +4056,19 @@ addresses** (SEC-05 / L-D).
 - `customerMatchFailures(match: CustomerMatch): CheckFailure[]`: pure.
 
 **Acceptance criteria:**
-- [ ] Exactly one customer's normalised name equals the PO's → `prefillCustomerId` set
-- [ ] Two customers share that normalised name → no pre-fill, `ambiguous_customer`
-- [ ] Fuzzy-only matches → ranked, `prefillCustomerId` null, `ambiguous_customer`
-- [ ] Address-only match → listed but never pre-filled, even when it is the only candidate
-- [ ] No candidates (or both name and ship-to null) → `no_customer_match`, empty list
-- [ ] Inactive customers are included and carry `status`
-- [ ] The query is parameterised; no SQL is built from strings (SEC: parameterised queries)
-- [ ] The migration is applied locally with `db:migrate-local` only. Prod gets it when the builder
+- [x] Exactly one customer's normalised name equals the PO's → `prefillCustomerId` set
+- [x] Two customers share that normalised name → no pre-fill, `ambiguous_customer`
+- [x] Fuzzy-only matches → ranked, `prefillCustomerId` null, `ambiguous_customer`
+- [x] Address-only match → listed but never pre-filled, even when it is the only candidate
+- [x] No candidates (or both name and ship-to null) → `no_customer_match`, empty list
+- [x] Inactive customers are included and carry `status`
+- [x] The query is parameterised; no SQL is built from strings (SEC: parameterised queries)
+- [x] The migration is applied locally with `db:migrate-local` only. Prod gets it when the builder
       pastes it in. **Never `db:migrate`.**
-- [ ] Every threshold comes from `matching.constants.ts` (no magic numbers)
-- [ ] A DB failure throws with context (EH: loud) and never returns an empty match
-- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
-- [ ] Evaluation passes, confirmed by the builder (below)
+- [x] Every threshold comes from `matching.constants.ts` (no magic numbers)
+- [x] A DB failure throws with context (EH: loud) and never returns an empty match
+- [x] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] Evaluation passes, confirmed by the builder (below)
 
 **Evaluation — acceptance gate, outputs never committed:** the builder exports `company_name`
 and addresses from prod to a CSV in the scratchpad. A script loads it into the local DB and runs
@@ -4087,4 +4087,4 @@ or deleted after matching leaves a stored ID that is stale or missing, and Task 
 **Depends on:** Task 101 (done). Feeds Task 103 (which calls it), Task 107 (which renders the
 candidates) and Task 113 (whose aliases feed `findCustomerCandidates`).
 **Specialist:** @db
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). Migration 0020 (pg_trgm in `extensions`, two IMMUTABLE normalisers with `search_path=''`, EXECUTE revoked from the API roles) is applied locally; **the prod paste is owed before Task 104.** `db/queries/customer-match.ts` and `lib/matching/` are in; `lib/checks/types.ts` gains `no_customer_match`, `ambiguous_customer` and an optional `customerMatch`. **Evaluation passed, builder confirmed:** on a 100-row prod export (local only, gitignored as `docs/*.csv`), Mansfield, BASCO and Dakota are pre-filled correctly, and Rhenium is ranked #1 without a pre-fill. **Changes from the evaluation (builder-approved):** (1) periods and apostrophes are deleted, not turned into spaces, so "L.L.C." is stripped (a bug); (2) `nf` counts as a suffix, because "(NF)" is the salesperson's own tag; (3) a new list-only signal, `NAME_IN_ADDRESS_SIMILARITY_MIN` (0.8), uses pg_trgm `word_similarity` to find the PO name inside saved addresses. Saved addresses open with the legal name while `company_name` holds a nickname ("Delta Energy/Rhenium"), so this signal never pre-fills. Also beyond the spec: address normalisation unifies drive, boulevard, highway and parkway. Mutation-checked the pre-fill rule and the address boost. Suite 1767 passed; integration passes on the local stack; `tsc` and `eslint` clean.
