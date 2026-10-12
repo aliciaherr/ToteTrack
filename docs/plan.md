@@ -3308,6 +3308,7 @@ the first real documents. The agreed sequence:
 | 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
 | 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **[x] done 2026-10-12, security CLEAR** | @db |
 | 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **[x] done 2026-10-12** (HIGH-02R still open, not in spec) | — |
+| 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **specced 2026-10-12**; runs before 101, gates 104 | @db |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
 | 103 | Extraction worker — drain, self-chain, retry | — |
@@ -3866,6 +3867,84 @@ extraction and clears HIGH-01, the only open High. **Re-run `@security` after th
 
 **Depends on:** Task 99
 **Status:** [x] Done (2026-10-12). `selectCandidates` now ends every attachment as a candidate or a refusal (`triageAttachment`), and an email with neither yields one `no_po_found` row (email classified `no_po_found`, not `failed`). `PO_DOCUMENT_EXTENSIONS` is keyed by `AcceptedMimeType`, so the compiler enforces the pairing; `documentPathFor` has no fallback. `mimeType` on a refusal is lowercased, parameter-stripped, checked against RFC 6838 characters and dropped (not truncated) above `MAX_RECORDED_MIME_TYPE_LENGTH`. Upload failure propagates to `ingestMessages` → `failedUids` → watermark halts; proven end to end in `run.test.ts`. **Not in this task:** HIGH-02R "give up after N tries" — the Task 99 status line says Task 100 owes it, but this spec never included it; it still needs `@cto` and gates Task 104. Suite 132 files / 1633 tests.
+
+---
+
+## Task 114: Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R)
+
+**Planned 2026-10-12** (`@cto` → FB-41, CONSTRAINT-37). Numbered 114 to avoid another renumber;
+**executes before Task 101 and gates Task 104.** Closes HIGH-02R: no message can pin the
+watermark. Design: `docs/architecture.md` → "Give-up rule".
+
+**Files:**
+- `db/migrations/0019_ingest_uid_failures.sql` — create. Table `ingest_uid_failures`
+  (`uid_validity bigint`, `uid bigint`, PK both; `attempts integer NOT NULL`;
+  `first_failed_at`, `last_failed_at timestamptz NOT NULL`). RLS per the 0002 single-user
+  pattern. Prod: pasted by hand before Task 104; locally `db:migrate-local`. Never `db:migrate`.
+- `db/migrations/__tests__/0019.test.ts` — create
+- `db/schema/inbound.ts` — modify (table definition)
+- `db/queries/ingest-failures.ts` + `db/queries/__tests__/ingest-failures.test.ts` — create
+- `lib/ingest/limits.constants.ts` — modify. `GIVE_UP_MIN_ATTEMPTS = 3`,
+  `GIVE_UP_MIN_AGE_MS = 60 * 60 * 1000` (builder decision, not env vars)
+- `lib/ingest/types.ts` — modify. `IngestLimitReason` gains `staging_failed`; `unit` gains
+  `runs`; `DeclaredMessage` and `InboundMessage` gain `arrivedAt: Date | null` (IMAP
+  `INTERNALDATE`, server-assigned); `CollectedMail` gains `arrivals: Map<number, Date | null>`
+- `lib/ingest/imap-session.ts` — modify. Listing also requests `internalDate`; still never `source`
+- `lib/ingest/message.ts`, `lib/ingest/gmail.ts` — modify. Carry `arrivedAt` through, fill `arrivals`
+- `lib/ingest/give-up.ts` + `lib/ingest/__tests__/give-up.test.ts` — create
+- `lib/ingest/run.ts` + `lib/ingest/__tests__/run.test.ts` — modify. New injected deps:
+  `recordFailures`, `clearFailures`, `clearOtherValidities`
+
+**Functions to implement:**
+- `recordFailures(uidValidity: number, uids: number[], now: Date): Promise<FailureRecord[]>` —
+  upsert; `attempts + 1`, `last_failed_at = now`, `first_failed_at` kept on conflict; returns
+  the post-increment rows. Throws `DatabaseError`
+- `clearFailures(uidValidity: number, uids: number[]): Promise<void>`
+- `clearOtherValidities(uidValidity: number): Promise<void>` — on a UIDVALIDITY reset
+- `shouldGiveUp(record: FailureRecord, now: Date): boolean` — `attempts >= GIVE_UP_MIN_ATTEMPTS`
+  **and** `now - first_failed_at >= GIVE_UP_MIN_AGE_MS`. Pure
+- `placeholderMessage(uid: number, arrivedAt: Date | null, attempts: number): InboundMessage` —
+  `messageId`/`from`/`subject` null, `receivedAt = arrivedAt`, empty body, no attachments,
+  `rejection = { check: 'ingest_limit', reason: 'staging_failed', part: 'message',
+  measured: attempts, limit: GIVE_UP_MIN_ATTEMPTS, unit: 'runs' }`. Pure
+
+**Flow in `runIngestion`** (after `ingestMessages`, before `writeState`):
+1. `failed = staging.failedUids ∪ collected.rejectedUids`. Deferred UIDs are never included.
+2. `records = recordFailures(failed)`; for each record where `shouldGiveUp`, stage
+   `placeholderMessage(...)` through `ingestMessages`; its committed UIDs move from failed to
+   committed.
+3. `clearFailures` for every committed UID, placeholders included. On a UIDVALIDITY reset,
+   `clearOtherValidities` first.
+4. `advanceWatermark` as today; summary reports `gaveUpUids`.
+
+**Acceptance criteria:**
+- [ ] 3 failing runs but < 1 hour since the first → no placeholder, watermark still halted
+- [ ] ≥ 1 hour but < 3 failing runs → no placeholder
+- [ ] 3 runs **and** ≥ 1 hour → one `failed` `inbound_emails` row (`message_id`, `from_address`,
+      `subject` NULL; `received_at` = INTERNALDATE) + one `staging_failed` row at
+      `pending_review`; the watermark passes the UID
+- [ ] Deferred UIDs never increment a counter
+- [ ] A UID that commits on retry has its counter row deleted
+- [ ] Placeholder write fails (DB down) → UID stays failed, counter kept, retried next run
+- [ ] A UIDVALIDITY change clears counters belonging to the old validity
+- [ ] SEC-05: no sender-written value in the placeholder, `check_results` or logs
+- [ ] H-01: the listing still never requests `source` (existing test stays green)
+- [ ] EH-01/02: counter failures throw `DatabaseError` with UIDs only, no headers
+- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+
+**Tests required:**
+- `shouldGiveUp` → both thresholds on each side of the boundary
+- `placeholderMessage` → exact shape; no header field set
+- `runIngestion` → fail ×3 with the clock advanced past 1 hour → placeholder staged, watermark
+  advances, counter cleared; deferred never counts; retry success clears the counter;
+  placeholder write throws → UID still failed, counter kept
+- `ingest-failures` against local Postgres → upsert increments, `first_failed_at` preserved,
+  clear removes rows
+- `0019` → table, PK, RLS present
+
+**Depends on:** Task 100 (done)
+**Specialist:** @db
+**Status:** [ ]
 
 ---
 

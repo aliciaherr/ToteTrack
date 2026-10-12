@@ -938,3 +938,22 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - **"Can't check" doesn't push a PO to the top of the queue**, so a day of photos won't bury the real problems.
 
 **What this closes off:** Nothing costly. It uses software already in the project and adds no AI cost.
+
+---
+
+## FB-41: One Broken Email Can No Longer Jam the Inbox
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion* → "Give-up rule". New CONSTRAINT-37. Closes HIGH-02R.
+**Tasks:** new task, before Task 104 (production wiring).
+
+**Decided:** If one email fails to save on 3 runs in a row and at least an hour has passed since its first failure, the system stops retrying. It saves a placeholder in your review queue, "this email couldn't be stored, open it in Gmail", with the time Gmail received it, and moves on.
+
+**Means for your product:** No email, broken or hostile, can stop the system from moving past it. At worst, a PO sits unseen for about an hour, then shows up as a placeholder you handle by hand from Gmail. Short storage or database outages fix themselves without creating placeholders.
+
+**Check before approving:**
+- The placeholder shows no sender, subject or document, only the arrival time. That's on purpose: whatever is in the email may be what's breaking it.
+- You'll find the email in Gmail by its arrival time.
+
+**What this closes off:** Nothing. The 3 runs and 1 hour are settings in code and easy to change.
+

@@ -394,6 +394,17 @@ Tasks 95–97 used **`Message-ID`** as the processed marker: fetch the listing, 
 | Crash mid-run, before the watermark advances | The run's messages are listed again next run. `content_hash` recognises them; a duplicate is flagged for review, not rejected. |
 | Mailbox deleted and recreated | `UIDVALIDITY` changes, the watermark is discarded, mail may ingest once more. `content_hash` absorbs it. This closes L-15 — a UID collision can no longer mint a colliding identity, because identity is no longer minted. |
 | Message arrives mid-run | Its UID is above the watermark, so the next run reads it. Nothing is skipped; UID ordering is the server's, not a clock's. |
+| One message fails to stage on every run (HIGH-02R) | Give-up rule below: after 3 failing runs **and** 1 hour, a header-free placeholder row is staged and the watermark passes it. |
+
+### Give-up rule: no message pins the watermark (HIGH-02R, FB-41, CONSTRAINT-37)
+
+A UID whose staging fails halts the watermark, and the next run retries it. That is correct for a transient fault and wrong for a deterministic one (a value Postgres refuses, an upload Storage always rejects), which would pin the watermark forever and leave the PO invisible: a CONSTRAINT-34 violation.
+
+- **A try** is a run in which that UID's outcome is `failed`: staging threw, or the post-parse re-check refused it. `deferred` (byte budget, message-count cap) is not a failure and never counts.
+- **Counter:** table `ingest_uid_failures` (`uid_validity`, `uid` PK; `attempts`, `first_failed_at`, `last_failed_at`), migration 0019, RLS per the 0002 single-user pattern. Incremented before the watermark is written; the row is deleted when the UID commits or gives up. A lost increment only delays the give-up by a run, which is the safe direction.
+- **Give up** when `attempts >= 3` **and** `now - first_failed_at >= 1 hour` (both constants in `limits.constants.ts`). The count stops a single blip from giving up; the age lets a short Storage or DB outage heal before a good PO is turned into a placeholder. Builder decision 2026-10-12.
+- **The placeholder** is an `inbound_emails` row classified `failed` with every sender-written column NULL (`message_id`, `from_address`, `subject`), plus one `inbound_pos` refusal row with reason `staging_failed` (`measured` = attempts, `limit` = 3, `unit` = `runs`). No document, no upload. **`received_at` is the server's IMAP `INTERNALDATE`**, which no sender can write; that is how the salesperson finds the email in Gmail. Nothing sender-written goes in, because sender content may be what is failing.
+- It is staged in the same pass, through the same `stageEmail` transaction, so it commits like any message and the watermark advances over it. If that write fails too (the DB is down), the UID stays failed and the next run tries again.
 
 **The inbox stays `readOnly: true`.** Marking messages `\Seen` was considered as a second marker and deliberately rejected: it requires a write-mode connection, and Task 96 made read-only a property of the connection rather than a promise about the code. Flag state is also not transactional with the database write, so a crash between the two either loses a PO permanently or re-reads it — and the watermark already handles the latter at no cost. Available in reserve; not in v1.
 
