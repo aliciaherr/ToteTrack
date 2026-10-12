@@ -979,3 +979,23 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - You accepted that a hostile PDF can waste a few seconds of server time per attempt, rather than adding a separate processing thread.
 
 **What this closes off:** Nothing significant. The key can be revoked on its own; the body text could move into the bucket with one migration; an external cron can replace self-chaining without touching anything else.
+
+## FB-42 follow-up: The Worker Reads POs One at a Time and Waits Before Retrying
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion* → "The extraction worker" ("Claiming is one statement, one row at a time", "Retry delay").
+**Tasks:** Task 115 (`@security` MEDIUM-09, MEDIUM-10).
+
+**Decided:** Two changes to how the worker described in FB-42 above works:
+1. It picks up **one PO at a time** (up to 4 per run), not 4 at once, and stops picking up new ones 30 seconds into a run.
+2. A PO that hit a temporary error **waits 5 minutes** before it can be tried again.
+
+**Means for your product:**
+- A slow or broken PDF can no longer push the good POs queued behind it into manual entry. Only the PO being worked on loses a try.
+- A short OpenRouter outage no longer uses up every waiting PO's 3 tries in seconds. The 3 tries now span at least 10 minutes.
+- A corrupt PDF still gets 3 tries (your decision), so it reaches your review queue as a failed row about 10 minutes after it arrives.
+
+**Check before approving:**
+- After an outage, POs show up a few minutes later than before, instead of landing in manual entry.
+
+**What this closes off:** Nothing. The 30 seconds and 5 minutes are settings in code.

@@ -464,13 +464,21 @@ Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_fo
 
 ---
 
-### The extraction worker (Task 103, FB-42, 2026-10-12)
+### The extraction worker (Tasks 103, 115, 116, FB-42, 2026-10-12)
 
-The worker turns `pending_extraction` rows into `pending_review` rows: it downloads the document, calls `extractPo`, runs `runChecks` and `matchCustomer`, and writes `extracted` + `check_results`.
+The worker (`lib/ingest/worker.ts`, queue in `db/queries/extraction-queue.ts`, Task 115) turns `pending_extraction` rows into `pending_review` rows: it downloads the document, calls `extractPo`, runs `runChecks` and `matchCustomer`, and writes `extracted` + `check_results`.
 
-**Route ownership.** Task 103 owns `POST /api/ingest/extract`, authenticated by `INGEST_TRIGGER_SECRET`. The handler validates the secret, responds `202` at once, and does the batch in `after()` so the caller is never held open. When rows remain after a batch, it fetches its own URL once (self-chain, A-11). Task 104 owns the 06:00 cron and the manual trigger: each runs `runIngestion`, then pokes this route. The route sets `maxDuration` explicitly (M-04 condition 3). **Fallback if self-chaining proves unreliable (A-11):** an external 5-minute cron calls the same route. Nothing else changes.
+**Route ownership.** Task 116 owns `POST /api/ingest/extract`, authenticated by `INGEST_TRIGGER_SECRET`. The handler validates the secret, responds `202` at once, and does the batch in `after()` so the caller is never held open. When the batch reports `rowsMayRemain`, it fetches its own URL once (self-chain, A-11). It never chains on how many rows were claimed (MEDIUM-10). Task 104 owns the 06:00 cron and the manual trigger: each runs `runIngestion`, then pokes this route. The route sets `maxDuration` explicitly (M-04 condition 3). **Fallback if self-chaining proves unreliable (A-11):** an external 5-minute cron calls the same route. Nothing else changes.
 
-**Claiming is one statement.** `UPDATE … SET status = 'extracting', attempt_count = attempt_count + 1, extraction_started_at = now() WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT INGEST_BATCH_SIZE) RETURNING …`. Two concurrent invocations can never take the same row, and the attempt is counted **before** rendering starts (M-04 condition 1).
+**Claiming is one statement, one row at a time.** `UPDATE … SET status = 'extracting', attempt_count = attempt_count + 1, extraction_started_at = <now> WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING …`. Two concurrent invocations can never take the same row, and the attempt is counted **before** rendering starts (M-04 condition 1).
+
+The worker loops: claim, process, claim again. It stops at `INGEST_BATCH_SIZE` rows, or once `EXTRACTION_CLAIM_CUTOFF_MS` (30 s) has passed. Claiming one row at a time means a killed invocation spends only the in-flight row's attempt, not its batch-mates' (MEDIUM-09).
+
+**Retry delay.** A transient failure (HTTP, timeout, storage, DB) releases the row to `pending_extraction` and stamps `extraction_started_at` with the release time. No claim takes the row again until `EXTRACTION_RETRY_DELAY_MS` (5 min) has passed, so three attempts span at least ten minutes and a short outage cannot exhaust them (MEDIUM-10).
+
+A permanent failure goes straight to `extraction_failed`. The permanent errors are: text too long, too many pages, page too large, unusable model response, missing input. `PdfRenderError` is transient by builder decision: it also wraps environment glitches.
+
+A config error (missing OpenRouter key or Storage credential) stops the batch. The OpenRouter key is read before the first claim.
 
 **Lease.** A row left at `extracting` by a killed invocation is reclaimable once `extraction_started_at` is older than `EXTRACTION_LEASE_MS`, which exceeds `maxDuration`. A row whose `attempt_count` has reached `MAX_EXTRACTION_ATTEMPTS` is never rendered again. It moves to `extraction_failed` (M-04 condition 2), and the review queue lists `extraction_failed` alongside `pending_review`, with the document and empty fields (PRD).
 
