@@ -1016,7 +1016,7 @@ of typing one.
 - **No customer match**: PO parks as "unknown customer". The existing-customer
   picker is the primary action; creating a customer is deliberately secondary, to
   avoid duplicate customer records.
-- **Email containing no PO**: recorded as `no_po_found`, no review queued.
+- **Email containing no PO**: recorded as `no_po_found` **and queued as a review row with that reason** (CONSTRAINT-34, 2026-10-11 — superseded "no review queued"). Dismissed by the salesperson, never by the system.
 - **Duplicate PO number at save**: approval blocked with an explanatory message
   in the core scope; the diff-and-update path arrives in Task 109.
 - **Multiple attachments in one email**: each becomes a separate PO.

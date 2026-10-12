@@ -427,6 +427,18 @@ The renderer is a PDF rasteriser, **not** the image re-encoder that carries M-02
 
 **Accepted types are named explicitly, never a wildcard.** `ACCEPTED_MIME_TYPES` currently holds `image/*`, which admits SVG (M-01 — not a document, and a script vector when served back) and maps `.heic` and `.tiff` as accepted extensions (`ingest.constants.ts:150-151`) that the model cannot read. The list becomes exact: **`application/pdf`, `image/jpeg`, `image/png`, `image/webp`**. Anything else is a review row, per the rule above — the salesperson learns the vendor sent something unusual, rather than the PO disappearing.
 
+### Quote verification — the text layer checks, it never reads (2026-10-12, FB-40)
+
+Every extracted value carries a source quote, and the PRD requires that quote to be verified against the document. The model still reads **only page images**. Verification uses whatever local text the document has:
+
+| Source | Verified against | Result when no text |
+|---|---|---|
+| Email body | the body text | — |
+| Digital PDF | its embedded text layer (`pdfjs-dist` `getTextContent`, from the same parse that renders the pages, under the same bounds) | — |
+| Image, scanned PDF | nothing available | `unverifiable` |
+
+Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_found` is a check failure**: it means the value was likely invented, and it becomes an entry in the `check_results.failures` array (Task 95 contract). `unverifiable` is recorded but does not rank a row up, so photos do not flood the top of the queue. The text layer is **never sent to the model and never used to fill a field**. CONSTRAINT-35 (amended) permits it for verification only. Matching normalises case, whitespace and punctuation spacing. Exact tolerance (table-column reordering in the text layer) is settled by Task 99 against the 4 real POs.
+
 ---
 
 ### The extraction module — `lib/extraction/` (Task 98, 2026-10-12)

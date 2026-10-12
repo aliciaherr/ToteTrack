@@ -920,3 +920,21 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - **Size and time limits are set** so a hostile or huge PDF can't run up the AI bill or stall the server. One gap remains: a single pathological page can't be stopped mid-draw. That's accepted for now, with conditions attached to Task 101.
 
 **What this closes off:** Nothing. The AI model is a setting and can be swapped without code changes.
+
+---
+
+## FB-40: Checking the AI Didn't Make a Value Up
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion* → "Quote verification". CONSTRAINT-35 amended.
+**Tasks:** decided before Task 99 (check suite) is written.
+
+**Decided:** Every value the AI reads comes with the exact words it says it read it from. Those words are checked against the document's own text where the document has any: the email text, or the built-in text of a computer-made PDF. Each quote ends up "found", "not found" (flagged as possibly invented) or "can't check" (photos and scans, which have no built-in text). The AI still only ever sees pictures of the pages; the text is used to check it, not to read for it.
+
+**Means for your product:** On computer-made PDFs, which all 4 of your samples are, an invented value is caught and pushed to the top of your queue. On a photo you'll see "couldn't check" and compare by eye against the document next to it, which is what you do today.
+
+**Check before approving:**
+- **This only helps if vendors mostly send computer-made PDFs.** If phone photos turn out to be common, a second AI "does this really say that?" check for photos can be added later.
+- **"Can't check" doesn't push a PO to the top of the queue**, so a day of photos won't bury the real problems.
+
+**What this closes off:** Nothing costly. It uses software already in the project and adds no AI cost.
