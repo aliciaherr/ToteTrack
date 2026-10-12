@@ -880,3 +880,43 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - **Nothing is compressed or resized before the AI reads it.** That keeps an extra piece of software — one with known security problems, which would have been handling files from an inbox anyone can email — out of the project entirely. The cost of skipping it is a few pennies a year.
 
 **What this closes off:** The system can no longer be made quieter. Any future change that adds a "skip this" path has to write a review row instead, and that is now a rule rather than a preference. It also means the queue is the single place to look — so it has to stay usable as volume grows, which is a UI concern this decision creates and does not solve.
+
+---
+
+## FB-38: Testing No Longer Happens in the Live System
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → *Security Architecture* → *Authentication* ("Revised 2026-10-12"). CONSTRAINT-20 amended.
+**Tasks:** prerequisite for Task 98 onward.
+
+**Decided:** Development now runs against a private copy of the database on this computer, not the live one the salesperson uses. The live passwords were removed from this machine entirely; only Vercel has them.
+
+**Why:** The PO work feeds real customer documents through the system dozens of times while it's being tuned. Before this, every one of those test runs would have written rows and files into the live system, to be cleaned up by hand afterwards. A second cloud database wasn't available: both free slots are used and the paid tier was declined.
+
+**Means for your product:** Nothing changes for the salesperson. For building, mistakes during development can no longer touch real orders. The scripts that wipe or seed data refuse to run against anything that isn't this computer.
+
+**Check before approving:**
+- **Starting work now takes three steps:** open Docker, run `npx supabase start`, then `npm run dev`. If Docker isn't running, the app won't load locally.
+- **One thing is now only tested in production:** the special connection setting that fixed the August outage (CONSTRAINT-28). The local copy doesn't use it.
+
+**What this closes off:** Nothing meaningful. Data seen locally is test data, not the salesperson's real orders. That's the point, but it means you can't check a live-data question from the dev app.
+
+---
+
+## FB-39: The System Can Now Read a PO
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion* → "The extraction module". A-14 added.
+**Tasks:** Task 98 done; Tasks 99 (checks) and 101 (worker) build on it.
+
+**Decided:** A PO, whether PDF, photo or email text, is turned into structured fields: customer, PO number, delivery date, and tote lines with quantity and price. Each field comes with the exact words it was read from. PDFs are turned into page pictures first, then sent to the AI with zero-data-retention forced on.
+
+**What it got right:** All 4 of your real vendor POs, after two prompt fixes. The first run named the ship-to company as the customer and the second named a buyer's initials. The rule is now "the Bill To company, otherwise the letterhead, never the ship-to and never a person."
+
+**Means for your product:** The hard part, reading, works on your real documents. Nothing is visible yet. There's no screen, no inbox check and no review queue; those are Tasks 99–107.
+
+**Check before approving:**
+- **Two new add-ons draw the PDF pages. They haven't been run on Vercel yet.** One uses compiled code that sometimes misbehaves on hosting platforms. It gets checked on the first preview deploy, and there's a known fallback if it fails (A-14).
+- **Size and time limits are set** so a hostile or huge PDF can't run up the AI bill or stall the server. One gap remains: a single pathological page can't be stopped mid-draw. That's accepted for now, with conditions attached to Task 101.
+
+**What this closes off:** Nothing. The AI model is a setting and can be swapped without code changes.

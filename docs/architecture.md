@@ -429,6 +429,18 @@ The renderer is a PDF rasteriser, **not** the image re-encoder that carries M-02
 
 ---
 
+### The extraction module — `lib/extraction/` (Task 98, 2026-10-12)
+
+`extractPo()` is a pure call: document in, `ExtractedPo` out. It writes no rows, holds no queue and does no retries (Task 101's worker) or checks (Task 99). It has **no log statements** by design. The worker that calls it logs model, status, page count and duration, and never logs content.
+
+- **Provider:** OpenRouter, `zdr: true` hardcoded with a test proving it can't be disabled. Model is `OPENROUTER_MODEL`, defaulting to `openai/gpt-4.1-mini`, at temperature 0.
+- **PDF rendering:** `render-pdf.ts` uses `pdfjs-dist` + `@napi-rs/canvas` (both pinned), at scale 2, max 5 pages. It is bounded before allocation: a per-page pixel cap, the pdfjs `maxImageSize` / `canvasMaxAreaInBytes`, and a whole-PDF render deadline. The deadline can't interrupt one page mid-render (M-04 residual, a Task 101 sign-off condition).
+- **Spend bounds:** email text is capped at 20k chars, output at 4k tokens, and a truncated response is rejected rather than parsed.
+- **Errors** live in `lib/extraction/errors.ts`, not `lib/errors.ts` (merging would break the 300-line cap).
+- **Vercel is unverified** for the native canvas binary. See A-14: `serverExternalPackages` + Node ≥ 22.13 are deploy prerequisites for Task 101/102.
+
+---
+
 ### Deployment coupling
 
 The watermark is Gmail-IMAP-specific. **Moving to the Gmail API later means a new watermark type** (that API has `historyId`, not UIDs); the ingestion contract would survive, the marker would not.
@@ -544,7 +556,9 @@ lib/
 ### Authentication
 Supabase Auth single-user pattern (A-02). Fixed internal email stored as `ADMIN_EMAIL` env var, never shown in UI. Password-only login screen.
 
-**Revised 2026-08-02 (CRIT-01 rotation):** two auth users now exist — the **prod user** (new email, set only in Vercel's `ADMIN_EMAIL`) and the **QA user** (the original email, kept in local `.env` so local dev signs in as it; password in gitignored `testing-setup.md`). The app remains single-user per environment — `signIn` still uses whichever `ADMIN_EMAIL` its environment provides. Both users have identical full RLS access to the one shared DB (CONSTRAINT-20: not a sandbox).
+**Revised 2026-08-02 (CRIT-01 rotation):** two auth users now exist — the **prod user** (new email, set only in Vercel's `ADMIN_EMAIL`) and the **QA user** (the original email, kept in local `.env` so local dev signs in as it; password in gitignored `testing-setup.md`). The app remains single-user per environment — `signIn` still uses whichever `ADMIN_EMAIL` its environment provides. Both users have identical full RLS access.
+
+**Revised 2026-10-12 (CONSTRAINT-20 lifted, FB-38):** local dev no longer shares the prod database. Dev runs against the **local Supabase CLI stack** (Docker; `npx supabase start`, Studio on :54323). The QA user exists locally and `.env` holds local values only. **No prod credential remains on the dev machine**: Vercel holds them. Schema is replayed by `npm run db:migrate-local`. Seed, wipe and migrate-local refuse any non-localhost `DATABASE_URL` (`db/local-guard.ts`). Prod migrations are still applied by hand in the Supabase SQL editor. Accepted cost: local has no session pooler, so CONSTRAINT-28 is exercised only in prod.
 
 ### Authorization
 Row Level Security (RLS) on all **12** tables — `customers`, `customer_contacts`, `customer_addresses`, `orders`, `pickups`, `leads`, `lead_notes`, `invoices`, `support_tickets`, `support_attachments`, `inbound_emails`, `inbound_pos`. Policy: `FOR ALL TO authenticated USING (true) WITH CHECK (true)`. Single user — any authenticated session has full access.
