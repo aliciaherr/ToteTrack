@@ -3337,8 +3337,8 @@ proposed for cutting as exception-path work; the builder kept them and moved the
 core. That ordering only pays off if the core is genuinely used before they are started —
 `prd.md` records them as "sequenced after the core, pending real usage", not as committed.
 
-**A-12 is open** and gates Task 102 only: confirm `pg_trgm` is available on Supabase free
-before starting it. Do not assume it.
+**A-12 resolved 2026-10-08:** `pg_trgm` 1.6 is available on the prod project but not
+installed. Task 102's migration 0020 enables it.
 
 **`check_results` shape — settled by Task 95, 2026-10-7.** The column is free-form
 `jsonb`, but one key is a contract the queue query already depends on: **a failure is an
@@ -4010,3 +4010,81 @@ blank-text PDF yields `null` upstream; `runChecks` → `failures` key always an 
 
 **Depends on:** Task 98 (done). Independent of 112/113.
 **Status:** [x] Done (2026-10-12). `lib/checks/` (constants, types, fuzzy, quotes, arithmetic, dates, fields, run-checks); `renderPdfPages` now returns `{ images, text }` from the same parse; `extractPo` returns `{ extracted, sourceText }`. **Evaluation passed, builder confirmed:** live run on the 4 POs: 36/36 quotes `verified`, zero false `not_found`; a planted total is `not_found` on all 4; Dakota flagged. **Builder decision:** a total gap that `other` lines cover exactly is still a `total_mismatch` failure, with the covering lines named in `detail` (the spec contradicted itself). **Beyond the spec:** (1) all-letter quote tokens of 5+ characters may differ by one edit, because the model fixes misspellings when quoting ("Arlintgon", "VITON"); digits always exact; (2) `MAX_SOURCE_TEXT_CHARS` (30k): over it, quotes are `unverifiable` plus a `source_text_too_long` failure, which bounds the matcher; (3) a tote line with no quantity fails `quantity_out_of_bounds`; (4) the same delivery date printed twice is not flagged. **Known limit:** the token fallback does not require tokens to be adjacent. **Not built:** a check for a date read against the document's proven day/month order. Limits: `MAX_LINE_QUANTITY` 500, `MAX_UNIT_PRICE` $1,000, `MAX_QUOTE_CHARS` 600. Mutation-checked. Suite 1740 passed + 3 integration skipped; `tsc` and `eslint` clean.
+
+---
+
+## Task 102: Customer matcher — normalise + pg_trgm + address signal
+
+**Planned 2026-10-12.** Builder decisions (2026-10-12): pre-fill on an exact normalised match
+only; results live in `check_results.customerMatch`; the address signal boosts and surfaces but
+never pre-fills alone; thresholds are tuned on a customer CSV the builder exports. Task 103's
+worker calls the matcher and persists the result. This task writes no `inbound_pos` rows.
+A-12 is resolved (`pg_trgm` 1.6 available, not installed).
+
+**Files:**
+- `db/migrations/0020_customer_matcher.sql` — create. `CREATE EXTENSION IF NOT EXISTS pg_trgm
+  WITH SCHEMA extensions`; `public.normalise_company_name(text)` and
+  `public.normalise_address(text)`, both `IMMUTABLE` with `SET search_path = ''`. No trigram
+  index: at ~100 customers a sequential scan is trivial. The file records that reason.
+- `db/migrations/__tests__/0020.test.ts` — create (assertions on the SQL file, following the 0016+ precedent)
+- `db/queries/customer-match.ts` — create. One parameterised query
+- `db/queries/__tests__/customer-match.integration.test.ts` — create (real pg_trgm on the local stack)
+- `lib/matching/matching.constants.ts` — create. `NAME_SIMILARITY_MIN`, `ADDRESS_SIMILARITY_MIN`,
+  `ADDRESS_BOOST`, `MAX_CUSTOMER_CANDIDATES`
+- `lib/matching/types.ts`, `lib/matching/match-customer.ts` — create
+- `lib/checks/types.ts` — modify. Add `no_customer_match` and `ambiguous_customer` to `CheckName`;
+  add an optional `customerMatch?: CustomerMatch` to `CheckResults` (additive, so the version stays 1)
+- `lib/matching/__tests__/match-customer.test.ts` — create
+
+**Normalisation (SQL is the single source):** lowercase; `&` becomes `and`; strip punctuation;
+collapse whitespace; drop trailing US suffixes (inc, llc, ltd, co, corp, corporation, company)
+and a leading "the". Address: lowercase, strip punctuation, collapse whitespace, and unify
+common abbreviations (street/st, road/rd, avenue/ave, suite/ste). The UK suffixes in A-12's
+contingency (Ltd/PLC) were for the wrong market.
+
+**Output:** `customerMatch = { prefillCustomerId: string | null, candidates: { customerId,
+score, nameScore, addressMatched, status }[] }`. **IDs and numbers only, never names or
+addresses** (SEC-05 / L-D).
+
+**Functions to implement:**
+- `findCustomerCandidates(name: string | null, shipTo: string | null): Promise<CandidateRow[]>`:
+  customers with name similarity ≥ `NAME_SIMILARITY_MIN`, UNION any customer with a saved
+  address at similarity ≥ `ADDRESS_SIMILARITY_MIN`. Returns the name score, the best address
+  score and an exact-match flag.
+- `matchCustomer(extracted: ExtractedPo): Promise<CustomerMatch>`: rank by nameScore, plus
+  `ADDRESS_BOOST` when an address matched; cap at `MAX_CUSTOMER_CANDIDATES`.
+- `customerMatchFailures(match: CustomerMatch): CheckFailure[]`: pure.
+
+**Acceptance criteria:**
+- [ ] Exactly one customer's normalised name equals the PO's → `prefillCustomerId` set
+- [ ] Two customers share that normalised name → no pre-fill, `ambiguous_customer`
+- [ ] Fuzzy-only matches → ranked, `prefillCustomerId` null, `ambiguous_customer`
+- [ ] Address-only match → listed but never pre-filled, even when it is the only candidate
+- [ ] No candidates (or both name and ship-to null) → `no_customer_match`, empty list
+- [ ] Inactive customers are included and carry `status`
+- [ ] The query is parameterised; no SQL is built from strings (SEC: parameterised queries)
+- [ ] The migration is applied locally with `db:migrate-local` only. Prod gets it when the builder
+      pastes it in. **Never `db:migrate`.**
+- [ ] Every threshold comes from `matching.constants.ts` (no magic numbers)
+- [ ] A DB failure throws with context (EH: loud) and never returns an empty match
+- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [ ] Evaluation passes, confirmed by the builder (below)
+
+**Evaluation — acceptance gate, outputs never committed:** the builder exports `company_name`
+and addresses from prod to a CSV in the scratchpad. A script loads it into the local DB and runs
+the 4 sample POs' `customerName` / `shipToAddress` through `matchCustomer`. Pass: each PO's true
+customer is either pre-filled or ranked #1, and no wrong customer is ever pre-filled. Thresholds
+are adjusted in the constants file only.
+
+**Tests required:** normalisation (suffixes, `&`, punctuation, a leading "The") in the
+integration test; a passing and a failing test for each criterion above; a DB error throws with
+context; `customerMatchFailures` covers each failure kind.
+
+**Risks:** the evaluation takes prod customer data to local disk (scratchpad only, never
+committed). Migration 0020 must be pasted into prod before Task 104 goes live. A customer renamed
+or deleted after matching leaves a stored ID that is stale or missing, and Task 107 must handle it.
+
+**Depends on:** Task 101 (done). Feeds Task 103 (which calls it), Task 107 (which renders the
+candidates) and Task 113 (whose aliases feed `findCustomerCandidates`).
+**Specialist:** @db
+**Status:** [ ]
