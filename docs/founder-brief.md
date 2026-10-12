@@ -957,3 +957,25 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 
 **What this closes off:** Nothing. The 3 runs and 1 hour are settings in code and easy to change.
 
+## FB-42: The Worker That Reads Your POs: Where Its Pieces Live
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → *Email PO Ingestion* → "The extraction worker", "Email-body POs keep their text", "Storage access without a session". New CONSTRAINT-38.
+**Tasks:** Task 103 (worker). Task 104 reuses the storage module.
+
+**Decided:** Three things, all needed before the worker can be built:
+1. A PO typed into an email body now keeps its text on the PO row. Until now it was thrown away after being fingerprinted.
+2. The server gets one new secret key, used by one small file that can only upload or download PO documents. The automatic jobs need it because no one is logged in when they run.
+3. The worker claims up to 4 POs at a time in a way two runs can never share, counts each attempt before it starts, and gives up after 3 attempts. A PO whose run was killed becomes retryable after 5 minutes.
+
+**Means for your product:**
+- POs typed straight into an email now work end to end, and the review screen can show their text.
+- The daily 06:00 run and the self-continuing worker can work while you're away.
+- A PDF that crashes the worker every time ends up in your review queue as a failed row with empty fields, after 3 tries at most. It never disappears and never loops forever.
+
+**Check before approving:**
+- You'll need to add `SUPABASE_SECRET_KEY` to Vercel (Supabase → Settings → API Keys → create a secret key).
+- A PO whose run died waits 5 minutes before it is retried.
+- You accepted that a hostile PDF can waste a few seconds of server time per attempt, rather than adding a separate processing thread.
+
+**What this closes off:** Nothing significant. The key can be revoked on its own; the body text could move into the bucket with one migration; an external cron can replace self-chaining without touching anything else.

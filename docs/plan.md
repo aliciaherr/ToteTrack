@@ -3311,7 +3311,9 @@ the first real documents. The agreed sequence:
 | 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **[x] done 2026-10-12**; `@security` re-run owed; 0019 applied in prod 2026-10-12 | @db |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **[x] done 2026-10-12**; eval passed on 4 POs, builder confirmed | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal — **[x] done 2026-10-12**; 0020 applied in prod 2026-10-12 | @db |
-| 103 | Extraction worker — drain, self-chain, retry | — |
+| 103 | Worker foundations — body text, lease column, storage module, failed rows visible (split 2026-10-12, FB-42) | @db |
+| 115 | Worker core — claim, extract, check, match, persist | @db |
+| 116 | Worker route — secret, `after()`, self-chain | — |
 
 **Task 103 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
 deadline cannot interrupt one page mid-render, so the worker must guarantee a hostile PDF still
@@ -4088,3 +4090,136 @@ or deleted after matching leaves a stored ID that is stale or missing, and Task 
 candidates) and Task 113 (whose aliases feed `findCustomerCandidates`).
 **Specialist:** @db
 **Status:** [x] Done (2026-10-12). Migration 0020 (pg_trgm in `extensions`, two IMMUTABLE normalisers with `search_path=''`, EXECUTE revoked from the API roles) is applied locally; **pasted into prod by the builder 2026-10-12.** `db/queries/customer-match.ts` and `lib/matching/` are in; `lib/checks/types.ts` gains `no_customer_match`, `ambiguous_customer` and an optional `customerMatch`. **Evaluation passed, builder confirmed:** on a 100-row prod export (local only, gitignored as `docs/*.csv`), Mansfield, BASCO and Dakota are pre-filled correctly, and Rhenium is ranked #1 without a pre-fill. **Changes from the evaluation (builder-approved):** (1) periods and apostrophes are deleted, not turned into spaces, so "L.L.C." is stripped (a bug); (2) `nf` counts as a suffix, because "(NF)" is the salesperson's own tag; (3) a new list-only signal, `NAME_IN_ADDRESS_SIMILARITY_MIN` (0.8), uses pg_trgm `word_similarity` to find the PO name inside saved addresses. Saved addresses open with the legal name while `company_name` holds a nickname ("Delta Energy/Rhenium"), so this signal never pre-fills. Also beyond the spec: address normalisation unifies drive, boulevard, highway and parkway. Mutation-checked the pre-fill rule and the address boost. Suite 1767 passed; integration passes on the local stack; `tsc` and `eslint` clean.
+
+---
+
+## Task 103: Worker foundations — body text, lease column, storage module, failed rows visible
+
+**Planned 2026-10-12 (@cto FB-42, CONSTRAINT-38).** The original Task 103 ("drain, self-chain,
+retry") is split into three: **103** (data and access, this task), **115** (worker core) and
+**116** (route and self-chain). This keeps each piece testable on its own and within CQ-02.
+This task adds data and access only; no extraction runs yet.
+
+**Files:**
+- `db/migrations/0021_worker_foundations.sql` + `db/migrations/__tests__/0021.test.ts` — create.
+  `inbound_pos.body_text text NULL` plus CHECK `(body_text IS NULL OR source_kind = 'email_body')`;
+  `inbound_pos.extraction_started_at timestamptz NULL`. Re-runnable (IF NOT EXISTS, guarded CHECK).
+- `db/schema/inbound.ts` — modify (two columns)
+- `lib/ingest/candidates.ts`, `lib/ingest/pipeline.ts`, `db/queries/inbound-pos.ts` — modify. A body
+  candidate carries its normalised text; `poRow` writes `body_text`; attachment and refusal rows
+  write NULL. The body is stored in full and never truncated (`extractPo` refuses an over-cap
+  body loudly, M-05).
+- `db/queries/inbound-pos.ts` — modify. The queue list and count include `extraction_failed`
+  alongside `pending_review` (PRD: a failed PO appears in the queue, usable as manual entry).
+- `lib/storage/po-documents.ts` — create. `uploadPoDocument(path, bytes, contentType)` and
+  `downloadPoDocument(path): Promise<Buffer>`. It reads `SUPABASE_SECRET_KEY` and is the only
+  file that may; the bucket is pinned to `PO_DOCUMENTS_BUCKET`; uploads use `upsert: true`,
+  which closes MEDIUM-06 early.
+- `lib/storage/errors.ts` — create. `StorageConfigError`, `PoDocumentStorageError`
+- `.env.example` — add `SUPABASE_SECRET_KEY` and `INGEST_TRIGGER_SECRET` with placeholder values
+
+**Acceptance criteria:**
+- [ ] A body PO staged locally has `body_text` equal to the normalised body; attachment rows have NULL
+- [ ] The CHECK rejects `body_text` on a `pdf` row (integration test)
+- [ ] `extraction_failed` rows appear in `listPendingReview` and `countPendingReview`
+- [ ] Storage module: upload then download round-trips the bytes on the local stack; a second
+      upload to the same path succeeds (MEDIUM-06); a missing key throws `StorageConfigError`
+- [ ] A test asserts that no other source file references `SUPABASE_SECRET_KEY` (CONSTRAINT-38)
+- [ ] Errors name the path only, never document content (SEC-05)
+- [ ] Applied locally with `db:migrate-local`; the builder pastes it into prod before Task 104.
+      **Never `db:migrate`.**
+- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+
+**Tests required:** a migration-file test; a body-candidate unit test; queue inclusion (the
+compiled SQL lists both statuses); storage happy, missing-key and failure paths (unit, mocked
+client) plus an integration round-trip; the CONSTRAINT-38 grep test.
+
+**Depends on:** Task 102 (done).
+**Specialist:** @db
+**Status:** [ ]
+
+---
+
+## Task 115: Worker core — claim, extract, check, match, persist
+
+**Planned 2026-10-12 (FB-42).** Meets M-04 sign-off conditions 1 and 2 (condition 4 accepted by the
+builder: no `worker_thread`) and the L-A logging rule moved here from Task 98.
+
+**Files:**
+- `db/queries/extraction-queue.ts` — create:
+  - `claimBatch(limit, leaseMs, now)`: one UPDATE with `FOR UPDATE SKIP LOCKED` that sets
+    `extracting`, `attempt_count + 1` and `extraction_started_at`. It claims `pending_extraction`
+    rows and `extracting` rows whose lease has expired.
+  - `completeExtraction(id, extracted, checkResults)` → `pending_review`
+  - `failExtraction(id, checkResults)` → `extraction_failed`
+  - `releaseForRetry(id)` → `pending_extraction`
+- `lib/ingest/worker.ts` — create. `drainExtractionBatch(deps): Promise<BatchSummary>`
+- `lib/ingest/worker-errors.ts` — create. `isPermanentExtractionError(error)`
+- `lib/ingest/ingest.constants.ts` — add `EXTRACTION_LEASE_MS` (5 minutes; must exceed the route's `maxDuration`)
+- `lib/checks/types.ts` — add the `extraction_failed` CheckName
+
+**Behaviour for each claimed row:**
+1. `attempt_count` (already incremented) above `MAX_EXTRACTION_ATTEMPTS` → `failExtraction`
+   without rendering. This is M-04 condition 2: a row that keeps killing the function ends visible.
+2. Load the input: `pdf` / `image` → `downloadPoDocument`; `email_body` → `body_text`
+3. `extractPo` → `runChecks` → `matchCustomer` → `completeExtraction`, writing
+   `{ ...checks, failures: [...checks.failures, ...customerMatchFailures(match)], customerMatch }`
+4. A permanent error (`TextInputTooLongError`, `PdfTooManyPagesError`, `PdfPageTooLargeError`,
+   `ExtractionResponseError`) → `failExtraction` immediately. A transient one (HTTP, timeout,
+   render timeout, storage, DB) → `releaseForRetry`, until attempts run out and it becomes
+   `failExtraction`.
+5. The failure entry is `{ check: 'extraction_failed', field: 'document', detail: <error class name> }`
+6. One row's failure never stops the batch. `ExtractionConfigError` does stop it, loudly:
+   nothing in the batch could succeed.
+
+**Acceptance criteria:**
+- [ ] Two concurrent `claimBatch` calls never return the same row (integration test)
+- [ ] The attempt is counted at claim time, before any render (M-04 condition 1)
+- [ ] Lease: a row stuck at `extracting` past `EXTRACTION_LEASE_MS` is reclaimed; one inside the lease is not
+- [ ] Each branch above is tested; a planted permanent error ends `extraction_failed` in one run
+- [ ] Logs carry model, status, page count, duration and row id only. A test asserts that no
+      extracted value, quote, body text or `sourceText` reaches `console.*` (L-A, SEC-05)
+- [ ] `sourceText` is never persisted (MEDIUM-07 precondition), asserted on the written row
+- [ ] Every number comes from constants; CQ-01/02; full suite green; `tsc` and `eslint` clean
+
+**Tests required:** a happy path and the error case for each function; the integration tests
+for claim and lease on the local stack; the worker with injected deps (download, `extractPo`, matcher).
+
+**Depends on:** Task 103.
+**Specialist:** @db
+**Status:** [ ]
+
+---
+
+## Task 116: Worker route — secret, after(), self-chain
+
+**Planned 2026-10-12 (FB-42).** Meets M-04 sign-off condition 3 and A-11 (self-chaining).
+Task 104 reuses `isAuthorisedTrigger`.
+
+**Files:**
+- `app/api/ingest/extract/route.ts` — create. `POST`:
+  - a constant-time compare of `Authorization: Bearer <INGEST_TRIGGER_SECRET>`, otherwise 401
+  - respond 202, and run the batch in `after()`
+  - if rows remain, `fetch` its own origin once (A-11)
+  - `export const maxDuration = 60` (M-04 condition 3)
+- `lib/ingest/trigger-auth.ts` — create. `isAuthorisedTrigger(request, secret)`
+- `next.config.js` — `serverExternalPackages: ['pdfjs-dist', '@napi-rs/canvas']` (A-14)
+
+**Acceptance criteria:**
+- [ ] A missing or wrong secret → 401 with no DB access; an unset env secret → 500, logged, never "open"
+- [ ] A valid request → 202 immediately; the batch runs after the response (tested with `after` mocked)
+- [ ] The self-chain fires only when `drainExtractionBatch` reports rows remaining, and at most once
+- [ ] No `'use server'`; the secret is never logged (SEC-01/05)
+- [ ] The `proxy.ts` matcher does not block the route (no session required), tested
+- [ ] Local end-to-end: stage a PDF and POST the route; the row reaches `pending_review` with
+      `extracted` and `check_results.customerMatch`. Manual check in Studio, confirmed by the builder.
+- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+
+**Tests required:** auth helper (match, mismatch, length mismatch, unset); route 401 / 500 / 202;
+self-chain on and off.
+
+**Risks:** A-11 (Vercel may drop the self-fetch; fallback is an external 5-minute cron). Vercel
+deployment protection blocks self-fetch on previews only; check at Task 104.
+
+**Depends on:** Task 115.
+**Status:** [ ]

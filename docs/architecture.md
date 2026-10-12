@@ -464,6 +464,28 @@ Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_fo
 
 ---
 
+### The extraction worker (Task 103, FB-42, 2026-10-12)
+
+The worker turns `pending_extraction` rows into `pending_review` rows: it downloads the document, calls `extractPo`, runs `runChecks` and `matchCustomer`, and writes `extracted` + `check_results`.
+
+**Route ownership.** Task 103 owns `POST /api/ingest/extract`, authenticated by `INGEST_TRIGGER_SECRET`. The handler validates the secret, responds `202` at once, and does the batch in `after()` so the caller is never held open. When rows remain after a batch, it fetches its own URL once (self-chain, A-11). Task 104 owns the 06:00 cron and the manual trigger: each runs `runIngestion`, then pokes this route. The route sets `maxDuration` explicitly (M-04 condition 3). **Fallback if self-chaining proves unreliable (A-11):** an external 5-minute cron calls the same route. Nothing else changes.
+
+**Claiming is one statement.** `UPDATE … SET status = 'extracting', attempt_count = attempt_count + 1, extraction_started_at = now() WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT INGEST_BATCH_SIZE) RETURNING …`. Two concurrent invocations can never take the same row, and the attempt is counted **before** rendering starts (M-04 condition 1).
+
+**Lease.** A row left at `extracting` by a killed invocation is reclaimable once `extraction_started_at` is older than `EXTRACTION_LEASE_MS`, which exceeds `maxDuration`. A row whose `attempt_count` has reached `MAX_EXTRACTION_ATTEMPTS` is never rendered again. It moves to `extraction_failed` (M-04 condition 2), and the review queue lists `extraction_failed` alongside `pending_review`, with the document and empty fields (PRD).
+
+**Render CPU is accepted (M-04 condition 4, builder 2026-10-12).** No `worker_thread`. A hostile page that renders past the deadline can at worst cost `MAX_EXTRACTION_ATTEMPTS` killed invocations before its row ends visible.
+
+**Logging.** Model, status, page count and durations only, never document content or `sourceText` (@security L-A, MEDIUM-07 precondition).
+
+### Email-body POs keep their text in `inbound_pos.body_text` (FB-42)
+
+A PO typed into the email body has no file. Its text (the same normalised body the hash is taken over, stored in full, never truncated; `extractPo` refuses one longer than `MAX_TEXT_INPUT_CHARS` loudly, per M-05) is stored in the nullable `inbound_pos.body_text` column, written in the staging transaction. A CHECK constraint keeps it NULL on every non-`email_body` row. It is the worker's extraction input and the review screen's source pane. Before this, staging hashed the body and discarded it, so a body PO could be neither extracted nor shown. Prod had never ingested, so nothing was lost.
+
+### Storage access without a session — `lib/storage/po-documents.ts` (FB-42, CONSTRAINT-38)
+
+The cron and the self-chained worker have no user session, so the cookie-based client in `lib/supabase/server.ts` cannot reach Storage for them. A server-only Supabase **secret key** (`SUPABASE_SECRET_KEY`, `sb_secret_…`) is read by exactly one module, `lib/storage/po-documents.ts`, which exports two operations: upload a PO document and download one, both pinned to `PO_DOCUMENTS_BUCKET`. **No other file may read the key** (CONSTRAINT-38). S3 access keys were rejected: they reach storage only, but they need the AWS SDK, and `DATABASE_URL` already carries full database rights, so the narrower key buys little.
+
 ### Deployment coupling
 
 The watermark is Gmail-IMAP-specific. **Moving to the Gmail API later means a new watermark type** (that API has `historyId`, not UIDs); the ingestion contract would survive, the marker would not.
@@ -607,6 +629,8 @@ Both storage buckets (`po-documents`, `support-attachments`) are private. Files 
 
 ### Secrets
 All secrets live in environment variables only — never in source, never exposed via a `NEXT_PUBLIC_` prefix except for the two values that are public by design (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
+
+**Superseded in part 2026-10-12 (FB-42, CONSTRAINT-38):** a Supabase **secret key** (`SUPABASE_SECRET_KEY`, the `sb_secret_…` successor to `service_role`) is now used, by `lib/storage/po-documents.ts` only, because the session-less ingestion worker must read and write `po-documents`. The paragraph below is the history. Its rule, "not without a task that actually needs it", is the one Task 103 met.
 
 **No `service_role` key is used.** It was specified during scaffolding (Task 1) and documented here and in the README, but `process.env.SUPABASE_SERVICE_ROLE_KEY` was never read by any code. It was removed on 2026-08-12 after `@security` flagged it as an unused credential that bypasses every RLS policy. Server-side database access goes through `DATABASE_URL` (`db/index.ts`); Supabase Auth uses the client-side key. **Do not reintroduce the service_role key without a task that actually needs it** — see INFO-01 in `docs/security-report.md`, which notes the `postgres` role already bypasses RLS, so a second bypass buys nothing and costs a credential to protect.
 
