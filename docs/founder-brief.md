@@ -999,3 +999,18 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - After an outage, POs show up a few minutes later than before, instead of landing in manual entry.
 
 **What this closes off:** Nothing. The 30 seconds and 5 minutes are settings in code.
+
+## Task 116: The Worker Function Gets 120 Seconds, Not 60
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → "The extraction worker" → "Route ownership".
+**Tasks:** Task 116 (M-04 condition 3, A-11).
+
+**Decided:** The worker route may run for up to 120 seconds per call (was planned as 60).
+
+**Means for your product:** A PO picked up late in a run can finish its model call, so it isn't killed mid-read and retried 5 minutes later.
+
+**Check before approving:**
+- At Task 104, confirm Vercel's Fluid Compute is on for the project. Without it, Hobby caps functions at 60 s and the deploy fails with a clear error.
+
+**What this closes off:** Nothing. It is one number in the route file, and a test keeps it inside safe bounds.

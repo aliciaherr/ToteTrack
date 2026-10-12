@@ -3313,7 +3313,7 @@ the first real documents. The agreed sequence:
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal — **[x] done 2026-10-12**; 0020 applied in prod 2026-10-12 | @db |
 | 103 | Worker foundations — body text, lease column, storage module, failed rows visible (split 2026-10-12, FB-42) — **[x] done 2026-10-12**; 0021 applied in prod 2026-10-12 | @db |
 | 115 | Worker core — claim, extract, check, match, persist — **[x] done 2026-10-12** | @db |
-| 116 | Worker route — secret, `after()`, self-chain | — |
+| 116 | Worker route — secret, `after()`, self-chain — **[x] done 2026-10-12**; `@security` CLEAR | — |
 
 **Task 103 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
 deadline cannot interrupt one page mid-render, so the worker must guarantee a hostile PDF still
@@ -4206,14 +4206,14 @@ Task 104 reuses `isAuthorisedTrigger`.
 - `next.config.js` — `serverExternalPackages: ['pdfjs-dist', '@napi-rs/canvas']` (A-14)
 
 **Acceptance criteria:**
-- [ ] A missing or wrong secret → 401 with no DB access; an unset env secret → 500, logged, never "open"
-- [ ] A valid request → 202 immediately; the batch runs after the response (tested with `after` mocked)
-- [ ] The self-chain fires only when `drainExtractionBatch` reports rows remaining, and at most once
-- [ ] No `'use server'`; the secret is never logged (SEC-01/05)
-- [ ] The `proxy.ts` matcher does not block the route (no session required), tested
-- [ ] Local end-to-end: stage a PDF and POST the route; the row reaches `pending_review` with
+- [x] A missing or wrong secret → 401 with no DB access; an unset env secret → 500, logged, never "open"
+- [x] A valid request → 202 immediately; the batch runs after the response (tested with `after` mocked)
+- [x] The self-chain fires only when `drainExtractionBatch` reports rows remaining, and at most once
+- [x] No `'use server'`; the secret is never logged (SEC-01/05)
+- [x] The `proxy.ts` matcher does not block the route (no session required), tested
+- [x] Local end-to-end: stage a PDF and POST the route; the row reaches `pending_review` with
       `extracted` and `check_results.customerMatch`. Manual check in Studio, confirmed by the builder.
-- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] CQ-01/02; full suite green; `tsc` and `eslint` clean
 
 **Tests required:** auth helper (match, mismatch, length mismatch, unset); route 401 / 500 / 202;
 self-chain on and off.
@@ -4222,4 +4222,4 @@ self-chain on and off.
 deployment protection blocks self-fetch on previews only; check at Task 104.
 
 **Depends on:** Task 115.
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). Builder confirmed the row in Studio; `@security` CLEAR (LOW-T116-1, -2 open). Route answers 202 in ~20 ms; the work runs in `after()` via `lib/ingest/extract-trigger.ts` (`drainAndChain`), which never throws: a batch error is logged through `loggableFailure` and stops the chain. An unset secret makes `isAuthorisedTrigger` throw (→ 500), never open. Compare is `timingSafeEqual` over SHA-256 digests (length-safe). **Builder decision 2026-10-12: `maxDuration = 120`** (was 60): the 30 s claim cutoff plus a 60 s model call did not fit in 60. A test pins cutoff + timeout < maxDuration < lease. Local end-to-end run: a staged PDF reached `pending_review` with `extracted` and `customerMatch`; the logs carry no content. Suite 1858; `tsc`, `eslint` clean.

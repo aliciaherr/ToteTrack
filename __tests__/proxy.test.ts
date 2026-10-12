@@ -89,6 +89,17 @@ describe('proxy (session refresh)', () => {
     )
     consoleError.mockRestore()
   })
+
+  // Task 116: the extraction route has no session, only its shared secret.
+  // The proxy must pass it through, never redirect it to /login.
+  it('passes a session-less call to the extraction route straight through', async () => {
+    const passThrough = buildResponse()
+    mockNextResponseNext.mockReturnValueOnce(passThrough)
+
+    const result = await proxy(buildRequest('/api/ingest/extract'))
+
+    expect(result).toBe(passThrough)
+  })
 })
 
 // Next compiles `config.matcher` into an anchored pattern and tests it against

@@ -314,6 +314,8 @@ self-invocation reliably survives the parent returning on the Hobby tier.
 poked — no impact on schema, extraction, or review UI. A 20-PO batch would then take
 ~25 minutes instead of ~3, which the "partial with live count" dropdown already handles.
 
+**Update 2026-10-12 (Task 116):** the worker route sets `maxDuration = 120`. Hobby allows up to 300 s only with Fluid Compute on (the default for new projects); without it the cap is 60 s and the deploy fails loudly. Check at Task 104 that Fluid Compute is on.
+
 **Status:** [x] Accepted risk — fallback is strictly a scheduling change
 
 ### A-12 — `pg_trgm` is available on the Supabase free tier

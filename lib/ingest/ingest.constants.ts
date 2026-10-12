@@ -52,9 +52,9 @@ export const MAX_EXTRACTION_ATTEMPTS = 3
  * function timeout, or crashed while rendering — leaves its row at
  * `extracting`; the lease is what brings it back.
  *
- * Not an env var: it must exceed the worker route's `maxDuration` (60 s,
+ * Not an env var: it must exceed the worker route's `maxDuration` (120 s,
  * M-04 condition 3) or a live run's row could be claimed twice. Five minutes
- * is five times that, so a slow but healthy run is never overtaken.
+ * is 2.5 times that, so a slow but healthy run is never overtaken.
  */
 export const EXTRACTION_LEASE_MS = 5 * 60 * 1000
 
@@ -72,14 +72,14 @@ export const EXTRACTION_RETRY_DELAY_MS = 5 * 60 * 1000
 
 /**
  * After this long into a run, the worker claims no further row (MEDIUM-09).
- * Rows are claimed one at a time, so a run killed at the route's 60 s
+ * Rows are claimed one at a time, so a run killed at the route's 120 s
  * `maxDuration` spends only the attempt of the row in flight; this cutoff
  * keeps it from starting a row it has little chance to finish.
  *
- * Not an env var: it is pinned by `maxDuration` and per-row latency. Half the
- * function's limit leaves a typical row (render plus one model call) room to
- * finish. A row slower than the remaining time still dies with the function
- * and comes back through the lease.
+ * Not an env var: it is pinned by `maxDuration` and per-row latency. The cutoff
+ * plus one full `EXTRACTION_TIMEOUT_MS` model call (60 s) fits inside the limit,
+ * leaving room for the render. A row slower than the remaining time still dies
+ * with the function and comes back through the lease.
  */
 export const EXTRACTION_CLAIM_CUTOFF_MS = 30 * 1000
 

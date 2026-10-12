@@ -11,6 +11,10 @@ const nextConfig = {
   // and build. This project's agent context is owned by the SBDev framework, so
   // the generated files are turned off rather than gitignored.
   agentRules: false,
+  // The PO renderer (lib/extraction/render-pdf.ts) loads pdfjs's Node build and
+  // a native canvas binary. Bundling either breaks it, so both are required at
+  // runtime from node_modules instead (A-14; verify on the first preview deploy).
+  serverExternalPackages: ['pdfjs-dist', '@napi-rs/canvas'],
 }
 
 module.exports = nextConfig
