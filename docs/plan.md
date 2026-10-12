@@ -3306,7 +3306,7 @@ the first real documents. The agreed sequence:
 | # | Task | Specialist |
 |---|---|---|
 | 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
-| 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **specced 2026-10-12** | @db |
+| 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **[x] done 2026-10-12, security CLEAR** | @db |
 | 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **specced 2026-10-12** | — |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
@@ -3795,17 +3795,17 @@ extraction and clears HIGH-01, the only open High. **Re-run `@security` after th
 - `refusalHash(uidValidity, uid, failure): string`
 
 **Acceptance criteria:**
-- [ ] No branch reads `message_id`; a test stages two messages sharing one `Message-ID`, both land
-- [ ] Crash between staging and watermark advance: next run re-lists, the composite unique blocks
+- [x] No branch reads `message_id`; a test stages two messages sharing one `Message-ID`, both land
+- [x] Crash between staging and watermark advance: next run re-lists, the composite unique blocks
       a second staging, no bytes are re-downloaded for already-staged UIDs
-- [ ] A failed or deferred UID halts the watermark below it and appears in the run summary
-- [ ] UIDVALIDITY change resets the watermark and logs loudly
-- [ ] `identity.ts` deleted; no `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` left in `lib/` or `db/`
-- [ ] Migration test: no unique index on `message_id`; composite unique present; abort-if-rows
+- [x] A failed or deferred UID halts the watermark below it and appears in the run summary
+- [x] UIDVALIDITY change resets the watermark and logs loudly
+- [x] `identity.ts` deleted; no `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` left in `lib/` or `db/`
+- [x] Migration test: no unique index on `message_id`; composite unique present; abort-if-rows
       guard present; RLS enabled on `ingest_mailbox_state`
-- [ ] `readOnly: true` on the IMAP connection unchanged
-- [ ] SEC-05: logs carry UIDs, counts and hash prefixes — never addresses, subjects or bodies
-- [ ] CQ-01/02: functions < 50 lines, files < 300; full suite green; `tsc` and `eslint` clean
+- [x] `readOnly: true` on the IMAP connection unchanged
+- [x] SEC-05: logs carry UIDs, counts and hash prefixes — never addresses, subjects or bodies *(re-ticked after MEDIUM-04 was fixed and re-verified 2026-10-12)*
+- [x] CQ-01/02: functions < 50 lines, files < 300; full suite green; `tsc` and `eslint` clean
 
 **Tests required:**
 - `advanceWatermark` → contiguous success advances; a gap halts; empty run unchanged
@@ -3817,7 +3817,7 @@ extraction and clears HIGH-01, the only open High. **Re-run `@security` after th
 
 **Depends on:** Tasks 95–97 (done)
 **Specialist:** @db
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). `@security` CLEAR after two targeted fixes: HIGH-02 (NUL headers and implausible dates cleaned at the boundary) and MEDIUM-04 (`lib/loggable-failure.ts`). **Residual HIGH-02R** (a message that keeps failing pins the watermark) is owed by **Task 100** as builder option 1, "give up after N tries", via `@cto`; it gates Task 104. 0017 applied locally only, not prod. `stageEmailWithPos` resolves `duplicate_of_id` inside its transaction, so sibling POs in one email are flagged. `insertInboundEmail`, `insertInboundPo` and `findPoByContentHash` are removed: nothing calls them now. `fetchUnprocessedMail` is replaced by `openMailbox` / `collectUnprocessed` / `closeMailbox`, because UIDVALIDITY is only known once the session is open. The upload-failure path still commits a `failed` email row; Task 100 changes that. See the session log.
 
 ---
 

@@ -1,9 +1,13 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { db } from '@/db'
-import { inboundEmails, inboundPos } from '@/db/schema'
 import { DatabaseError } from '@/lib/errors'
 
-export type InboundEmailClassification = 'po_found' | 'no_po_found' | 'failed'
+/**
+ * The review-queue half of the ingestion data layer (Feature 16): the PO row
+ * shapes, the duplicate lookup `stageEmailWithPos` runs, and the queue reads.
+ * Split from the original `inbound.ts` at its line cap (Task 99); the email
+ * writes live in `inbound-emails.ts`, the watermark in `ingest-state.ts`.
+ */
 
 export type InboundPoSourceKind = 'image' | 'pdf' | 'email_body'
 
@@ -15,22 +19,23 @@ export type InboundPoStatus =
   | 'discarded'
   | 'extraction_failed'
 
-export interface InsertInboundEmailInput {
-  message_id: string
-  classification: InboundEmailClassification
-  from_address: string | null
-  subject: string | null
-  received_at: Date | null
-}
-
+/**
+ * One PO row as staged. `duplicate_of_id` is absent on purpose:
+ * `stageEmailWithPos` resolves it inside its transaction, where it can see
+ * sibling rows of the same email that a lookup before the write could not.
+ */
 export interface InsertInboundPoInput {
-  inbound_email_id: string
   source_kind: InboundPoSourceKind
   /** NULL exactly when `source_kind` is `email_body` — there is no stored file. */
   document_path: string | null
   content_hash: string
-  /** The first row sharing this hash, or NULL on a first sighting. */
-  duplicate_of_id: string | null
+  /**
+   * Omitted on the normal path, so `status` and `attempt_count` keep their
+   * column defaults and the starting state has one definition.
+   */
+  status?: InboundPoStatus
+  /** Set on refused rows only; its shape is owned by `lib/ingest/`. */
+  check_results?: unknown
 }
 
 /**
@@ -56,25 +61,10 @@ export interface InboundPoRow {
   created_at: string
 }
 
-// Postgres unique-violation SQLSTATE. `inbound_emails.message_id` is unique;
-// when a repeat insert trips it, the driver error carries this code. Same
-// constant and predicate shape as `lib/actions/orders.ts`, repeated rather
-// than imported because the db layer must not depend on the action layer.
-const POSTGRES_UNIQUE_VIOLATION = '23505'
-
 // The one status the review queue reads. A constant so the list query and the
 // count query can never drift onto different statuses and disagree about how
 // many rows the badge should show.
 const PENDING_REVIEW_STATUS: InboundPoStatus = 'pending_review'
-
-function isUniqueViolation(cause: unknown): boolean {
-  return (
-    typeof cause === 'object' &&
-    cause !== null &&
-    'code' in cause &&
-    (cause as { code?: unknown }).code === POSTGRES_UNIQUE_VIOLATION
-  )
-}
 
 // Does this row have at least one failed check?
 //
@@ -139,10 +129,11 @@ function buildPendingReviewCountQuery(): SQL {
 }
 
 // Earliest row carrying this hash — `ORDER BY created_at ASC` is load-bearing.
+// Exported for `stageEmailWithPos`, which runs it inside its transaction.
 // `content_hash` is deliberately not unique, so several rows can share one and
 // `duplicate_of_id` must point at the *original* sighting. Without the
 // ordering a later duplicate could be named as the original.
-function buildPoByContentHashQuery(hash: string): SQL {
+export function buildPoByContentHashQuery(hash: string): SQL {
   return sql`
     SELECT p.id
     FROM inbound_pos p
@@ -150,103 +141,6 @@ function buildPoByContentHashQuery(hash: string): SQL {
     ORDER BY p.created_at ASC
     LIMIT 1
   `
-}
-
-/**
- * Records one email as processed. The row's existence — specifically its
- * unique `message_id` — is what stops the ingester handling the message twice;
- * the IMAP `\Seen` flag is never consulted.
- *
- * A repeat `message_id` is **reported, not thrown**: the unique violation is
- * caught and returned as `{ duplicate: true }`, because a message already in
- * the table is the expected idempotent outcome of a re-run, not a fault. The
- * discriminated return *is* the report — the caller must branch on it, so
- * nothing is swallowed. Every other failure is logged and rethrown.
- *
- * @param input Message id, classification, and the optional sender, subject
- *   and received timestamp from the MIME headers.
- * @returns The new row's id, or `{ duplicate: true }` when this
- *   `message_id` has already been recorded.
- * @throws {DatabaseError} when the insert fails for any other reason.
- */
-export async function insertInboundEmail(
-  input: InsertInboundEmailInput,
-): Promise<{ id: string } | { duplicate: true }> {
-  try {
-    const [row] = await db
-      .insert(inboundEmails)
-      .values(input)
-      .returning({ id: inboundEmails.id })
-    return { id: row.id }
-  } catch (cause) {
-    if (isUniqueViolation(cause)) return { duplicate: true }
-    console.error('insertInboundEmail: insert failed', {
-      operation: 'insertInboundEmail',
-      message_id: input.message_id,
-      classification: input.classification,
-      cause,
-    })
-    throw new DatabaseError('insertInboundEmail', 'Failed to record inbound email', {
-      cause,
-    })
-  }
-}
-
-/**
- * Stages one PO candidate for extraction and review. Always inserts, even
- * when `content_hash` repeats — a duplicate belongs in the queue flagged via
- * `duplicate_of_id` so a human decides, never rejected at the door.
- *
- * `status` and `attempt_count` are left to their column defaults
- * (`pending_extraction`, `0`) so the starting state has one definition.
- *
- * @param input The owning email, where the candidate came from, its stored
- *   document path (NULL for `email_body`), its content hash, and the original
- *   row's id when this is a duplicate.
- * @returns The new row's id.
- * @throws {DatabaseError} when the insert fails.
- */
-export async function insertInboundPo(
-  input: InsertInboundPoInput,
-): Promise<{ id: string }> {
-  try {
-    const [row] = await db.insert(inboundPos).values(input).returning({ id: inboundPos.id })
-    return { id: row.id }
-  } catch (cause) {
-    console.error('insertInboundPo: insert failed', {
-      operation: 'insertInboundPo',
-      inbound_email_id: input.inbound_email_id,
-      source_kind: input.source_kind,
-      content_hash: input.content_hash,
-      cause,
-    })
-    throw new DatabaseError('insertInboundPo', 'Failed to stage inbound PO', { cause })
-  }
-}
-
-/**
- * Finds the earliest staged PO carrying `hash`, which is what a new row's
- * `duplicate_of_id` should point at. Returns `null` when the hash has not been
- * seen — the first-sighting case. Not a uniqueness check: `content_hash` is
- * intentionally non-unique and several rows may share one.
- *
- * @param hash Hex content hash of the candidate document or normalised body.
- * @throws {DatabaseError} when the underlying SQL query fails.
- */
-export async function findPoByContentHash(hash: string): Promise<{ id: string } | null> {
-  try {
-    const result = await db.execute(buildPoByContentHashQuery(hash))
-    return (result as unknown as { id: string }[])[0] ?? null
-  } catch (cause) {
-    console.error('findPoByContentHash: query failed', {
-      operation: 'findPoByContentHash',
-      hash,
-      cause,
-    })
-    throw new DatabaseError('findPoByContentHash', 'Failed to look up content hash', {
-      cause,
-    })
-  }
 }
 
 /**

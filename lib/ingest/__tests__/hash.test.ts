@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { ContentHashError } from '@/lib/errors'
-import { contentHash, normalizeBodyForHash } from '../hash'
+import { contentHash, normalizeBodyForHash, refusalHash } from '../hash'
+import { attachmentTooLarge, unparseableMessage } from '../limits'
+import { MAX_ATTACHMENT_BYTES } from '../limits.constants'
 
 // Pure functions over bytes and text: no mailbox, no database, no bucket.
 // Every fixture below is invented PO text with a reserved `.test` address, so
@@ -138,5 +140,42 @@ describe('normalizeBodyForHash', () => {
       'Dana Fixture',
     ].join('\n')
     expect(normalizeBodyForHash(noiseOnly)).toBe('')
+  })
+})
+
+describe('refusalHash', () => {
+  const failure = attachmentTooLarge(0, MAX_ATTACHMENT_BYTES + 1)
+
+  it('is a hex sha256 digest', () => {
+    expect(refusalHash(7, 4, failure)).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  // The property the surrogate exists for: a re-run of the same refusal must
+  // produce the same hash rather than an unrelated one each time.
+  it('is stable across two identical refusals of the same message', () => {
+    expect(refusalHash(7, 4, attachmentTooLarge(0, MAX_ATTACHMENT_BYTES + 1))).toBe(
+      refusalHash(7, 4, failure)
+    )
+  })
+
+  it('separates two refused attachments within one message', () => {
+    expect(refusalHash(7, 4, attachmentTooLarge(1, 999))).not.toBe(
+      refusalHash(7, 4, attachmentTooLarge(0, 999))
+    )
+  })
+
+  // The same UID under a new UIDVALIDITY is a different message.
+  it('differs by UID and by UIDVALIDITY', () => {
+    const first = refusalHash(7, 4, failure)
+    expect(refusalHash(7, 5, failure)).not.toBe(first)
+    expect(refusalHash(8, 4, failure)).not.toBe(first)
+  })
+
+  // `unparseable` carries no measured value and no limit, so the string must
+  // not be built out of `undefined` — and must still be stable.
+  it('is stable and well formed when nothing could be measured', () => {
+    const first = refusalHash(7, 9, unparseableMessage())
+    expect(first).toMatch(/^[0-9a-f]{64}$/)
+    expect(refusalHash(7, 9, unparseableMessage())).toBe(first)
   })
 })

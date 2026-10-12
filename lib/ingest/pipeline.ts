@@ -1,13 +1,14 @@
 import type {
   InboundEmailClassification,
-  InboundPoSourceKind,
   InsertInboundEmailInput,
-} from '@/db/queries/inbound'
+  StageEmailResult,
+} from '@/db/queries/inbound-emails'
+import type { InboundPoSourceKind } from '@/db/queries/inbound-pos'
 import { DocumentUploadError } from '@/lib/errors'
+import { loggableFailure } from '@/lib/loggable-failure'
 import { documentPathFor, selectCandidates, type PoCandidate } from './candidates'
-import { contentHash } from './hash'
+import { contentHash, refusalHash } from './hash'
 import { HASH_LOG_PREFIX_LENGTH, PO_DOCUMENTS_BUCKET } from './ingest.constants'
-import { surrogateContentHash } from './identity'
 import { refusalColumns, REFUSED_SOURCE_KIND, type StagedPoInput } from './limits'
 import type { IngestLimitFailure, InboundMessage } from './types'
 
@@ -25,10 +26,14 @@ import type { IngestLimitFailure, InboundMessage } from './types'
  * attachment means "probably a PO"; body text cannot be judged without the
  * model, so Task 98 may retroactively set `no_po_found`.
  *
+ * **One message, one transaction.** The email row and all its PO rows are
+ * written by a single `stageEmail` call, so a message is either fully staged
+ * — and its UID may pass the watermark — or not staged at all (Task 99).
+ *
  * **A duplicate is flagged, never rejected.** A repeat `content_hash` still
- * inserts an `inbound_pos` row at `pending_extraction` with `duplicate_of_id`
- * pointing at the first sighting, so a human decides. Nothing here discards a
- * message silently and nothing auto-approves.
+ * inserts an `inbound_pos` row with `duplicate_of_id` pointing at the first
+ * sighting, so a human decides. Nothing here discards a message silently and
+ * nothing auto-approves.
  */
 
 /**
@@ -37,16 +42,14 @@ import type { IngestLimitFailure, InboundMessage } from './types'
  * Every field is required with no default, which is the point: there is no
  * code path that reaches the live database or the live bucket because a test
  * forgot to stub something (the same rule `GmailDeps.openSession` follows).
- * Production passes `insertInboundEmail`, `insertInboundPo`,
- * `findPoByContentHash` and a Supabase Storage upload.
+ * Production passes `stageEmailWithPos` and a Supabase Storage upload.
  */
 export interface IngestDeps {
-  /** Records the email. `{ duplicate: true }` means it was already staged. */
-  insertEmail: (input: InsertInboundEmailInput) => Promise<{ id: string } | { duplicate: true }>
-  /** Stages one PO candidate. Always inserts, duplicates included. */
-  insertPo: (input: StagedPoInput) => Promise<{ id: string }>
-  /** Earliest row carrying this hash, or `null` on a first sighting. */
-  findPoByHash: (hash: string) => Promise<{ id: string } | null>
+  /**
+   * Writes the email and its PO rows atomically, flagging repeat hashes.
+   * `{ duplicate: true }` means this UID was already staged.
+   */
+  stageEmail: (email: InsertInboundEmailInput, pos: StagedPoInput[]) => Promise<StageEmailResult>
   /**
    * Writes one document to `PO_DOCUMENTS_BUCKET` (CONSTRAINT-30 — never to
    * the repository or any non-gitignored path). Keys are content-addressed,
@@ -57,12 +60,12 @@ export interface IngestDeps {
   uploadDocument: (path: string, bytes: Buffer, contentType: string) => Promise<void>
 }
 
-/** What one batch did. Counts and message ids only — never PO content. */
+/** What one batch did. Counts and UIDs only — never PO content (SEC-05). */
 export interface IngestSummary {
   messagesSeen: number
   /** New `inbound_emails` rows, classification irrelevant. */
   emailsStaged: number
-  /** Already present by `message_id`; nothing was written for these. */
+  /** Already present by `(uid_validity, uid)`; nothing was written for these. */
   alreadyStaged: number
   posStaged: number
   /** Of `posStaged`, how many carry a `duplicate_of_id`. */
@@ -73,8 +76,13 @@ export interface IngestSummary {
    * that staged purchase orders.
    */
   refusalsRecorded: number
-  /** Message ids classified `failed`. One bad email never aborts the batch. */
-  failedMessageIds: string[]
+  /** UIDs that now have a row — staged here or found already staged. */
+  committedUids: number[]
+  /**
+   * UIDs whose staging threw: nothing was written, so each halts the
+   * watermark and is retried next run. One bad email never aborts the batch.
+   */
+  failedUids: number[]
 }
 
 /** A candidate whose document is already in the bucket and whose hash is known. */
@@ -118,12 +126,12 @@ async function stageCandidate(candidate: PoCandidate, deps: IngestDeps): Promise
 /**
  * The row that records one refusal. Nothing is uploaded and no bytes are read
  * — for a message-level refusal they never were — so `document_path` stays
- * NULL and the hash is a surrogate over identity (`limits.ts`).
+ * NULL and the hash is a surrogate over the mailbox position (`hash.ts`).
  */
-function refusedRow(messageId: string, failure: IngestLimitFailure): StagedCandidate {
+function refusedRow(uidValidity: number, uid: number, failure: IngestLimitFailure): StagedCandidate {
   return {
     sourceKind: REFUSED_SOURCE_KIND,
-    hash: surrogateContentHash(messageId, failure),
+    hash: refusalHash(uidValidity, uid, failure),
     documentPath: null,
     failure,
   }
@@ -131,9 +139,12 @@ function refusedRow(messageId: string, failure: IngestLimitFailure): StagedCandi
 
 function emailRow(
   message: InboundMessage,
+  uidValidity: number,
   classification: InboundEmailClassification
 ): InsertInboundEmailInput {
   return {
+    uid_validity: uidValidity,
+    uid: message.uid,
     message_id: message.messageId,
     classification,
     from_address: message.from,
@@ -142,30 +153,13 @@ function emailRow(
   }
 }
 
-/**
- * Writes one `inbound_pos` row per staged candidate, flagging a repeat hash
- * against its first sighting. The row is inserted either way, at
- * `pending_extraction`, so a duplicate reaches the review queue.
- */
-async function insertStagedPos(
-  emailId: string,
-  staged: StagedCandidate[],
-  deps: IngestDeps
-): Promise<{ inserted: number; duplicates: number }> {
-  let duplicates = 0
-  for (const candidate of staged) {
-    const original = await deps.findPoByHash(candidate.hash)
-    if (original) duplicates += 1
-    await deps.insertPo({
-      inbound_email_id: emailId,
-      source_kind: candidate.sourceKind,
-      document_path: candidate.documentPath,
-      content_hash: candidate.hash,
-      duplicate_of_id: original?.id ?? null,
-      ...refusalColumns(candidate.failure),
-    })
+function poRow(candidate: StagedCandidate): StagedPoInput {
+  return {
+    source_kind: candidate.sourceKind,
+    document_path: candidate.documentPath,
+    content_hash: candidate.hash,
+    ...refusalColumns(candidate.failure),
   }
-  return { inserted: staged.length, duplicates }
 }
 
 /**
@@ -181,21 +175,25 @@ function classifyStaged(poCount: number, refusalCount: number): InboundEmailClas
 
 async function stageDocuments(
   message: InboundMessage,
+  uidValidity: number,
   deps: IngestDeps
 ): Promise<{ staged: StagedCandidate[]; classification: InboundEmailClassification }> {
   // Refused on its declared size, before a byte of it was fetched. There is
   // nothing to select from and nothing to upload — only a row to write.
   if (message.rejection) {
-    return { staged: [refusedRow(message.messageId, message.rejection)], classification: 'failed' }
+    return {
+      staged: [refusedRow(uidValidity, message.uid, message.rejection)],
+      classification: 'failed',
+    }
   }
   const { candidates, rejections } = selectCandidates(message)
-  const refused = rejections.map((failure) => refusedRow(message.messageId, failure))
+  const refused = rejections.map((failure) => refusedRow(uidValidity, message.uid, failure))
   const staged: StagedCandidate[] = []
   try {
     for (const candidate of candidates) staged.push(await stageCandidate(candidate, deps))
   } catch (cause) {
     console.error('ingestMessages: staging the documents of one message failed', {
-      messageId: message.messageId,
+      uid: message.uid,
       candidateCount: candidates.length,
       stagedBeforeFailure: staged.map((item) => hashPrefix(item.hash)),
       cause,
@@ -212,22 +210,23 @@ async function stageDocuments(
 
 async function ingestOne(
   message: InboundMessage,
+  uidValidity: number,
   deps: IngestDeps,
   summary: IngestSummary
 ): Promise<void> {
-  const { staged, classification } = await stageDocuments(message, deps)
-  if (classification === 'failed') summary.failedMessageIds.push(message.messageId)
-  const email = await deps.insertEmail(emailRow(message, classification))
-  if ('duplicate' in email) {
+  const { staged, classification } = await stageDocuments(message, uidValidity, deps)
+  const email = emailRow(message, uidValidity, classification)
+  const result = await deps.stageEmail(email, staged.map(poRow))
+  summary.committedUids.push(message.uid)
+  if ('duplicate' in result) {
     summary.alreadyStaged += 1
     return
   }
-  summary.emailsStaged += 1
-  const { inserted, duplicates } = await insertStagedPos(email.id, staged, deps)
   const refusals = staged.filter((candidate) => candidate.failure !== null).length
-  summary.posStaged += inserted - refusals
+  summary.emailsStaged += 1
+  summary.posStaged += staged.length - refusals
   summary.refusalsRecorded += refusals
-  summary.duplicatesFlagged += duplicates
+  summary.duplicatesFlagged += result.duplicatesFlagged
 }
 
 function emptySummary(messagesSeen: number): IngestSummary {
@@ -238,43 +237,45 @@ function emptySummary(messagesSeen: number): IngestSummary {
     posStaged: 0,
     duplicatesFlagged: 0,
     refusalsRecorded: 0,
-    failedMessageIds: [],
+    committedUids: [],
+    failedUids: [],
   }
 }
 
 /**
  * Stages a batch of parsed messages: one `inbound_emails` row each, plus one
- * `inbound_pos` row per PO candidate at `pending_extraction`.
+ * `inbound_pos` row per PO candidate, each message in its own transaction.
  *
- * Idempotent. `message_id` is unique, so a message already staged is reported
- * as a duplicate by the insert and no PO rows follow; document keys are
+ * Idempotent. `(uid_validity, uid)` is unique, so a message already staged is
+ * reported as a duplicate and nothing is written; document keys are
  * content-addressed, so a repeated upload is the same object.
  *
- * A failure on one message is caught, logged with that message's id, recorded
- * in `failedMessageIds`, and the loop continues — one bad email never aborts
- * the batch (EH-01 / EH-02). Logged context carries identifiers, counts and
- * hash prefixes only: no body text, no attachment contents, no customer or PO
- * data (SEC-01 / SEC-05).
+ * A failure on one message is caught, logged with its UID, recorded in
+ * `failedUids`, and the loop continues — one bad email never aborts the batch
+ * (EH-01 / EH-02). Logged context carries UIDs, counts and hash prefixes only:
+ * no header, body text, attachment contents or PO data (SEC-01 / SEC-05).
  *
- * @param messages Parsed messages from `fetchUnprocessedMail`.
+ * @param messages Parsed messages from `collectUnprocessed`.
+ * @param uidValidity The mailbox UIDVALIDITY every message's UID belongs to.
  * @param deps The injected database and storage writes. No defaults.
- * @returns Counts for the batch, plus the ids of the messages that failed.
+ * @returns Counts for the batch, plus the committed and failed UIDs.
  */
 export async function ingestMessages(
   messages: InboundMessage[],
+  uidValidity: number,
   deps: IngestDeps
 ): Promise<IngestSummary> {
   const summary = emptySummary(messages.length)
   for (const message of messages) {
     try {
-      await ingestOne(message, deps, summary)
+      await ingestOne(message, uidValidity, deps, summary)
     } catch (cause) {
-      if (!summary.failedMessageIds.includes(message.messageId)) {
-        summary.failedMessageIds.push(message.messageId)
-      }
+      summary.failedUids.push(message.uid)
+      // Never the error itself: a database failure's cause chain carries the
+      // sender, subject and Message-ID as query params (SEC-05, MEDIUM-04).
       console.error('ingestMessages: staging one message failed, continuing with the batch', {
-        messageId: message.messageId,
-        cause,
+        uid: message.uid,
+        ...loggableFailure(cause),
       })
     }
   }

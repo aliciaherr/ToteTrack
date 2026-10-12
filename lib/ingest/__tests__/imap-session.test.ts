@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import type { FetchMessageObject } from 'imapflow'
 import { ImapConnectionError, IngestConfigError } from '@/lib/errors'
-import { isSyntheticMessageId } from '../identity'
-import { assertUsableWatermark, FIRST_IMAP_UID, toDeclaredMessage } from '../imap-session'
+import {
+  assertUsableWatermark,
+  FIRST_IMAP_UID,
+  toDeclaredMessage,
+  usableUidValidity,
+} from '../imap-session'
 import { MAX_HEADER_BYTES } from '../limits.constants'
 import type { GmailImapConfig } from '../types'
 
@@ -33,8 +37,8 @@ describe('toDeclaredMessage', () => {
     expect(declared).toMatchObject({
       uid: 4,
       declaredSize: 2048,
-      // Canonicalised: the RFC 5322 delimiters are stripped (H-03).
-      messageId: 'po-10042@orders.invalid.test',
+      // A label, carried as sent — nothing normalises or branches on it.
+      messageId: '<po-10042@orders.invalid.test>',
       subject: 'PO 10042 attached',
     })
   })
@@ -59,40 +63,33 @@ describe('toDeclaredMessage', () => {
     expect(() => toDeclaredMessage(bad, FAKE_CONFIG)).not.toThrow(/PO 10042/)
   })
 
-  // The envelope side's own canonicalisation, asserted here because removing
-  // it from `toDeclaredMessage` would leave every loop test green: the fake
-  // session canonicalises at the same point, so it cannot catch this (H-03).
-  it('canonicalises the envelope Message-ID, stripping delimiters itself', () => {
-    for (const sentId of [
-      '<po-10042@orders.invalid.test>',
-      'po-10042@orders.invalid.test',
-      '<po-10042@orders.invalid.test',
-      'po-10042@orders.invalid.test>',
-    ]) {
-      const declared = toDeclaredMessage(listing({ envelope: { messageId: sentId } }), FAKE_CONFIG)
+  // HIGH-02, on the refusal path: these never pass through mailparser.
+  it('strips control characters from envelope headers and drops an implausible date', () => {
+    const declared = toDeclaredMessage(
+      listing({
+        envelope: {
+          messageId: '<po\u0000-1@orders.invalid.test>',
+          subject: 'PO\u000010042',
+          date: new Date(-8_000_000_000_000_000),
+        },
+      }),
+      FAKE_CONFIG
+    )
 
-      expect(declared.messageId).toBe('po-10042@orders.invalid.test')
-    }
-  })
-
-  it('treats an envelope Message-ID of only delimiters as absent', () => {
-    for (const empty of ['<>', '<', '>', '   ']) {
-      const declared = toDeclaredMessage(listing({ envelope: { messageId: empty } }), FAKE_CONFIG)
-
-      // `gmail.ts` then supplies the UID stand-in, as for an absent header.
-      expect(declared.messageId).toBeNull()
-    }
+    expect(declared.messageId).toBe('<po-1@orders.invalid.test>')
+    expect(declared.subject).toBe('PO10042')
+    expect(declared.receivedAt).toBeNull()
   })
 
   it('treats an absent Message-ID as absent rather than empty', () => {
     const anonymous = toDeclaredMessage(listing({ envelope: { subject: 'No id' } }), FAKE_CONFIG)
 
-    // `gmail.ts` supplies the UID stand-in; this layer only reports the gap.
+    // The UID is the marker, so a missing label costs nothing.
     expect(anonymous.messageId).toBeNull()
   })
 
   // M-06, on the refusal path: these reach `inbound_emails` straight from the
-  // envelope, and `message_id` is a unique btree key with a hard size limit.
+  // envelope as sender-controlled display text.
   it('bounds an over-long envelope Message-ID and subject', () => {
     const long = 'y'.repeat(MAX_HEADER_BYTES * 3)
     const bloated = toDeclaredMessage(
@@ -102,7 +99,6 @@ describe('toDeclaredMessage', () => {
 
     expect(Buffer.byteLength(bloated.messageId ?? '', 'utf8')).toBeLessThanOrEqual(MAX_HEADER_BYTES)
     expect(Buffer.byteLength(bloated.subject ?? '', 'utf8')).toBeLessThanOrEqual(MAX_HEADER_BYTES)
-    expect(isSyntheticMessageId(bloated.messageId as string)).toBe(true)
   })
 })
 
@@ -113,12 +109,28 @@ describe('assertUsableWatermark', () => {
   })
 
   // L-14: the value is interpolated into the IMAP fetch range, and the
-  // TypeScript `number` type is not a runtime check. Task 99 will supply it
-  // from persisted state, which is where a type stops being sufficient.
+  // TypeScript `number` type is not a runtime check, and it is read back from
+  // persisted state, which is where a type stops being sufficient.
   it('rejects anything that is not a safe integer UID', () => {
     for (const bad of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2]) {
       expect(() => assertUsableWatermark(bad)).toThrow(IngestConfigError)
       expect(() => assertUsableWatermark(bad)).toThrow(/sinceUid/)
+    }
+  })
+})
+
+describe('usableUidValidity', () => {
+  it('converts the bigint imapflow reports into a number', () => {
+    expect(usableUidValidity(BigInt(1_234_567), FAKE_CONFIG)).toBe(1_234_567)
+    expect(usableUidValidity(BigInt(4_294_967_295), FAKE_CONFIG)).toBe(4_294_967_295)
+  })
+
+  // The watermark belongs to a UIDVALIDITY. Without one there is nothing to
+  // compare against, so the run must stop rather than trust the stored UIDs.
+  it('throws when the mailbox reports no usable UIDVALIDITY', () => {
+    for (const bad of [undefined, BigInt(0), BigInt(-1)]) {
+      expect(() => usableUidValidity(bad, FAKE_CONFIG)).toThrow(ImapConnectionError)
+      expect(() => usableUidValidity(bad, FAKE_CONFIG)).toThrow(/UIDVALIDITY/)
     }
   })
 })

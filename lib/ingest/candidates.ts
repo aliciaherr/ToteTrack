@@ -1,4 +1,4 @@
-import type { InboundPoSourceKind } from '@/db/queries/inbound'
+import type { InboundPoSourceKind } from '@/db/queries/inbound-pos'
 import { normalizeBodyForHash } from './hash'
 import { ACCEPTED_MIME_TYPES, PO_DOCUMENT_EXTENSIONS, PO_DOCUMENT_FALLBACK_EXTENSION, PO_DOCUMENT_PATH_PREFIX } from './ingest.constants'
 import { MAX_ATTACHMENTS_PER_EMAIL } from './limits.constants'
@@ -72,9 +72,9 @@ function sourceKindOf(mimeType: string): InboundPoSourceKind {
  * whole email. Reported loudly, by index and content type: the sender's
  * filename can carry PO data, so it is not logged (SEC-05).
  */
-function reportEmptyAttachment(index: number, mimeType: string, messageId: string): void {
+function reportEmptyAttachment(index: number, mimeType: string, uid: number): void {
   console.error('selectCandidates: dropping an accepted attachment that carried no bytes', {
-    messageId,
+    uid,
     attachmentIndex: index,
     mimeType,
   })
@@ -100,7 +100,7 @@ function usableAttachments(
   for (const [index, attachment] of message.attachments.entries()) {
     if (!matchesAcceptedType(attachment.mimeType)) continue
     if (attachment.bytes.length === 0) {
-      reportEmptyAttachment(index, attachment.mimeType, message.messageId)
+      reportEmptyAttachment(index, attachment.mimeType, message.uid)
       continue
     }
     if (exceedsAttachmentCap(attachment.bytes.length)) {

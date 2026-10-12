@@ -2,7 +2,7 @@ import type {
   InboundPoSourceKind,
   InboundPoStatus,
   InsertInboundPoInput,
-} from '@/db/queries/inbound'
+} from '@/db/queries/inbound-pos'
 import { MAX_ATTACHMENTS_PER_EMAIL, MAX_ATTACHMENT_BYTES, MAX_MESSAGES_PER_RUN, MAX_TOTAL_INGEST_BYTES } from './limits.constants'
 import type { DeclaredMessage, IngestLimitFailure, IngestLimitReason, InboundMessage } from './types'
 
@@ -62,9 +62,9 @@ export type MessageAdmission =
   /**
    * Not this run. It would fit an empty budget but not the bytes left, so it
    * is left in the mailbox and drains on the next run. **Deliberately not
-   * staged:** writing an `inbound_pos` row would also write the unique
-   * `message_id`, which would mark a perfectly good purchase order processed
-   * and refused forever on the strength of when it happened to arrive.
+   * staged:** staging would write its `(uid_validity, uid)` marker and mark a
+   * perfectly good purchase order processed and refused forever on the
+   * strength of when it happened to arrive. Its UID halts the watermark.
    */
   | { verdict: 'defer'; remainingBytes: number }
 
@@ -145,9 +145,8 @@ function sizeNotDeclared(): IngestLimitFailure {
  * Records a message whose MIME source could not be parsed (H-02).
  *
  * No measurement and no cap — nothing was exceeded, the bytes simply could not
- * be read. The mailbox UID is not repeated here either: it is already in the
- * row's stand-in `message_id` (`identity.ts`), which is where a human looking
- * at the queue will find it.
+ * be read. The mailbox UID is not repeated here: it is on the row's own
+ * `inbound_emails.uid`.
  */
 export function unparseableMessage(): IngestLimitFailure {
   return { check: 'ingest_limit', reason: 'unparseable', part: WHOLE_MESSAGE_PART }
@@ -213,18 +212,13 @@ export function checkResultsFor(failure: IngestLimitFailure): { failures: Ingest
  * downloaded. The pipeline recognises it by `rejection` and stages it for
  * review.
  *
- * @param messageId The refused message's `Message-ID`, which the caller has
- *   already confirmed is present — a message with none cannot be staged.
  * @param declared The message as the IMAP listing reported it.
  * @param failure The refusal to record against it.
  */
-export function refusedMessage(
-  messageId: string,
-  declared: DeclaredMessage,
-  failure: IngestLimitFailure
-): InboundMessage {
+export function refusedMessage(declared: DeclaredMessage, failure: IngestLimitFailure): InboundMessage {
   return {
-    messageId,
+    uid: declared.uid,
+    messageId: declared.messageId,
     from: declared.from,
     subject: declared.subject,
     receivedAt: declared.receivedAt,
@@ -250,19 +244,12 @@ const REFUSED_STATUS: InboundPoStatus = 'pending_review'
 /**
  * `InsertInboundPoInput` plus the two columns a refused row needs.
  *
- * Declared here rather than in `db/queries/inbound.ts` because the staging
- * shape is this module's concern and that file sits at its line cap. Both
- * columns already exist on the table (`db/schema/inbound.ts`), so recording a
- * refusal needs **no migration and no schema change** — which is the point of
- * the surrogate hash and the `failures` entry. `insertInboundPo` remains
- * usable as the injected implementation: a function accepting the narrower
- * input satisfies this wider parameter.
+ * `InsertInboundPoInput` types `check_results` as `unknown`, because its shape
+ * belongs to this module rather than the data layer; this narrows it to the
+ * refusal shape. Both columns already exist on the table, so recording a
+ * refusal needs no schema change.
  */
 export type StagedPoInput = InsertInboundPoInput & {
-  /**
-   * Omitted on the normal path, so `status` and `attempt_count` keep their
-   * column defaults and the starting state has one definition.
-   */
   status?: InboundPoStatus
   /** The `failures` array the review queue sorts on. Refused rows only. */
   check_results?: { failures: IngestLimitFailure[] }

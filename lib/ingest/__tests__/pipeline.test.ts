@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { inspect } from 'node:util'
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { InsertInboundEmailInput } from '@/db/queries/inbound'
+import { DrizzleQueryError } from 'drizzle-orm'
+import { DatabaseError } from '@/lib/errors'
+import type { InsertInboundEmailInput } from '@/db/queries/inbound-emails'
 import { ingestMessages, type IngestDeps } from '../pipeline'
-import { contentHash, normalizeBodyForHash } from '../hash'
+import { contentHash, normalizeBodyForHash, refusalHash } from '../hash'
 import { PO_DOCUMENTS_BUCKET, PO_DOCUMENT_PATH_PREFIX } from '../ingest.constants'
 import { MAX_ATTACHMENTS_PER_EMAIL, MAX_ATTACHMENT_BYTES, MAX_TOTAL_INGEST_BYTES } from '../limits.constants'
-import { surrogateContentHash } from '../identity'
 import { type StagedPoInput } from '../limits'
 import type { IngestLimitFailure, InboundAttachment, InboundMessage } from '../types'
 
@@ -24,8 +26,11 @@ function attachment(mimeType: string, bytes: Buffer, filename: string | null): I
   return { filename, mimeType, bytes }
 }
 
+const UID_VALIDITY = 7
+
 function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
   return {
+    uid: 1,
     messageId: '<po-10042@orders.invalid.test>',
     from: 'Acme Orders <orders@invalid.test>',
     subject: 'PO 10042 attached',
@@ -37,36 +42,40 @@ function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
   }
 }
 
+/** A PO row as the fake data layer stored it, with the columns it resolves. */
+type RecordedPo = StagedPoInput & { inbound_email_id: string; duplicate_of_id: string | null }
+
 interface Recorder {
   deps: IngestDeps
   emails: InsertInboundEmailInput[]
-  pos: StagedPoInput[]
+  pos: RecordedPo[]
   uploads: { path: string; contentType: string; bytes: number }[]
 }
 
 /**
- * A fake data layer that behaves like the real one where behaviour matters:
- * `insertEmail` reports a repeat `message_id` as `{ duplicate: true }` the way
- * the unique index makes the query helper do, and `findPoByHash` answers from
- * the rows this fake has already accepted.
+ * A fake data layer that behaves like `stageEmailWithPos` where behaviour
+ * matters: a repeat `(uid_validity, uid)` is reported as `{ duplicate: true }`
+ * with nothing written, and a repeat hash is pointed at its first sighting.
  */
 function recorder(overrides: Partial<IngestDeps> = {}): Recorder {
   const emails: InsertInboundEmailInput[] = []
-  const pos: StagedPoInput[] = []
+  const pos: RecordedPo[] = []
   const uploads: { path: string; contentType: string; bytes: number }[] = []
   const deps: IngestDeps = {
-    insertEmail: async (input) => {
-      if (emails.some((seen) => seen.message_id === input.message_id)) return { duplicate: true }
-      emails.push(input)
-      return { id: `email-${emails.length}` }
-    },
-    insertPo: async (input) => {
-      pos.push(input)
-      return { id: `po-${pos.length}` }
-    },
-    findPoByHash: async (hash) => {
-      const index = pos.findIndex((row) => row.content_hash === hash)
-      return index === -1 ? null : { id: `po-${index + 1}` }
+    stageEmail: async (email, rows) => {
+      const staged = emails.some(
+        (seen) => seen.uid_validity === email.uid_validity && seen.uid === email.uid
+      )
+      if (staged) return { duplicate: true }
+      emails.push(email)
+      const emailId = `email-${emails.length}`
+      let duplicatesFlagged = 0
+      for (const row of rows) {
+        const index = pos.findIndex((earlier) => earlier.content_hash === row.content_hash)
+        if (index !== -1) duplicatesFlagged += 1
+        pos.push({ ...row, inbound_email_id: emailId, duplicate_of_id: index === -1 ? null : `po-${index + 1}` })
+      }
+      return { id: emailId, duplicatesFlagged }
     },
     uploadDocument: async (uploadPath, bytes, contentType) => {
       uploads.push({ path: uploadPath, contentType, bytes: bytes.length })
@@ -84,7 +93,7 @@ describe('ingestMessages', () => {
   it('stages one email, one PO row and one upload for an email carrying one PDF', async () => {
     const fake = recorder()
 
-    const summary = await ingestMessages([message()], fake.deps)
+    const summary = await ingestMessages([message()], UID_VALIDITY, fake.deps)
 
     expect(summary).toMatchObject({
       messagesSeen: 1,
@@ -93,11 +102,14 @@ describe('ingestMessages', () => {
       duplicatesFlagged: 0,
       refusalsRecorded: 0,
       alreadyStaged: 0,
-      failedMessageIds: [],
+      committedUids: [1],
+      failedUids: [],
     })
 
     expect(fake.emails).toHaveLength(1)
     expect(fake.emails[0]).toMatchObject({
+      uid_validity: UID_VALIDITY,
+      uid: 1,
       message_id: '<po-10042@orders.invalid.test>',
       classification: 'po_found',
       from_address: 'Acme Orders <orders@invalid.test>',
@@ -138,18 +150,20 @@ describe('ingestMessages', () => {
         throw new Error('storage unavailable')
       },
     })
-    const failing = message({ messageId: '<upload-fails@invalid.test>' })
+    const failing = message({ uid: 1 })
     // Body-only, so it needs no upload and still stages behind the failure.
     const following = message({
-      messageId: '<po-10043@orders.invalid.test>',
+      uid: 2,
       bodyText: BODY_PO_TEXT,
       attachments: [],
     })
 
-    const summary = await ingestMessages([failing, following], fake.deps)
+    const summary = await ingestMessages([failing, following], UID_VALIDITY, fake.deps)
 
     expect(attempted).toHaveLength(1)
-    expect(summary.failedMessageIds).toEqual(['<upload-fails@invalid.test>'])
+    // Recorded as a `failed` email, so it is committed and does not halt the
+    // watermark. Task 100 turns this path into a throw (CONSTRAINT-34).
+    expect(summary.committedUids).toEqual([1, 2])
 
     // The email is still recorded — nothing is silently discarded — but with
     // no PO row, so no row points at an object that was never written.
@@ -158,9 +172,8 @@ describe('ingestMessages', () => {
     expect(fake.pos[0]).toMatchObject({ inbound_email_id: 'email-2', source_kind: 'email_body' })
     expect(summary.emailsStaged).toBe(2)
 
-    const logged = consoleError.mock.calls.flat()
-    expect(JSON.stringify(logged)).toContain('<upload-fails@invalid.test>')
-    expect(JSON.stringify(logged)).not.toContain('purchase order')
+    expect(consoleError.mock.calls[0]?.[1]).toMatchObject({ uid: 1 })
+    expect(JSON.stringify(consoleError.mock.calls.flat())).not.toContain('purchase order')
   })
 
   it('stages one PO row per accepted attachment', async () => {
@@ -173,7 +186,7 @@ describe('ingestMessages', () => {
       ],
     })
 
-    const summary = await ingestMessages([three], fake.deps)
+    const summary = await ingestMessages([three], UID_VALIDITY, fake.deps)
 
     expect(summary.posStaged).toBe(3)
     expect(fake.uploads).toHaveLength(3)
@@ -188,7 +201,7 @@ describe('ingestMessages', () => {
       attachments: [attachment('application/vnd.ms-excel', Buffer.from('not a PO'), 'book.xls')],
     })
 
-    await ingestMessages([spreadsheet], fake.deps)
+    await ingestMessages([spreadsheet], UID_VALIDITY, fake.deps)
 
     expect(fake.uploads).toHaveLength(0)
     expect(fake.pos).toHaveLength(1)
@@ -199,7 +212,7 @@ describe('ingestMessages', () => {
     const fake = recorder()
     const bodyOnly = message({ bodyText: `> ${BODY_PO_TEXT}\n\n-- \nDana Fixture`, attachments: [] })
 
-    await ingestMessages([bodyOnly], fake.deps)
+    await ingestMessages([bodyOnly], UID_VALIDITY, fake.deps)
 
     expect(fake.uploads).toHaveLength(0)
     expect(fake.pos[0]).toMatchObject({
@@ -213,10 +226,10 @@ describe('ingestMessages', () => {
   // queue so a human decides.
   it('still inserts a repeat content hash, with duplicate_of_id set', async () => {
     const fake = recorder()
-    const first = message({ messageId: '<first-sighting@invalid.test>' })
-    const forwarded = message({ messageId: '<forwarded-again@invalid.test>' })
+    const first = message({ uid: 1 })
+    const forwarded = message({ uid: 2 })
 
-    const summary = await ingestMessages([first, forwarded], fake.deps)
+    const summary = await ingestMessages([first, forwarded], UID_VALIDITY, fake.deps)
 
     expect(summary.posStaged).toBe(2)
     expect(summary.duplicatesFlagged).toBe(1)
@@ -232,7 +245,7 @@ describe('ingestMessages', () => {
       attachments: [],
     })
 
-    const summary = await ingestMessages([empty], fake.deps)
+    const summary = await ingestMessages([empty], UID_VALIDITY, fake.deps)
 
     expect(fake.emails[0].classification).toBe('no_po_found')
     expect(fake.pos).toHaveLength(0)
@@ -243,8 +256,8 @@ describe('ingestMessages', () => {
     const fake = recorder()
     const batch = [message()]
 
-    await ingestMessages(batch, fake.deps)
-    const second = await ingestMessages(batch, fake.deps)
+    await ingestMessages(batch, UID_VALIDITY, fake.deps)
+    const second = await ingestMessages(batch, UID_VALIDITY, fake.deps)
 
     expect(second.alreadyStaged).toBe(1)
     expect(second.emailsStaged).toBe(0)
@@ -257,32 +270,75 @@ describe('ingestMessages', () => {
   })
 
   // EH-01 / EH-02: one bad message must never abort the batch.
-  it('logs a database failure with its message id and keeps processing', async () => {
+  it('logs a database failure with its UID and keeps processing', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const fake = recorder()
-    const insertPo = fake.deps.insertPo
+    const stageEmail = fake.deps.stageEmail
     let calls = 0
-    fake.deps.insertPo = async (input) => {
+    fake.deps.stageEmail = async (email, rows) => {
       calls += 1
-      if (calls === 1) throw new Error('insert failed')
-      return insertPo(input)
+      if (calls === 1) throw new Error('transaction failed')
+      return stageEmail(email, rows)
     }
 
     const summary = await ingestMessages(
-      [
-        message({ messageId: '<db-fails@invalid.test>' }),
-        message({ messageId: '<ok@invalid.test>' }),
-      ],
+      [message({ uid: 1 }), message({ uid: 2 })],
+      UID_VALIDITY,
       fake.deps
     )
 
-    expect(summary.failedMessageIds).toEqual(['<db-fails@invalid.test>'])
+    // Nothing was written for UID 1, so it halts the watermark and retries.
+    expect(summary.failedUids).toEqual([1])
+    expect(summary.committedUids).toEqual([2])
     expect(summary.posStaged).toBe(1)
-    expect(JSON.stringify(consoleError.mock.calls.flat())).toContain('<db-fails@invalid.test>')
+    expect(consoleError.mock.calls.at(-1)?.[1]).toMatchObject({ uid: 1 })
+  })
+
+  // MEDIUM-04. The production failure is a DatabaseError around drizzle's
+  // DrizzleQueryError, whose params are this email's headers. Node prints the
+  // whole cause chain, so logging the error at all would leak them.
+  it('logs a staging failure without any header value from its cause chain', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const leaky = message({ uid: 3 })
+    const params = [leaky.messageId, leaky.from, leaky.subject]
+    const fake = recorder({
+      stageEmail: async () => {
+        const driver = Object.assign(new Error('insert failed'), { code: '22021' })
+        throw new DatabaseError('stageEmailWithPos', 'Failed to stage', {
+          cause: new DrizzleQueryError('insert into "inbound_emails" ...', params, driver),
+        })
+      },
+    })
+
+    const summary = await ingestMessages([leaky], UID_VALIDITY, fake.deps)
+
+    expect(summary.failedUids).toEqual([3])
+    const sink = inspect(consoleError.mock.calls, { depth: 10 })
+    for (const header of params) expect(sink).not.toContain(header as string)
+    expect(consoleError.mock.calls.at(-1)?.[1]).toMatchObject({
+      uid: 3,
+      code: '22021',
+      operation: 'stageEmailWithPos',
+    })
+  })
+
+  // Architecture rule 2: the label never decides anything.
+  it('stages two messages that share one Message-ID as two emails', async () => {
+    const fake = recorder()
+    const shared = '<same@orders.invalid.test>'
+
+    const summary = await ingestMessages(
+      [message({ uid: 1, messageId: shared }), message({ uid: 2, messageId: shared })],
+      UID_VALIDITY,
+      fake.deps
+    )
+
+    expect(summary).toMatchObject({ emailsStaged: 2, alreadyStaged: 0, committedUids: [1, 2] })
+    expect(fake.emails.map((row) => row.uid)).toEqual([1, 2])
   })
 
   // H-01. A refusal is staged, never dropped: `document_path` is NULL, the
-  // hash is a surrogate over identity, and the reason is a `failures` entry —
+  // hash is a surrogate over the UID, and the reason is a `failures` entry —
   // which is what sorts the row to the top of the review queue.
   describe('refused messages and attachments', () => {
     const SIZE_FAILURE: IngestLimitFailure = {
@@ -297,13 +353,13 @@ describe('ingestMessages', () => {
     it('stages a row at pending_review for a message refused before download', async () => {
       const fake = recorder()
       const refused = message({
-        messageId: '<too-big@orders.invalid.test>',
+        uid: 4,
         bodyText: '',
         attachments: [],
         rejection: SIZE_FAILURE,
       })
 
-      const summary = await ingestMessages([refused], fake.deps)
+      const summary = await ingestMessages([refused], UID_VALIDITY, fake.deps)
 
       expect(fake.uploads).toEqual([])
       expect(summary).toMatchObject({ posStaged: 0, refusalsRecorded: 1, emailsStaged: 1 })
@@ -312,7 +368,7 @@ describe('ingestMessages', () => {
       expect(fake.pos[0]).toMatchObject({
         source_kind: 'email_body',
         document_path: null,
-        content_hash: surrogateContentHash('<too-big@orders.invalid.test>', SIZE_FAILURE),
+        content_hash: refusalHash(UID_VALIDITY, 4, SIZE_FAILURE),
         // Straight to the queue: there is no document, so extraction could
         // never advance it off the `pending_extraction` default.
         status: 'pending_review',
@@ -326,13 +382,14 @@ describe('ingestMessages', () => {
     it('stages an unparseable message at pending_review with no fabricated figures', async () => {
       const fake = recorder()
       const unreadable = message({
-        messageId: 'ingest-uid:11',
+        uid: 11,
+        messageId: null,
         bodyText: '',
         attachments: [],
         rejection: { check: 'ingest_limit', reason: 'unparseable', part: 'message' },
       })
 
-      const summary = await ingestMessages([unreadable], fake.deps)
+      const summary = await ingestMessages([unreadable], UID_VALIDITY, fake.deps)
 
       expect(fake.uploads).toEqual([])
       expect(summary).toMatchObject({ posStaged: 0, refusalsRecorded: 1, emailsStaged: 1 })
@@ -348,7 +405,7 @@ describe('ingestMessages', () => {
       const [failure] = (fake.pos[0].check_results as { failures: IngestLimitFailure[] }).failures
       expect(failure.measured).toBeUndefined()
       expect(failure.limit).toBeUndefined()
-      // Still a valid NOT NULL content_hash, via the identity surrogate.
+      // Still a valid NOT NULL content_hash, via the UID surrogate.
       expect(fake.pos[0].content_hash).toMatch(/^[0-9a-f]{64}$/)
     })
 
@@ -356,13 +413,13 @@ describe('ingestMessages', () => {
       const first = recorder()
       const second = recorder()
       const refused = message({
-        messageId: '<stable@orders.invalid.test>',
+        uid: 9,
         attachments: [],
         rejection: SIZE_FAILURE,
       })
 
-      await ingestMessages([refused], first.deps)
-      await ingestMessages([refused], second.deps)
+      await ingestMessages([refused], UID_VALIDITY, first.deps)
+      await ingestMessages([refused], UID_VALIDITY, second.deps)
 
       // Stability is what keeps a re-fetch idempotent rather than piling up a
       // fresh unrelated row every run.
@@ -378,7 +435,7 @@ describe('ingestMessages', () => {
         ],
       })
 
-      const summary = await ingestMessages([mixed], fake.deps)
+      const summary = await ingestMessages([mixed], UID_VALIDITY, fake.deps)
 
       // The valid PO is unaffected — the whole point of refusing per part.
       expect(summary).toMatchObject({ posStaged: 1, refusalsRecorded: 1 })
@@ -411,7 +468,7 @@ describe('ingestMessages', () => {
         ),
       })
 
-      const summary = await ingestMessages([many], fake.deps)
+      const summary = await ingestMessages([many], UID_VALIDITY, fake.deps)
 
       expect(summary.posStaged).toBe(MAX_ATTACHMENTS_PER_EMAIL)
       expect(summary.refusalsRecorded).toBe(1)
@@ -444,7 +501,7 @@ describe('ingestMessages', () => {
         ],
       })
 
-      await ingestMessages([mixed], fake.deps)
+      await ingestMessages([mixed], UID_VALIDITY, fake.deps)
 
       const recorded = JSON.stringify(fake.pos.map((row) => row.check_results))
       expect(recorded).not.toContain('secret-customer')
@@ -457,7 +514,7 @@ describe('ingestMessages', () => {
   it('returns a zero summary for an empty batch without touching the data layer', async () => {
     const fake = recorder()
 
-    const summary = await ingestMessages([], fake.deps)
+    const summary = await ingestMessages([], UID_VALIDITY, fake.deps)
 
     expect(summary).toEqual({
       messagesSeen: 0,
@@ -466,7 +523,8 @@ describe('ingestMessages', () => {
       posStaged: 0,
       duplicatesFlagged: 0,
       refusalsRecorded: 0,
-      failedMessageIds: [],
+      committedUids: [],
+      failedUids: [],
     })
     expect(fake.emails).toHaveLength(0)
   })
@@ -479,11 +537,11 @@ describe('pipeline.ts source constraints', () => {
   const source = readFileSync(path.join(__dirname, '..', 'pipeline.ts'), 'utf8')
   const candidates = readFileSync(path.join(__dirname, '..', 'candidates.ts'), 'utf8')
   const limits = readFileSync(path.join(__dirname, '..', 'limits.ts'), 'utf8')
-  const identity = readFileSync(path.join(__dirname, '..', 'identity.ts'), 'utf8')
   const messageModule = readFileSync(path.join(__dirname, '..', 'message.ts'), 'utf8')
+  const run = readFileSync(path.join(__dirname, '..', 'run.ts'), 'utf8')
 
   it('imports no runtime value from the database or the Supabase client', () => {
-    for (const moduleSource of [source, candidates, limits, identity, messageModule]) {
+    for (const moduleSource of [source, candidates, limits, messageModule, run]) {
       expect(moduleSource).not.toMatch(/^import \{[^}]*\} from '@\/db/m)
       expect(moduleSource).not.toMatch(/from '@\/lib\/supabase/)
       expect(moduleSource).toMatch(/^import type \{/m)

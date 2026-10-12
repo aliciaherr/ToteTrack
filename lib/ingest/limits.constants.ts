@@ -9,7 +9,7 @@ import { INGEST_BATCH_SIZE } from './ingest.constants'
  * behaves; these decide what it will refuse from an **unauthenticated**
  * sender — the ingestion mailbox is the only inbound content path in this
  * application that anyone can write to with no credential and no session.
- * They are enforced in `limits.ts` and `identity.ts`.
+ * They are enforced in `limits.ts` and `message.ts`.
  *
  * Every one is a constant rather than an env var for the same reason: a cap
  * that differs between environments means a message refused in production
@@ -105,19 +105,37 @@ export const MAX_MESSAGES_PER_RUN = 200
  * Longest header string, in UTF-8 bytes, written to `inbound_emails`.
  *
  * `message_id`, `from_address` and `subject` are all sender-controlled and all
- * reached the database unbounded (M-06). The sharp edge is `message_id`: it is
- * `NOT NULL UNIQUE`, and a Postgres btree index key is limited to 2704 bytes,
- * so a longer value cannot be stored at all. That insert failure is not
- * SQLSTATE 23505, so the duplicate path does not catch it — the message is
- * never marked processed and comes back on every run forever, which is H-02's
- * outcome reached by another route.
+ * reached the database unbounded (M-06). Since 0017 none is indexed, so the
+ * btree key limit no longer applies; the cap stays because an unbounded
+ * sender-controlled string has no business in a display column.
  *
  * 998 is RFC 5322's recommended maximum header line length, so no legitimate
  * header is affected — a real `Message-ID` is a few dozen characters. Measured
- * in **bytes, not characters**, because the btree limit is in bytes and 998
- * characters of four-byte UTF-8 would be 3992 of them.
+ * in **bytes, not characters**: 998 characters of four-byte UTF-8 would be
+ * 3992 of them.
  *
- * Not an env var: it is a boundary length check (SEC-02) pinned by a database
- * limit and an RFC, neither of which varies by environment.
+ * Not an env var: it is a boundary length check (SEC-02) pinned by an RFC,
+ * which does not vary by environment.
  */
 export const MAX_HEADER_BYTES = 998
+
+/**
+ * C0 control characters except tab, plus DEL — stripped from every
+ * sender-controlled header before it is stored (HIGH-02).
+ *
+ * Postgres `text` cannot hold U+0000 at all, so one encoded-word such as
+ * `=?utf-8?Q?PO=00?=` made the insert fail on every run and pinned the UID
+ * watermark forever. The other controls go with it: these are display
+ * labels, and no legitimate header needs a control character to be read.
+ */
+export const HEADER_CONTROL_CHARACTERS = /[\u0000-\u0008\u000A-\u001F\u007F]/g
+
+/**
+ * Plausible `Date:` header window, in epoch milliseconds. A sender-written
+ * date outside it is stored as NULL rather than inserted (HIGH-02): JS can
+ * represent years far before Postgres `timestamptz`'s 4713 BC floor, and such
+ * a value would fail the insert on every run exactly as a NUL byte did.
+ * 1970 and 9999 bound every real email with room to spare.
+ */
+export const RECEIVED_AT_MIN_MS = Date.UTC(1970, 0, 1)
+export const RECEIVED_AT_MAX_MS = Date.UTC(9999, 11, 31)

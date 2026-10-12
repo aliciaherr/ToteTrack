@@ -7,14 +7,16 @@ import {
   RELAY_NOISE_LINE_PATTERNS,
   SIGNATURE_DELIMITER_PATTERN,
 } from './ingest.constants'
+import type { IngestLimitFailure } from './types'
 
 /**
  * Content hashing for the ingestion dedupe layer (Feature 16, Task 97).
  *
- * Two layers sit above this one: `inbound_emails.message_id` is unique, and
- * the save-time PO-number check is the backstop. This layer is the middle
- * one — it catches the same document arriving twice under different message
- * ids, which is what a forwarded or re-sent purchase order looks like.
+ * The UID marker (`inbound_emails (uid_validity, uid)`, CONSTRAINT-33) stops
+ * one message being staged twice, and the save-time PO-number check is the
+ * backstop. This layer sits between them — it catches the same document
+ * arriving as two different messages, which is what a forwarded or re-sent
+ * purchase order looks like, and the re-ingest after a UIDVALIDITY change.
  *
  * A hash match is a **flag, not a rejection**: the caller still stages the
  * row and sets `duplicate_of_id`, so a human decides (plan, Task 97). That
@@ -107,4 +109,33 @@ function isRelayNoise(line: string): boolean {
 
 function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * The `content_hash` for a row that records a refusal.
+ *
+ * **A surrogate over the mailbox position, not over content, and it has to
+ * be.** `content_hash` is `NOT NULL`, and the point of a refusal is that the
+ * bytes were never read — there is nothing to hash. Do not "fix" this into a
+ * hash of the absent bytes: `contentHash` refuses empty input because every
+ * empty candidate would share one digest and be flagged a duplicate of the
+ * first unrelated one.
+ *
+ * Built from the server-assigned marker, the part and the measurement, so it
+ * is **stable** across re-runs and cannot be steered by any header a sender
+ * writes. Two sends of one oversized document get different surrogates —
+ * honest, since a hash that never saw the content cannot recognise it.
+ *
+ * @param uidValidity The mailbox UIDVALIDITY the message belongs to.
+ * @param uid The refused message's IMAP UID.
+ * @param failure The refusal this row records.
+ */
+export function refusalHash(uidValidity: number, uid: number, failure: IngestLimitFailure): string {
+  // `unmeasured` stands in where nothing could be measured, so the string is
+  // never built out of `undefined` and stays stable for those refusals too.
+  const measure =
+    failure.unit === undefined ? 'unmeasured' : `${failure.unit}:${failure.measured}`
+  return contentHash(
+    `ingest-limit:${failure.reason}|mailbox:${uidValidity}/${uid}|part:${failure.part}|${measure}`
+  )
 }

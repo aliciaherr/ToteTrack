@@ -1,6 +1,6 @@
 import { ImapFlow, type FetchMessageObject, type MessageEnvelopeObject } from 'imapflow'
 import { ImapConnectionError, IngestConfigError } from '@/lib/errors'
-import { boundHeader, canonicalMessageId } from './identity'
+import { boundDate, boundHeader } from './message'
 import type { DeclaredMessage, GmailImapConfig, ImapSession } from './types'
 
 /**
@@ -24,8 +24,11 @@ import type { DeclaredMessage, GmailImapConfig, ImapSession } from './types'
 /** IMAPS. Fixed by the protocol, not a Feature 16 tunable, so not a constants-file entry. */
 const IMAPS_PORT = 993
 
-/** Gmail's inbox path. The only mailbox ingestion reads. */
-const INBOX_PATH = 'INBOX'
+/**
+ * Gmail's inbox path — the only mailbox ingestion reads, and the key its
+ * watermark is stored under (`ingest_mailbox_state.mailbox`).
+ */
+export const INBOX_PATH = 'INBOX'
 
 /**
  * The lowest valid IMAP UID — i.e. "the whole mailbox". Protocol-fixed, so it
@@ -54,7 +57,16 @@ export async function createImapSession(config: GmailImapConfig): Promise<ImapSe
   })
   await client.connect()
   const lock = await client.getMailboxLock(INBOX_PATH, { readOnly: true })
+  let uidValidity: number
+  try {
+    uidValidity = usableUidValidity(client.mailbox ? client.mailbox.uidValidity : undefined, config)
+  } catch (cause) {
+    lock.release()
+    await client.logout()
+    throw cause
+  }
   return {
+    uidValidity,
     async *listFrom(sinceUid: number): AsyncIterable<DeclaredMessage> {
       assertUsableWatermark(sinceUid)
       const range = { uid: `${sinceUid}:*` }
@@ -85,10 +97,8 @@ export async function createImapSession(config: GmailImapConfig): Promise<ImapSe
  * into the fetch range (L-14).
  *
  * The TypeScript type is `number`, and a type is not a runtime check: this
- * value crosses a real boundary the moment Task 99 starts reading it back
- * from persisted state, and whatever it is read from then becomes a place that
- * can rewrite the IMAP command. One assertion makes that boundary explicit for
- * whoever writes that task.
+ * value is read back from `ingest_mailbox_state`, and whatever it is read from
+ * is a place that could otherwise rewrite the IMAP command.
  *
  * Called both here, where the value is interpolated into the protocol string,
  * and in `gmail.ts` where it enters the pipeline — so every `ImapSession`
@@ -102,6 +112,28 @@ export function assertUsableWatermark(sinceUid: number): void {
   throw new IngestConfigError(
     'sinceUid',
     `is not a usable IMAP UID watermark. It must be a safe integer of at least ${FIRST_IMAP_UID}; it is interpolated into the IMAP fetch range, so it is validated rather than trusted (L-14).`
+  )
+}
+
+/**
+ * The open mailbox's UIDVALIDITY as a number. `imapflow` reports a `bigint`;
+ * the value is unsigned 32-bit by RFC 3501, so it converts exactly. Anything
+ * else means the watermark cannot be trusted, so it throws rather than guess.
+ *
+ * Exported for its own unit test, as `toDeclaredMessage` is: a fake
+ * `ImapSession` cannot exercise it.
+ *
+ * @param value `client.mailbox.uidValidity`, or `undefined` if no mailbox is open.
+ * @param config The connection, named in a failure. Credentials are never read.
+ * @throws {ImapConnectionError} when it is absent or not a positive safe integer.
+ */
+export function usableUidValidity(value: bigint | undefined, config: GmailImapConfig): number {
+  const asNumber = value === undefined ? Number.NaN : Number(value)
+  if (Number.isSafeInteger(asNumber) && asNumber >= 1) return asNumber
+  throw new ImapConnectionError(
+    config.host,
+    config.user,
+    `${INBOX_PATH} opened without a usable UIDVALIDITY (${String(value)}), so the UID watermark cannot be applied`
   )
 }
 
@@ -122,8 +154,7 @@ function envelopeFrom(envelope: MessageEnvelopeObject | undefined): string | nul
 function envelopeDate(envelope: MessageEnvelopeObject | undefined): Date | null {
   const date = envelope?.date
   if (!date) return null
-  const parsed = date instanceof Date ? date : new Date(date)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return boundDate(date instanceof Date ? date : new Date(date))
 }
 
 /**
@@ -159,14 +190,12 @@ export function toDeclaredMessage(
       `UID ${message.uid} was listed without a usable RFC822.SIZE, so the ingestion byte cap cannot be enforced on it`
     )
   }
-  const envelopeMessageId = message.envelope?.messageId
   return {
     uid: message.uid,
     declaredSize: message.size,
-    // Bounded here, at the boundary, rather than where they are written: these
-    // three are sender-controlled and `message_id` is a unique index key with
-    // a hard size limit (M-06).
-    messageId: envelopeMessageId ? canonicalMessageId(envelopeMessageId) : null,
+    // Bounded here, at the boundary, rather than where they are written: all
+    // three are sender-controlled display text (M-06).
+    messageId: boundHeader(message.envelope?.messageId ?? null),
     from: boundHeader(envelopeFrom(message.envelope)),
     subject: boundHeader(message.envelope?.subject ?? null),
     receivedAt: envelopeDate(message.envelope),

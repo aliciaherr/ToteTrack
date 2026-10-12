@@ -18,7 +18,7 @@ export type IngestLimitReason =
   | 'too_many_attachments'
   /**
    * The MIME source could not be parsed at all, so nothing was recovered from
-   * it — not a body, not an attachment, not even an identity (H-02). The row
+   * it — not a body, not an attachment (H-02). The row
    * exists so a genuinely malformed purchase order is visible in the review
    * queue rather than vanishing into a log line.
    */
@@ -76,17 +76,21 @@ export interface InboundAttachment {
 
 /**
  * One parsed inbound email. This is the whole contract between the IMAP reader
- * and the ingestion pipeline: `fetchUnprocessedMail` produces these and
+ * and the ingestion pipeline: `collectUnprocessed` produces these and
  * `ingestMessages` (Task 97) consumes them, so neither half needs a mailbox or
  * a database to be tested.
  */
 export interface InboundMessage {
   /**
-   * The `Message-ID` header, angle brackets included. Required, not optional:
-   * it is both dedupe layer 1 and the processed marker that replaces the IMAP
-   * `\Seen` flag (Task 95), so a message without one cannot be staged at all.
+   * The IMAP UID — with the run's UIDVALIDITY, the processed marker
+   * (CONSTRAINT-33). Server-assigned, so no sender can influence it.
    */
-  messageId: string
+  uid: number
+  /**
+   * The `Message-ID` header bounded to `MAX_HEADER_BYTES`, or `null` when
+   * absent. **A display label only**: no branch reads it (architecture rule 2).
+   */
+  messageId: string | null
   /** The `From:` header as display text, or `null` when absent. */
   from: string | null
   subject: string | null
@@ -129,9 +133,8 @@ export interface DeclaredMessage {
    */
   declaredSize: number
   /**
-   * The `Message-ID` from `ENVELOPE`, or `null` when the header is absent.
-   * Lets an already-staged message be skipped, and a refused one be recorded,
-   * without downloading it.
+   * The `Message-ID` from `ENVELOPE`, bounded, or `null` when absent. A label
+   * for a refused or unreadable message's row — never used to decide anything.
    */
   messageId: string | null
   /** The `From:` header as display text, or `null` when absent. */
@@ -170,6 +173,11 @@ export interface GmailImapConfig {
  */
 export interface ImapSession {
   /**
+   * The open mailbox's UIDVALIDITY. Every UID belongs to it; when it changes,
+   * every stored UID is invalid at once (architecture failure-mode table).
+   */
+  uidValidity: number
+  /**
    * Declared metadata for every message with UID >= `sinceUid`, ascending,
    * and **none of their bytes**. Selection is by UID only; the `\Seen` flag is
    * never read or written, so opening the inbox in Gmail cannot change what
@@ -187,7 +195,7 @@ export interface ImapSession {
 }
 
 /**
- * Injected collaborators for `fetchUnprocessedMail`.
+ * Injected collaborators for the mailbox read.
  *
  * `config` and `openSession` are both required with no defaults, which is the
  * point: there is no code path that silently falls back to a live connection.
@@ -197,19 +205,39 @@ export interface GmailDeps {
   config: GmailImapConfig
   openSession: (config: GmailImapConfig) => Promise<ImapSession>
   /**
-   * MIME parser. Defaults to `parseMessage`; overridden only in tests.
-   *
-   * **The UID is part of the contract, not an extra.** Without it the parser
-   * cannot mint a stand-in identity for a message that carries no
-   * `Message-ID`, so such a message is staged as unparseable and its
-   * attachments are discarded — the stranding H-02's fix exists to prevent
-   * (M-07). The production default is passed the UID for exactly this reason.
+   * MIME parser. Defaults to `parseMessage`; overridden only in tests. Passed
+   * the UID so the parsed message carries its marker.
    */
   parseRaw?: (raw: Buffer, uid: number) => Promise<InboundMessage>
+}
+
+/**
+ * What admission decides on, before any bytes move (architecture rule 1): the
+ * watermark and the UIDs already staged above it. Supplied by `runIngestion`,
+ * because `gmail.ts` reads no database.
+ */
+export interface AdmissionWindow {
+  /** The highest UID already handled. A message is admitted only above it. */
+  watermark: number
+  /** UIDs above the watermark already staged by an earlier, halted run. */
+  stagedUids: ReadonlySet<number>
+}
+
+/** What one pass over the listing produced, by UID. */
+export interface CollectedMail {
+  /** Messages to stage — parsed, refused or unreadable. */
+  messages: InboundMessage[]
+  /** Listed, already staged, skipped without a download. */
+  alreadyStagedUids: number[]
   /**
-   * Lowest UID to consider. Defaults to the first valid IMAP UID, i.e. the
-   * whole mailbox. Advancing this watermark across runs is `runIngestion`'s job
-   * (Task 99) — this module holds no state and reads no database.
+   * Listed but left for the next run by the byte budget or the message-count
+   * cap. Only the first such UID: the loop stops there, so the backlog drains
+   * in arrival order.
    */
-  sinceUid?: number
+  deferredUids: number[]
+  /**
+   * Downloaded, but the post-parse UID re-check refused them (architecture
+   * rule 3). Never staged, so they halt the watermark — loudly.
+   */
+  rejectedUids: number[]
 }

@@ -3,9 +3,11 @@ import {
   text,
   uuid,
   integer,
+  bigint,
   jsonb,
   timestamp,
   index,
+  unique,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import {
@@ -16,24 +18,33 @@ import {
 import { orders } from './orders'
 
 /**
- * Emails read from the ingestion mailbox (Feature 16, migration 0016).
+ * Emails read from the ingestion mailbox (Feature 16, migrations 0016 + 0017).
  *
  * Two tables, not one: an email yields 0..n purchase orders — three
  * attachments are three POs — so the email row is the **processed marker**
  * and `inbound_pos` holds the review queue.
  *
- * `message_id` is NOT NULL UNIQUE and carries two jobs. It is dedupe layer 1,
- * and it replaces the IMAP `\Seen` flag as the record of what has already
- * been handled: read state in Gmail must never decide what the ingester
- * processes, because opening the inbox by hand would then skip work.
+ * The marker is `(uid_validity, uid)` — two integers the IMAP server assigns,
+ * which no sender can influence (CONSTRAINT-33). The composite unique is what
+ * makes a re-run after a crash idempotent. Read state in Gmail never decides
+ * what the ingester processes.
  *
- * `from_address`, `subject` and `received_at` are nullable because they come
- * from sender-controlled MIME headers, any of which can be absent on a
- * malformed message. `message_id` is the only header the pipeline insists on.
+ * `message_id` is a **label**: stored for display and tracing, nullable, not
+ * unique, and no code branches on it (architecture rule 2). Until 0017 it was
+ * the marker, and a sender-written header as a marker is what HIGH-01 was.
+ *
+ * `message_id`, `from_address`, `subject` and `received_at` are nullable
+ * because they come from sender-controlled MIME headers, any of which can be
+ * absent on a malformed message.
+ *
+ * `bigint` in `number` mode: IMAP UIDs are unsigned 32-bit, past Postgres
+ * `integer` but far inside `Number.MAX_SAFE_INTEGER`.
  */
 export const inboundEmails = pgTable('inbound_emails', {
   id: uuid('id').primaryKey().defaultRandom(),
-  message_id: text('message_id').notNull().unique(),
+  uid_validity: bigint('uid_validity', { mode: 'number' }).notNull(),
+  uid: bigint('uid', { mode: 'number' }).notNull(),
+  message_id: text('message_id'),
   classification: inboundEmailClassificationEnum('classification').notNull(),
   from_address: text('from_address'),
   subject: text('subject'),
@@ -42,6 +53,7 @@ export const inboundEmails = pgTable('inbound_emails', {
   created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  unique('inbound_emails_uid_validity_uid_unique').on(t.uid_validity, t.uid),
   index('inbound_emails_classification_idx').on(t.classification),
   index('inbound_emails_received_at_idx').on(t.received_at),
 ])
@@ -104,3 +116,18 @@ export const inboundPos = pgTable('inbound_pos', {
   index('inbound_pos_duplicate_of_id_idx').on(t.duplicate_of_id),
   index('inbound_pos_order_id_idx').on(t.order_id),
 ])
+
+/**
+ * The UID watermark, one row per mailbox (Feature 16, migration 0017).
+ *
+ * `last_uid` is the highest UID such that every listed message at or below it
+ * is committed; the next run lists from `last_uid + 1`. It belongs to
+ * `uid_validity` — when the server reports a different UIDVALIDITY every UID
+ * is invalid and the watermark restarts at 0 (`lib/ingest/run.ts`).
+ */
+export const ingestMailboxState = pgTable('ingest_mailbox_state', {
+  mailbox: text('mailbox').primaryKey(),
+  uid_validity: bigint('uid_validity', { mode: 'number' }).notNull(),
+  last_uid: bigint('last_uid', { mode: 'number' }).notNull(),
+  last_run_at: timestamp('last_run_at', { withTimezone: true }),
+})

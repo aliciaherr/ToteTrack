@@ -377,7 +377,7 @@ Tasks 95–97 used **`Message-ID`** as the processed marker: fetch the listing, 
 
 **Five `@security` findings across five rounds were five instances of that one root cause.** Angle brackets were reconciled and proven non-divergent; the remaining divergences were not, and `@security`'s own closing judgement was that it could close instances but not argue a sixth did not exist. The mailbox being spam-dominated makes this worse rather than better — malformed `Message-ID` headers are precisely what spam carries.
 
-**The sender-controlled marker is what generated the findings; removing it removes the class.** `lib/ingest/identity.ts` exists only to bound and disambiguate that string — the three synthetic `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` prefixes, the SHA-256 fallbacks for over-long headers and the forgery guard against senders claiming a reserved prefix. With UID as the marker, an unidentifiable message is still perfectly addressable, so none of that machinery has a job.
+**The sender-controlled marker is what generated the findings; removing it removes the class.** `lib/ingest/identity.ts` existed only to bound and disambiguate that string (deleted in Task 99) — the three synthetic `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` prefixes, the SHA-256 fallbacks for over-long headers and the forgery guard against senders claiming a reserved prefix. With UID as the marker, an unidentifiable message is still perfectly addressable, so none of that machinery has a job.
 
 ### Three binding rules
 
