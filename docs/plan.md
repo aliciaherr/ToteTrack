@@ -3306,7 +3306,9 @@ the first real documents. The agreed sequence:
 | # | Task | Specialist |
 |---|---|---|
 | 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
-| 99 | Check suite — quote verification, arithmetic, date ambiguity | — |
+| 112 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **specced 2026-10-12, runs before 99** | @db |
+| 113 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **specced 2026-10-12** | — |
+| 99 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
 | 100 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
 | 101 | Extraction worker — drain, self-chain, retry | — |
 
@@ -3317,7 +3319,7 @@ ends visible (CONSTRAINT-34): (1) increment `attempt_count` **before** rendering
 (3) set the function's `maxDuration` explicitly; (4) render in a `worker_thread`, **or** the
 builder records accepting the CPU cost. HIGH-01 still blocks Task 102 and any production deploy
 that runs ingestion.
-| 102 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret | — |
+| 102 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret (route only; the watermark moved to Task 112's `runIngestion`) | — |
 | 103 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
 | 104 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
 | 105 | Review modal — right pane, quote highlighting, pickers | @ui-totetrack |
@@ -3736,3 +3738,197 @@ Body-text POs verify trivially; images do not. Task 99 must decide how.
 **Specialist:** —
 **Status:** [x] Done 2026-10-12 — `lib/extraction/`: constants, types, errors, schema, prompt, config, render-pdf, openrouter, extract (largest file 150 lines, longest function ~30). Built by three parallel subagents against a hand-written shared contract (types, schema, errors). **Evaluation passed on all 4 real POs, confirmed by the builder** — tote type, qty and unit price right on every tote line; PO number and delivery date right where present; nothing invented. **It took two prompt iterations:** first run named one PO's ship-to company as the customer; second named a buyer's initials; the customer rule is now "Bill To company, else letterhead — never ship-to, never a person". Empty `$0.00` template rows were also being returned as lines; now skipped. **Deviations:** errors live in `lib/extraction/errors.ts` rather than `lib/errors.ts` (merging would push that file to ~319 lines, over CQ-02); `toOrderQuantities` stayed in `extract.ts` (141 lines). **New deps:** `pdfjs-dist` 6.4.299, `@napi-rs/canvas` 1.0.11, pinned — **not yet run on Vercel** (A-14 records the `serverExternalPackages` + Node ≥ 22.13 prerequisites for Task 101/102). Timeout covers the response body too, not just headers. Suite 127 files / 1591 tests; `tsc` and `eslint` clean. Also fixed in passing: a `db/seed.ts` type error introduced by the CONSTRAINT-20 guard commit.
 **Depends on:** Task 94 (done)
+
+---
+
+## Task 112: Track processed mail by UID + UIDVALIDITY (CONSTRAINT-33)
+
+**Planned 2026-10-12. Placed before Task 99 by decision; numbered 112 so existing references
+("HIGH-01 gates Task 102", "Task 101 sign-off conditions") stay true.** Clears HIGH-01, the only
+open High. **Re-run `@security` after this task.**
+
+**Files:**
+- `db/migrations/0017_uid_watermark.sql` — create. `inbound_emails` gains `uid_validity bigint
+  NOT NULL` and `uid bigint NOT NULL` + `UNIQUE (uid_validity, uid)`; `message_id` drops
+  `UNIQUE` and `NOT NULL`. New table `ingest_mailbox_state` (`mailbox text PK`,
+  `uid_validity bigint NOT NULL`, `last_uid bigint NOT NULL`, `last_run_at timestamptz`) with
+  RLS matching CONSTRAINT-05. **The migration aborts loudly if `inbound_emails` has any row.**
+  Applied locally via `db:migrate-local`; prod by the builder pasting into the SQL editor
+  (never `db:migrate`).
+- `db/migrations/__tests__/0017.test.ts` — create
+- `db/schema/inbound.ts` — modify to match; header comment rewritten (message_id is a label)
+- `db/queries/inbound.ts` — **split** (298/300 lines) into `inbound-emails.ts`,
+  `inbound-pos.ts`, `ingest-state.ts`; tests split to match
+- `lib/ingest/imap-session.ts` — modify. Expose the open mailbox's `uidValidity`
+- `lib/ingest/gmail.ts`, `lib/ingest/message.ts`, `lib/ingest/types.ts` — modify
+- `lib/ingest/identity.ts` — **delete** (with its tests). `boundHeader` moves to `message.ts`
+- `lib/ingest/hash.ts` — modify. `refusalHash(uidValidity, uid, failure)` replaces
+  `surrogateContentHash`
+- `lib/ingest/pipeline.ts` — modify. Writes via `stageEmailWithPos`
+- `lib/ingest/run.ts` — create. Orchestrator; not wired to any route (Task 102)
+
+**Approach:**
+1. **Admission is by UID only.** `collectUnprocessed` drops `processedIds`; a message is admitted
+   iff `uid > watermark` and `uid ∉ stagedUidsAbove(watermark)` (a UID-only DB lookup, so H-01's
+   "admission before bytes" holds and no parsed header participates). The post-parse UID
+   re-check returns as layer two (architecture rule 3).
+2. **`InboundMessage` gains `uid`; `messageId` becomes `string | null`** — a bounded display
+   label. No branch reads it. `identityForDeclared`, `standInMessageId`, `canonicalMessageId`
+   and the `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` prefixes are removed.
+3. **One transaction per message.** `stageEmailWithPos(email, pos[])` inserts the email row and
+   all its PO rows atomically; a `(uid_validity, uid)` unique violation returns
+   `{ duplicate: true }` (reported, not thrown). Uploads happen before it (content-addressed,
+   idempotent).
+4. **`runIngestion(deps): Promise<IngestRunSummary>`** — read state → open session → compare
+   UIDVALIDITY → fetch → stage → advance → write `last_run_at`. The watermark advances to the
+   **highest UID such that every listed UID ≤ it is committed or already staged**. A failed or
+   deferred message halts the advance there and is returned in the summary
+   (`haltedAtUid`, `failedUids`, `deferredUids`). Later messages are still staged.
+5. **UIDVALIDITY changed** → `console.error` with old and new values, watermark reset to 0 under
+   the new validity; `content_hash` flags the re-ingested duplicates (architecture failure-mode
+   table).
+
+**Functions to implement:**
+- `runIngestion(deps: IngestRunDeps): Promise<IngestRunSummary>`
+- `advanceWatermark(current: number, outcomes: UidOutcome[]): number` — pure
+- `stageEmailWithPos(email, pos): Promise<{ id: string } | { duplicate: true }>`
+- `readIngestState(mailbox)`, `writeIngestState(state)`, `stagedUidsAbove(uidValidity, uid)`
+- `refusalHash(uidValidity, uid, failure): string`
+
+**Acceptance criteria:**
+- [ ] No branch reads `message_id`; a test stages two messages sharing one `Message-ID`, both land
+- [ ] Crash between staging and watermark advance: next run re-lists, the composite unique blocks
+      a second staging, no bytes are re-downloaded for already-staged UIDs
+- [ ] A failed or deferred UID halts the watermark below it and appears in the run summary
+- [ ] UIDVALIDITY change resets the watermark and logs loudly
+- [ ] `identity.ts` deleted; no `ingest-uid:` / `ingest-longid:` / `ingest-claimed:` left in `lib/` or `db/`
+- [ ] Migration test: no unique index on `message_id`; composite unique present; abort-if-rows
+      guard present; RLS enabled on `ingest_mailbox_state`
+- [ ] `readOnly: true` on the IMAP connection unchanged
+- [ ] SEC-05: logs carry UIDs, counts and hash prefixes — never addresses, subjects or bodies
+- [ ] CQ-01/02: functions < 50 lines, files < 300; full suite green; `tsc` and `eslint` clean
+
+**Tests required:**
+- `advanceWatermark` → contiguous success advances; a gap halts; empty run unchanged
+- `runIngestion` → happy path advances + writes `last_run_at`; failure halts; UIDVALIDITY change
+  resets; already-staged UID skipped without `fetchSource`
+- `stageEmailWithPos` → inserts both; duplicate returns `{ duplicate: true }`; other DB error throws
+- `collectUnprocessed` → admits by UID; post-parse re-check rejects a UID at/below the watermark
+- `0017` migration → SQL assertions above
+
+**Depends on:** Tasks 95–97 (done)
+**Specialist:** @db
+**Status:** [ ]
+
+---
+
+## Task 113: No silent drops, and the exact accepted file types (CONSTRAINT-34/35)
+
+**Planned 2026-10-12.** Every path that today drops part of a message becomes a review row.
+
+**Files:**
+- `lib/ingest/ingest.constants.ts` — modify. `ACCEPTED_MIME_TYPES` = exactly
+  `application/pdf`, `image/jpeg`, `image/png`, `image/webp`; `PO_DOCUMENT_EXTENSIONS` shrinks to
+  match; `PO_DOCUMENT_FALLBACK_EXTENSION` removed
+- `lib/ingest/candidates.ts` — modify. Wildcard matcher removed; `image/jpg` normalised to
+  `image/jpeg` before matching
+- `lib/ingest/types.ts` — modify. `IngestLimitReason` gains `unsupported_format`,
+  `empty_attachment`, `no_po_found`; `IngestLimitFailure` gains optional `mimeType`
+  (sanitised to `type/subtype`, ≤ 100 chars). Discriminator `check: 'ingest_limit'` unchanged
+- `lib/ingest/limits.ts`, `lib/ingest/pipeline.ts` — modify
+- tests for each
+
+**Approach:**
+- Unlisted type → `unsupported_format` refusal row carrying the sanitised MIME type, so the
+  review row can say "ask the vendor to re-send as PDF or JPG".
+- Empty attachment → `empty_attachment` refusal row (replaces the `console.error` + `continue`).
+- No candidates and no refusals → one `email_body` row with reason `no_po_found`, in the review
+  queue. Spam is dismissed by a human, never by the system.
+- **Storage upload failure throws for that message** — nothing commits, Task 112's watermark halts
+  below it, the next run retries. The current "write the refusals only and classify `failed`"
+  partial path is removed.
+- **M-03 (inline parts) accepted as-is, by decision 2026-10-12:** a signature GIF becomes an
+  `unsupported_format` row beside the real PO; filtering inline images would be a drop path, and
+  a pasted PO screenshot is an inline image. Revisit after real usage.
+
+**Acceptance criteria:**
+- [ ] Every path through `selectCandidates` / `stageDocuments` ends in a committed row or a thrown
+      error — one test per message shape
+- [ ] SVG, HEIC, TIFF and GIF attachments each produce an `unsupported_format` row
+- [ ] An email with no PO and no attachment content produces exactly one `no_po_found` review row
+- [ ] An upload failure leaves no row for that message and halts the watermark
+- [ ] SEC-05: no sender filename, subject or body in `check_results` or logs
+- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+
+**Tests required:**
+- `selectCandidates` → accepted types pass; each excluded type refused; `image/jpg` accepted;
+  empty attachment refused; nothing → `no_po_found`
+- `ingestMessages` / `runIngestion` → upload failure throws and nothing commits
+
+**Depends on:** Task 112
+**Status:** [ ]
+
+---
+
+## Task 99: Check suite — quotes, arithmetic, dates, field gates
+
+**Planned 2026-10-12.** Pure functions: extraction in, `check_results` out. No DB writes (Task 101's
+worker persists). Quote verification per FB-40 / CONSTRAINT-35 (amended).
+
+**Files:**
+- `lib/extraction/render-pdf.ts` — modify. The same parse also returns each page's text layer
+  (`getTextContent`), under the existing bounds and deadline
+- `lib/extraction/extract.ts` — modify. `extractPo` returns `{ extracted, sourceText }`;
+  `sourceText` is `string[]` (PDF pages, or `[body]` for text input) or `null` (image, or a PDF
+  whose text layer is blank — a scan). **The text is never added to the model request.**
+- `lib/checks/checks.constants.ts` — create. `MAX_QUOTE_CHARS`, `MAX_LINE_QUANTITY`,
+  `MAX_UNIT_PRICE`, `MONEY_TOLERANCE_CENTS` (0)
+- `lib/checks/types.ts` — create. `CheckName`, `CheckFailure { check, field, detail }`,
+  `QuoteResult { field, status: 'verified' | 'not_found' | 'unverifiable' }`, `CheckResults`
+- `lib/checks/quotes.ts`, `arithmetic.ts`, `dates.ts`, `fields.ts`, `run-checks.ts` — create
+- `lib/checks/__tests__/*.test.ts` — create
+
+**Output:** `check_results = { version: 1, failures: CheckFailure[], quotes: QuoteResult[] }` —
+`failures` honours the Task 95 contract.
+
+**Checks (each a `failures` entry):**
+- **Quote:** `not_found`; or longer than `MAX_QUOTE_CHARS`. `unverifiable` is recorded in
+  `quotes`, never a failure. Matching normalises case, whitespace and punctuation spacing; a
+  token-order fallback tolerates table-column reordering — tuned on the 4 POs.
+- **Arithmetic:** stated total ≠ Σ(qty × unit) over tote lines **to the cent** (the $7,800 vs
+  $7,800.18 gap fails), unless `other` lines account for the delta exactly (pass, listed in
+  `detail`); qty × unit ≠ line total; line total with no unit price that does not divide evenly
+  by qty to the cent.
+- **Dates:** ambiguous (both numeric components ≤ 12 and unequal) **unless another date on the
+  same document proves the order** (a component > 12 fixes MM/DD vs DD/MM for the document);
+  more than one `delivery` candidate.
+- **Fields:** no PO number; no ship-to address; any `unknown` tote line; one tote type at two
+  prices (`toOrderQuantities` conflicts); `isPurchaseOrder: false`; bounds (L-D) — quantity an
+  integer > 0 and ≤ `MAX_LINE_QUANTITY`, unit price ≥ 0 and ≤ `MAX_UNIT_PRICE`; flagged, never
+  clamped.
+
+**Functions to implement:**
+- `runChecks(extracted: ExtractedPo, sourceText: string[] | null): CheckResults`
+- `verifyQuote(quote: string, sourceText: string[] | null): QuoteResult['status']`
+- `checkArithmetic(extracted): CheckFailure[]`, `checkDates(extracted): CheckFailure[]`,
+  `checkFields(extracted): CheckFailure[]`
+
+**Evaluation — acceptance gate, outputs never committed:** run extraction + checks on the 4 real
+POs via a scratchpad script. Every genuine quote `verified` — **zero false `not_found`**; a planted
+invented value returns `not_found`; the Dakota-style gap is flagged. Builder confirms.
+
+**Acceptance criteria:**
+- [ ] A test proves `sourceText` never appears in the OpenRouter request body
+- [ ] Image input → every quote `unverifiable`, no quote failures
+- [ ] Each check above has a passing and a failing test
+- [ ] Every number in the checks comes from `checks.constants.ts` (no magic numbers)
+- [ ] Quotes rendered nowhere as HTML (L-D) — checks store status, not markup
+- [ ] Evaluation passes on all 4 POs, confirmed by the builder
+- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+
+**Tests required:** per check — happy and failing; `verifyQuote` → verified / not_found /
+unverifiable / column-reordered match; `renderPdfPages` → synthetic PDF returns text per page,
+blank-text PDF yields `null` upstream; `runChecks` → `failures` key always an array.
+
+**Depends on:** Task 98 (done). Independent of 112/113.
+**Status:** [ ]
