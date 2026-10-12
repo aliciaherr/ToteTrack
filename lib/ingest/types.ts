@@ -8,7 +8,12 @@
  * `db/queries/calendar.constants.ts`.
  */
 
-/** Which of the three ingestion caps refused something (H-01). */
+/**
+ * Why part or all of a message became a review row instead of a PO candidate:
+ * one of the ingestion caps (H-01), an unreadable message, or — since Task 100
+ * — something that is not a PO document at all. Every path that does not yield
+ * a candidate ends in one of these, never in a drop (CONSTRAINT-34).
+ */
 export type IngestLimitReason =
   /** The size IMAP declared for the whole message exceeds the batch ceiling. */
   | 'message_too_large'
@@ -29,6 +34,20 @@ export type IngestLimitReason =
    * (L-13), because a cap that guesses is not a cap.
    */
   | 'size_not_declared'
+  /**
+   * An attachment whose content type is not in `ACCEPTED_MIME_TYPES`. Carries
+   * the sanitised `mimeType`, so the review row can ask the vendor to re-send
+   * as PDF or JPG. Inline signature images land here too, by decision (M-03).
+   */
+  | 'unsupported_format'
+  /** An attachment that decoded to zero bytes: nothing to read or hash. */
+  | 'empty_attachment'
+  /**
+   * The message carried no candidate and nothing was refused: no usable
+   * attachment and no body text. Queued for a human to dismiss — spam is
+   * never dismissed by the system.
+   */
+  | 'no_po_found'
 
 /**
  * One refusal, written verbatim as an entry in the `failures` array on
@@ -60,6 +79,13 @@ export interface IngestLimitFailure {
   /** The cap `measured` was compared against. Omitted when there was no cap. */
   limit?: number
   unit?: 'bytes' | 'attachments'
+  /**
+   * The attachment's content type, for `unsupported_format` and
+   * `empty_attachment` only. Sanitised to a bare `type/subtype` of at most
+   * `MAX_RECORDED_MIME_TYPE_LENGTH` characters, and omitted when the sender's
+   * value does not have that shape — it is sender-controlled.
+   */
+  mimeType?: string
 }
 
 /** One file carried by an inbound email, already decoded to bytes. */
@@ -69,7 +95,10 @@ export interface InboundAttachment {
    * Never trusted as a path — Task 97 derives the storage key itself.
    */
   filename: string | null
-  /** The part's `Content-Type`, e.g. `application/pdf`. Lowercase, no parameters. */
+  /**
+   * The part's `Content-Type`, e.g. `application/pdf`, as the parser reported
+   * it. Sender-controlled: `candidates.ts` sanitises it before recording it.
+   */
   mimeType: string
   bytes: Buffer
 }

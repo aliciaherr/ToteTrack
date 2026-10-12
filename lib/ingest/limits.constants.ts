@@ -139,3 +139,24 @@ export const HEADER_CONTROL_CHARACTERS = /[\u0000-\u0008\u000A-\u001F\u007F]/g
  */
 export const RECEIVED_AT_MIN_MS = Date.UTC(1970, 0, 1)
 export const RECEIVED_AT_MAX_MS = Date.UTC(9999, 11, 31)
+
+/**
+ * Longest content type recorded on an `unsupported_format` or
+ * `empty_attachment` refusal (Task 100).
+ *
+ * The type is sender-controlled and is persisted in `check_results`, which the
+ * review UI reads back, so it is bounded like every other sender string. A
+ * real `type/subtype` is a few dozen characters; anything longer is recorded
+ * with no type at all rather than truncated into something misleading.
+ *
+ * Not an env var: a boundary length check (SEC-02), the same in every
+ * environment.
+ */
+export const MAX_RECORDED_MIME_TYPE_LENGTH = 100
+
+/**
+ * The shape a recorded content type must have: one `type/subtype` pair in
+ * RFC 6838's restricted-name characters, lowercase, no parameters. Anything
+ * else is dropped from the refusal rather than stored.
+ */
+export const RECORDABLE_MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/

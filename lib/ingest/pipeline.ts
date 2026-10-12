@@ -8,7 +8,7 @@ import { DocumentUploadError } from '@/lib/errors'
 import { loggableFailure } from '@/lib/loggable-failure'
 import { documentPathFor, selectCandidates, type PoCandidate } from './candidates'
 import { contentHash, refusalHash } from './hash'
-import { HASH_LOG_PREFIX_LENGTH, PO_DOCUMENTS_BUCKET } from './ingest.constants'
+import { PO_DOCUMENTS_BUCKET } from './ingest.constants'
 import { refusalColumns, REFUSED_SOURCE_KIND, type StagedPoInput } from './limits'
 import type { IngestLimitFailure, InboundMessage } from './types'
 
@@ -29,6 +29,11 @@ import type { IngestLimitFailure, InboundMessage } from './types'
  * **One message, one transaction.** The email row and all its PO rows are
  * written by a single `stageEmail` call, so a message is either fully staged
  * — and its UID may pass the watermark — or not staged at all (Task 99).
+ *
+ * **Every message ends in a committed row or a thrown error (CONSTRAINT-34).**
+ * Candidates are uploaded before the transaction; if any upload fails the
+ * whole message throws, nothing is written, the watermark halts below it and
+ * the next run retries it. There is no partial "refusals only" commit.
  *
  * **A duplicate is flagged, never rejected.** A repeat `content_hash` still
  * inserts an `inbound_pos` row with `duplicate_of_id` pointing at the first
@@ -95,10 +100,6 @@ interface StagedCandidate {
   failure: IngestLimitFailure | null
 }
 
-function hashPrefix(hash: string): string {
-  return hash.slice(0, HASH_LOG_PREFIX_LENGTH)
-}
-
 function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
 }
@@ -106,8 +107,8 @@ function describe(cause: unknown): string {
 /**
  * Hashes one candidate and, when it is a file, puts it in the bucket before
  * the row that will point at it exists. An upload failure throws
- * `DocumentUploadError` and the caller writes no `inbound_pos` row — no row
- * may reference a missing object.
+ * `DocumentUploadError` and the message writes no row at all — no row may
+ * reference a missing object.
  */
 async function stageCandidate(candidate: PoCandidate, deps: IngestDeps): Promise<StagedCandidate> {
   const hash = contentHash(candidate.hashInput)
@@ -164,13 +165,14 @@ function poRow(candidate: StagedCandidate): StagedPoInput {
 
 /**
  * An email that staged at least one real PO is `po_found`, whatever else it
- * also carried. One that staged none but refused something is `failed` — the
- * operator needs to know a document arrived and was not taken. One that
- * carried nothing recognisable is `no_po_found`.
+ * also carried. One whose only row is the `no_po_found` refusal is
+ * `no_po_found`. Any other refusal-only email is `failed` — the operator
+ * needs to know a document arrived and was not taken.
  */
-function classifyStaged(poCount: number, refusalCount: number): InboundEmailClassification {
-  if (poCount > 0) return 'po_found'
-  return refusalCount > 0 ? 'failed' : 'no_po_found'
+function classifyStaged(staged: StagedCandidate[]): InboundEmailClassification {
+  if (staged.some((candidate) => candidate.failure === null)) return 'po_found'
+  const nothingToRead = staged.every((candidate) => candidate.failure?.reason === 'no_po_found')
+  return nothingToRead ? 'no_po_found' : 'failed'
 }
 
 async function stageDocuments(
@@ -187,25 +189,15 @@ async function stageDocuments(
     }
   }
   const { candidates, rejections } = selectCandidates(message)
+  // Sequential and unguarded on purpose: a `DocumentUploadError` propagates to
+  // `ingestMessages`, which records the UID as failed so the watermark halts
+  // and the next run retries the whole message. Objects already uploaded are
+  // content-addressed, so the retry overwrites them rather than duplicating.
+  const uploaded: StagedCandidate[] = []
+  for (const candidate of candidates) uploaded.push(await stageCandidate(candidate, deps))
   const refused = rejections.map((failure) => refusedRow(uidValidity, message.uid, failure))
-  const staged: StagedCandidate[] = []
-  try {
-    for (const candidate of candidates) staged.push(await stageCandidate(candidate, deps))
-  } catch (cause) {
-    console.error('ingestMessages: staging the documents of one message failed', {
-      uid: message.uid,
-      candidateCount: candidates.length,
-      stagedBeforeFailure: staged.map((item) => hashPrefix(item.hash)),
-      cause,
-    })
-    // The refusals still go in: an upload failure elsewhere in the email is no
-    // reason to lose the record that something was turned away.
-    return { staged: refused, classification: 'failed' }
-  }
-  return {
-    staged: [...staged, ...refused],
-    classification: classifyStaged(staged.length, refused.length),
-  }
+  const staged = [...uploaded, ...refused]
+  return { staged, classification: classifyStaged(staged) }
 }
 
 async function ingestOne(

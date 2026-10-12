@@ -3307,7 +3307,7 @@ the first real documents. The agreed sequence:
 |---|---|---|
 | 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
 | 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **[x] done 2026-10-12, security CLEAR** | @db |
-| 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **specced 2026-10-12** | — |
+| 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **[x] done 2026-10-12** (HIGH-02R still open, not in spec) | — |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
 | 103 | Extraction worker — drain, self-chain, retry | — |
@@ -3851,13 +3851,13 @@ extraction and clears HIGH-01, the only open High. **Re-run `@security` after th
   a pasted PO screenshot is an inline image. Revisit after real usage.
 
 **Acceptance criteria:**
-- [ ] Every path through `selectCandidates` / `stageDocuments` ends in a committed row or a thrown
+- [x] Every path through `selectCandidates` / `stageDocuments` ends in a committed row or a thrown
       error — one test per message shape
-- [ ] SVG, HEIC, TIFF and GIF attachments each produce an `unsupported_format` row
-- [ ] An email with no PO and no attachment content produces exactly one `no_po_found` review row
-- [ ] An upload failure leaves no row for that message and halts the watermark
-- [ ] SEC-05: no sender filename, subject or body in `check_results` or logs
-- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] SVG, HEIC, TIFF and GIF attachments each produce an `unsupported_format` row
+- [x] An email with no PO and no attachment content produces exactly one `no_po_found` review row
+- [x] An upload failure leaves no row for that message and halts the watermark
+- [x] SEC-05: no sender filename, subject or body in `check_results` or logs
+- [x] CQ-01/02; full suite green; `tsc` and `eslint` clean
 
 **Tests required:**
 - `selectCandidates` → accepted types pass; each excluded type refused; `image/jpg` accepted;
@@ -3865,7 +3865,7 @@ extraction and clears HIGH-01, the only open High. **Re-run `@security` after th
 - `ingestMessages` / `runIngestion` → upload failure throws and nothing commits
 
 **Depends on:** Task 99
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). `selectCandidates` now ends every attachment as a candidate or a refusal (`triageAttachment`), and an email with neither yields one `no_po_found` row (email classified `no_po_found`, not `failed`). `PO_DOCUMENT_EXTENSIONS` is keyed by `AcceptedMimeType`, so the compiler enforces the pairing; `documentPathFor` has no fallback. `mimeType` on a refusal is lowercased, parameter-stripped, checked against RFC 6838 characters and dropped (not truncated) above `MAX_RECORDED_MIME_TYPE_LENGTH`. Upload failure propagates to `ingestMessages` → `failedUids` → watermark halts; proven end to end in `run.test.ts`. **Not in this task:** HIGH-02R "give up after N tries" — the Task 99 status line says Task 100 owes it, but this spec never included it; it still needs `@cto` and gates Task 104. Suite 132 files / 1633 tests.
 
 ---
 

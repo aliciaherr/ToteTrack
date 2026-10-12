@@ -47,15 +47,20 @@ export const INGEST_BATCH_SIZE = 4
 export const MAX_EXTRACTION_ATTEMPTS = 3
 
 /**
- * Attachment content types treated as PO candidates.
+ * Attachment content types treated as PO candidates — an exact list, never a
+ * wildcard (CONSTRAINT-35).
  *
- * Not an env var: adding a type here changes how the attachment is parsed and
- * sent to the model, so it needs matching code, not a redeploy. `image/*` is
- * a prefix pattern — match on the part before the `/` plus the `*`, not by
- * string equality. Anything not listed is ignored, and an email whose only
- * attachments are unlisted falls back to its body text (Task 97).
+ * Not an env var: adding a type here changes what is sent to the model, so it
+ * needs matching code and a verified read, not a redeploy. The old `image/*`
+ * admitted SVG (M-01) and named HEIC and TIFF, which the model cannot read.
+ * Anything not listed becomes an `unsupported_format` review row asking for a
+ * re-send (CONSTRAINT-34) — never ignored. `image/jpg` is not a registered type
+ * but some clients send it; `candidates.ts` normalises it to `image/jpeg` first.
  */
-export const ACCEPTED_MIME_TYPES = ['image/*', 'application/pdf'] as const
+export const ACCEPTED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] as const
+
+/** One of `ACCEPTED_MIME_TYPES`. */
+export type AcceptedMimeType = (typeof ACCEPTED_MIME_TYPES)[number]
 
 /**
  * The Supabase Storage bucket holding source PO documents. Private, per
@@ -134,25 +139,18 @@ export const PO_DOCUMENT_PATH_PREFIX = 'inbound'
 /**
  * File extension per accepted content type, used to build the storage key.
  *
- * Not an env var: each entry pairs with `ACCEPTED_MIME_TYPES` and with what
- * the extraction call can read. The sender's filename is deliberately **not**
- * used — it is untrusted input that could carry a path (`types.ts`), so the
- * extension is derived from the MIME type the parser reported instead.
- * Anything accepted but unlisted falls back to `PO_DOCUMENT_FALLBACK_EXTENSION`.
+ * Not an env var: keyed by `AcceptedMimeType`, so the compiler fails if this
+ * and `ACCEPTED_MIME_TYPES` drift apart — there is no fallback extension
+ * because there is no accepted type without an entry. The sender's filename is
+ * deliberately **not** used — it is untrusted input that could carry a path
+ * (`types.ts`), so the extension is derived from the MIME type instead.
  */
-export const PO_DOCUMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+export const PO_DOCUMENT_EXTENSIONS: Readonly<Record<AcceptedMimeType, string>> = {
   'application/pdf': '.pdf',
   'image/jpeg': '.jpg',
-  'image/jpg': '.jpg',
   'image/png': '.png',
-  'image/gif': '.gif',
   'image/webp': '.webp',
-  'image/heic': '.heic',
-  'image/tiff': '.tiff',
 }
-
-/** Extension for an accepted `image/*` type not named above. */
-export const PO_DOCUMENT_FALLBACK_EXTENSION = '.bin'
 
 /**
  * Quote markers stripped from the **front** of a body line before hashing

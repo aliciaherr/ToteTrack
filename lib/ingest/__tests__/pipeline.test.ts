@@ -138,10 +138,10 @@ describe('ingestMessages', () => {
     expect(fake.pos[0]).not.toHaveProperty('status')
   })
 
-  // The required error case. The upload is attempted before the email row is
-  // written, so the stored classification already reflects the failure — the
-  // Task 95 data layer has no classification update to correct it later.
-  it('creates no PO row and classifies the email failed when the upload rejects', async () => {
+  // The required error case (CONSTRAINT-34, Task 100). An upload failure
+  // throws for that message: no email row and no PO row, so nothing points at
+  // a missing object, and the UID is failed so the watermark halts below it.
+  it('writes nothing for a message whose upload rejects, fails its UID and continues', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const attempted: string[] = []
     const fake = recorder({
@@ -150,30 +150,31 @@ describe('ingestMessages', () => {
         throw new Error('storage unavailable')
       },
     })
-    const failing = message({ uid: 1 })
-    // Body-only, so it needs no upload and still stages behind the failure.
-    const following = message({
-      uid: 2,
-      bodyText: BODY_PO_TEXT,
-      attachments: [],
+    // A refusable sibling too: the old path committed its refusal row alone.
+    const failing = message({
+      uid: 1,
+      attachments: [
+        attachment('application/pdf', FAKE_PDF_BYTES, 'po-10042.pdf'),
+        attachment('image/svg+xml', Buffer.from('<svg/>'), 'logo.svg'),
+      ],
     })
+    // Body-only, so it needs no upload and still stages behind the failure.
+    const following = message({ uid: 2, bodyText: BODY_PO_TEXT, attachments: [] })
 
     const summary = await ingestMessages([failing, following], UID_VALIDITY, fake.deps)
 
     expect(attempted).toHaveLength(1)
-    // Recorded as a `failed` email, so it is committed and does not halt the
-    // watermark. Task 100 turns this path into a throw (CONSTRAINT-34).
-    expect(summary.committedUids).toEqual([1, 2])
-
-    // The email is still recorded — nothing is silently discarded — but with
-    // no PO row, so no row points at an object that was never written.
-    expect(fake.emails.map((row) => row.classification)).toEqual(['failed', 'po_found'])
+    expect(summary.failedUids).toEqual([1])
+    expect(summary.committedUids).toEqual([2])
+    expect(fake.emails.map((row) => row.uid)).toEqual([2])
     expect(fake.pos).toHaveLength(1)
-    expect(fake.pos[0]).toMatchObject({ inbound_email_id: 'email-2', source_kind: 'email_body' })
-    expect(summary.emailsStaged).toBe(2)
+    expect(fake.pos[0]).toMatchObject({ inbound_email_id: 'email-1', source_kind: 'email_body' })
+    expect(summary).toMatchObject({ emailsStaged: 1, refusalsRecorded: 0 })
 
-    expect(consoleError.mock.calls[0]?.[1]).toMatchObject({ uid: 1 })
-    expect(JSON.stringify(consoleError.mock.calls.flat())).not.toContain('purchase order')
+    expect(consoleError.mock.calls[0]?.[1]).toMatchObject({ uid: 1, error: 'DocumentUploadError > Error' })
+    const logged = JSON.stringify(consoleError.mock.calls.flat())
+    expect(logged).not.toContain('purchase order')
+    expect(logged).not.toContain('po-10042.pdf')
   })
 
   it('stages one PO row per accepted attachment', async () => {
@@ -194,18 +195,33 @@ describe('ingestMessages', () => {
     expect(fake.pos.every((row) => row.document_path !== null)).toBe(true)
   })
 
-  it('ignores an attachment whose type is not accepted and falls back to the body', async () => {
+  it('refuses an attachment whose type is not accepted and still stages the body', async () => {
     const fake = recorder()
     const spreadsheet = message({
       bodyText: BODY_PO_TEXT,
       attachments: [attachment('application/vnd.ms-excel', Buffer.from('not a PO'), 'book.xls')],
     })
 
-    await ingestMessages([spreadsheet], UID_VALIDITY, fake.deps)
+    const summary = await ingestMessages([spreadsheet], UID_VALIDITY, fake.deps)
 
     expect(fake.uploads).toHaveLength(0)
-    expect(fake.pos).toHaveLength(1)
-    expect(fake.pos[0].source_kind).toBe('email_body')
+    expect(summary).toMatchObject({ posStaged: 1, refusalsRecorded: 1 })
+    expect(fake.emails[0].classification).toBe('po_found')
+    expect(fake.pos.map((row) => row.source_kind)).toEqual(['email_body', 'email_body'])
+    expect(fake.pos[1]).toMatchObject({
+      document_path: null,
+      status: 'pending_review',
+      check_results: {
+        failures: [
+          {
+            check: 'ingest_limit',
+            reason: 'unsupported_format',
+            part: 'attachment-0',
+            mimeType: 'application/vnd.ms-excel',
+          },
+        ],
+      },
+    })
   })
 
   it('gives a body-only PO the normalised-body hash and no document path', async () => {
@@ -238,18 +254,32 @@ describe('ingestMessages', () => {
     expect(fake.pos[1].content_hash).toBe(fake.pos[0].content_hash)
   })
 
-  it('records an email with no candidate PO as no_po_found', async () => {
+  // CONSTRAINT-34: "ignore" is never terminal. Spam is dismissed by a human.
+  it('queues exactly one no_po_found review row for an email with nothing to read', async () => {
     const fake = recorder()
     const empty = message({
+      uid: 5,
       bodyText: '---------- Forwarded message ---------\nSubject: PO 10042\n-- \nDana Fixture',
       attachments: [],
     })
 
     const summary = await ingestMessages([empty], UID_VALIDITY, fake.deps)
 
+    const failure: IngestLimitFailure = { check: 'ingest_limit', reason: 'no_po_found', part: 'message' }
     expect(fake.emails[0].classification).toBe('no_po_found')
-    expect(fake.pos).toHaveLength(0)
-    expect(summary.emailsStaged).toBe(1)
+    expect(fake.pos).toEqual([
+      {
+        inbound_email_id: 'email-1',
+        source_kind: 'email_body',
+        document_path: null,
+        content_hash: refusalHash(UID_VALIDITY, 5, failure),
+        status: 'pending_review',
+        check_results: { failures: [failure] },
+        duplicate_of_id: null,
+      },
+    ])
+    expect(summary).toMatchObject({ emailsStaged: 1, posStaged: 0, refusalsRecorded: 1 })
+    expect(summary.committedUids).toEqual([5])
   })
 
   it('writes nothing new and reuses one storage key when the same batch runs twice', async () => {
@@ -486,6 +516,37 @@ describe('ingestMessages', () => {
           },
         ],
       })
+    })
+
+    // CONSTRAINT-34 (Task 100): the old path logged and `continue`d.
+    it('stages an empty attachment as an empty_attachment review row', async () => {
+      const consoleError = vi.spyOn(console, 'error')
+      const fake = recorder()
+      const empty = message({ bodyText: '', attachments: [attachment('application/pdf', Buffer.alloc(0), 'po.pdf')] })
+
+      const summary = await ingestMessages([empty], UID_VALIDITY, fake.deps)
+
+      expect(fake.uploads).toEqual([])
+      expect(summary).toMatchObject({ posStaged: 0, refusalsRecorded: 1, committedUids: [1] })
+      expect(fake.emails[0].classification).toBe('failed')
+      expect(fake.pos[0]).toMatchObject({
+        status: 'pending_review',
+        check_results: {
+          failures: [{ reason: 'empty_attachment', part: 'attachment-0', mimeType: 'application/pdf' }],
+        },
+      })
+      expect(consoleError).not.toHaveBeenCalled()
+    })
+
+    it('classifies an email whose only attachment is unsupported as failed, not no_po_found', async () => {
+      const fake = recorder()
+      const photo = message({ bodyText: '', attachments: [attachment('image/heic', Buffer.from('heic'), null)] })
+
+      const summary = await ingestMessages([photo], UID_VALIDITY, fake.deps)
+
+      expect(fake.emails[0].classification).toBe('failed')
+      expect(summary.refusalsRecorded).toBe(1)
+      expect(fake.pos.map((row) => row.check_results?.failures[0].reason)).toEqual(['unsupported_format'])
     })
 
     // CONSTRAINT-30 / SEC-05. `check_results` is persisted and read back by the

@@ -34,7 +34,7 @@ import type { DeclaredMessage, IngestLimitFailure, IngestLimitReason, InboundMes
  */
 
 /** `part` for a refusal about a whole message rather than one attachment. */
-const WHOLE_MESSAGE_PART = 'message'
+export const WHOLE_MESSAGE_PART = 'message'
 
 /**
  * `source_kind` on every row that records a refusal.
@@ -264,11 +264,3 @@ export function refusalColumns(failure: IngestLimitFailure | null): Partial<Stag
   if (!failure) return {}
   return { status: REFUSED_STATUS, check_results: checkResultsFor(failure) }
 }
-
-/**
- * Hashes and uploads every candidate before the email row is written, so the
- * stored classification already reflects whether the documents made it into
- * the bucket. On a failure the email is classified `failed` and no candidate
- * is staged — the Task 95 data layer has no classification update, so the
- * value has to be right the first time it is written.
- */

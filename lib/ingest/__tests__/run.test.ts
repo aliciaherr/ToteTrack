@@ -26,6 +26,32 @@ function rawMessage(subject: string, messageId = `<${subject.replace(/\s/g, '-')
   )
 }
 
+/** A message carrying one small fake PDF attachment, so staging must upload. */
+function rawWithPdf(subject: string): Buffer {
+  const boundary = 'fixture-boundary'
+  return Buffer.from(
+    [
+      `Message-ID: <${subject.replace(/\s/g, '-')}@orders.invalid.test>`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      'Please see the attached purchase order.',
+      `--${boundary}`,
+      'Content-Type: application/pdf; name="po.pdf"',
+      'Content-Disposition: attachment; filename="po.pdf"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from('%PDF-1.4\nfake purchase order fixture\n%%EOF\n').toString('base64'),
+      `--${boundary}--`,
+      '',
+    ].join('\r\n')
+  )
+}
+
 interface FakeMail {
   uid: number
   source: Buffer
@@ -188,6 +214,30 @@ describe('runIngestion', () => {
     expect(summary).toMatchObject({ watermark: 1, haltedAtUid: 2, failedUids: [2] })
     expect(env.writes[0].lastUid).toBe(1)
     expect(JSON.stringify(consoleError.mock.calls)).toContain('watermark halted')
+  })
+
+  // CONSTRAINT-34 (Task 100): an upload failure throws for the message rather
+  // than committing a partial row, so the watermark cannot pass it.
+  it('writes no row and halts the watermark when an upload fails, then stages it on retry', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = world([
+      { uid: 1, source: rawMessage('PO 1') },
+      { uid: 2, source: rawWithPdf('PO 2') },
+    ])
+    env.deps.ingest.uploadDocument = async () => {
+      throw new Error('storage unavailable')
+    }
+
+    const first = await runIngestion(env.deps)
+
+    expect(env.emails.map((row) => row.uid)).toEqual([1])
+    expect(first).toMatchObject({ watermark: 1, haltedAtUid: 2, failedUids: [2] })
+
+    env.deps.ingest.uploadDocument = async () => {}
+    const second = await runIngestion(env.deps)
+
+    expect(env.emails.map((row) => row.uid)).toEqual([1, 2])
+    expect(second).toMatchObject({ watermark: 2, haltedAtUid: null, failedUids: [] })
   })
 
   it('halts below a deferred UID and reports it', async () => {
