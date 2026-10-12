@@ -208,8 +208,8 @@ export interface GmailDeps {
   parseRaw?: (raw: Buffer, uid: number) => Promise<InboundMessage>
   /**
    * Lowest UID to consider. Defaults to the first valid IMAP UID, i.e. the
-   * whole mailbox. Advancing this watermark across runs is the trigger's job
-   * (Task 102) — this module holds no state and reads no database.
+   * whole mailbox. Advancing this watermark across runs is `runIngestion`'s job
+   * (Task 99) — this module holds no state and reads no database.
    */
   sinceUid?: number
 }

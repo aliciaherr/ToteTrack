@@ -85,7 +85,7 @@ export async function createImapSession(config: GmailImapConfig): Promise<ImapSe
  * into the fetch range (L-14).
  *
  * The TypeScript type is `number`, and a type is not a runtime check: this
- * value crosses a real boundary the moment Task 102 starts reading it back
+ * value crosses a real boundary the moment Task 99 starts reading it back
  * from persisted state, and whatever it is read from then becomes a place that
  * can rewrite the IMAP command. One assertion makes that boundary explicit for
  * whoever writes that task.

@@ -177,7 +177,7 @@ Status at creation is fixed as `scheduled` (not user-selectable) per CONSTRAINT-
 
 ### PO Document Upload — CUT FROM v1 (2026-04-22) — **SUPERSEDED by Feature 16 (2026-10-07)**
 
-> **Revived as Feature 16 — Email PO Ingestion.** The three revival conditions listed below are being met in order: CONSTRAINT-07 is amended in Task 94, the accuracy spike runs as an `@assumptions` pass before Task 98, and Tasks 94–111 are the fresh plan. The residual state noted below is now load-bearing rather than vestigial — `orders.document_url` and the `po-documents` bucket are what Feature 16 writes to, and the `PODocumentUpload` placeholder is no longer permanent. The bullets below are kept as the historical record of the cut.
+> **Revived as Feature 16 — Email PO Ingestion.** The three revival conditions listed below are being met in order: CONSTRAINT-07 is amended in Task 94, the accuracy spike runs as an `@assumptions` pass before Task 98, and Tasks 94–113 are the fresh plan. The residual state noted below is now load-bearing rather than vestigial — `orders.document_url` and the `po-documents` bucket are what Feature 16 writes to, and the `PODocumentUpload` placeholder is no longer permanent. The bullets below are kept as the historical record of the cut.
 
 - Originally specced as Task 19 (upload) + Task 33 (Claude vision extraction)
 - Task 33 cut: Anthropic Claude API is a paid service, conflicting with CONSTRAINT-07 ($0 hosting). Upload-without-extraction provides no real value (salesperson would still re-type every field), so Task 19 cut as well
@@ -1018,7 +1018,7 @@ of typing one.
   avoid duplicate customer records.
 - **Email containing no PO**: recorded as `no_po_found` **and queued as a review row with that reason** (CONSTRAINT-34, 2026-10-11 — superseded "no review queued"). Dismissed by the salesperson, never by the system.
 - **Duplicate PO number at save**: approval blocked with an explanatory message
-  in the core scope; the diff-and-update path arrives in Task 109.
+  in the core scope; the diff-and-update path arrives in Task 111.
 - **Multiple attachments in one email**: each becomes a separate PO.
 - **Forwarder's own note on top of a forwarded email**: not captured.
 
@@ -1033,9 +1033,9 @@ of typing one.
 - Push or instant email notification — polling only, by choice.
 
 **Sequenced after the core, pending real usage (not excluded):**
-- Updating an existing order from a revised PO, with a diff view (Task 109).
-- Inline customer creation from within the review modal (Task 110).
-- Learned per-customer name aliases feeding the matcher (Task 111).
+- Updating an existing order from a revised PO, with a diff view (Task 111).
+- Inline customer creation from within the review modal (Task 112).
+- Learned per-customer name aliases feeding the matcher (Task 113).
 
 ### Success Metric
 **% of POs approved with zero field edits.** Measured from the staged model

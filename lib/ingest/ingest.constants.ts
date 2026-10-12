@@ -41,7 +41,7 @@ export const INGEST_BATCH_SIZE = 4
  * and local retry differently, which makes a failure unreproducible.
  *
  * Three is a starting value, not a measured one — the plan names the constant
- * without pinning a number. Task 101 owns the retry loop and should revise it
+ * without pinning a number. Task 103 owns the retry loop and should revise it
  * against real failure data.
  */
 export const MAX_EXTRACTION_ATTEMPTS = 3

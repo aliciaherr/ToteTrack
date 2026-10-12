@@ -240,7 +240,7 @@ async function collectUnprocessed(
  * `processedIds` holds the caller's `inbound_emails.message_id` values — this
  * module reads no database, so the set is supplied rather than queried. The
  * watermark comes from `deps.sinceUid` and defaults to the whole mailbox;
- * advancing it between runs belongs to the trigger (Task 102).
+ * advancing it between runs belongs to `runIngestion` (Task 99).
  *
  * **The byte budget is the memory half of H-01.** Each message is admitted or
  * refused on the size IMAP declares for it, before `fetchSource` transfers

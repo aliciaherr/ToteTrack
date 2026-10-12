@@ -437,19 +437,19 @@ Every extracted value carries a source quote, and the PRD requires that quote to
 | Digital PDF | its embedded text layer (`pdfjs-dist` `getTextContent`, from the same parse that renders the pages, under the same bounds) | — |
 | Image, scanned PDF | nothing available | `unverifiable` |
 
-Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_found` is a check failure**: it means the value was likely invented, and it becomes an entry in the `check_results.failures` array (Task 95 contract). `unverifiable` is recorded but does not rank a row up, so photos do not flood the top of the queue. The text layer is **never sent to the model and never used to fill a field**. CONSTRAINT-35 (amended) permits it for verification only. Matching normalises case, whitespace and punctuation spacing. Exact tolerance (table-column reordering in the text layer) is settled by Task 99 against the 4 real POs.
+Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_found` is a check failure**: it means the value was likely invented, and it becomes an entry in the `check_results.failures` array (Task 95 contract). `unverifiable` is recorded but does not rank a row up, so photos do not flood the top of the queue. The text layer is **never sent to the model and never used to fill a field**. CONSTRAINT-35 (amended) permits it for verification only. Matching normalises case, whitespace and punctuation spacing. Exact tolerance (table-column reordering in the text layer) is settled by Task 101 against the 4 real POs.
 
 ---
 
 ### The extraction module — `lib/extraction/` (Task 98, 2026-10-12)
 
-`extractPo()` is a pure call: document in, `ExtractedPo` out. It writes no rows, holds no queue and does no retries (Task 101's worker) or checks (Task 99). It has **no log statements** by design. The worker that calls it logs model, status, page count and duration, and never logs content.
+`extractPo()` is a pure call: document in, `ExtractedPo` out. It writes no rows, holds no queue and does no retries (Task 103's worker) or checks (Task 101). It has **no log statements** by design. The worker that calls it logs model, status, page count and duration, and never logs content.
 
 - **Provider:** OpenRouter, `zdr: true` hardcoded with a test proving it can't be disabled. Model is `OPENROUTER_MODEL`, defaulting to `openai/gpt-4.1-mini`, at temperature 0.
-- **PDF rendering:** `render-pdf.ts` uses `pdfjs-dist` + `@napi-rs/canvas` (both pinned), at scale 2, max 5 pages. It is bounded before allocation: a per-page pixel cap, the pdfjs `maxImageSize` / `canvasMaxAreaInBytes`, and a whole-PDF render deadline. The deadline can't interrupt one page mid-render (M-04 residual, a Task 101 sign-off condition).
+- **PDF rendering:** `render-pdf.ts` uses `pdfjs-dist` + `@napi-rs/canvas` (both pinned), at scale 2, max 5 pages. It is bounded before allocation: a per-page pixel cap, the pdfjs `maxImageSize` / `canvasMaxAreaInBytes`, and a whole-PDF render deadline. The deadline can't interrupt one page mid-render (M-04 residual, a Task 103 sign-off condition).
 - **Spend bounds:** email text is capped at 20k chars, output at 4k tokens, and a truncated response is rejected rather than parsed.
 - **Errors** live in `lib/extraction/errors.ts`, not `lib/errors.ts` (merging would break the 300-line cap).
-- **Vercel is unverified** for the native canvas binary. See A-14: `serverExternalPackages` + Node ≥ 22.13 are deploy prerequisites for Task 101/102.
+- **Vercel is unverified** for the native canvas binary. See A-14: `serverExternalPackages` + Node ≥ 22.13 are deploy prerequisites for Task 103/104.
 
 ---
 
@@ -605,7 +605,7 @@ All secrets live in environment variables only — never in source, never expose
 
 ## Platform-Native Rules
 
-Next.js enforces invariants that don't appear in the generic rules files but are binding for any code touching this repo. The first three were surfaced by the first production build (2026-04-22) under Next 14 and still hold under 16. The fourth arrived with the Next 15 upgrade (Task 83, 2026-08-11) and survived the move to 16 (Task 84).
+Next.js enforces invariants that don't appear in the generic rules files but are binding for any code touching this repo. The first three were surfaced by the first production build (2026-04-22) under Next 14 and still hold under 16. The fourth arrived with the Next 15 upgrade (Task 83, 2026-8-11) and survived the move to 16 (Task 84).
 
 ### `'use server'` files export async functions only
 Files marked `'use server'` (the 11 action-entry-point modules under `lib/actions/` — not the guard, helper, validation and constant siblings beside them) may export **async functions only**. Non-function exports (constants, arrays, unions, enums) fail the production compile with `Only async functions are allowed to be exported in a "use server" file`. Dev mode tolerates this on the initial compile but surfaces the error on per-route cold compiles.
@@ -654,7 +654,7 @@ Note this does **not** relax the `force-dynamic` rule above; the two are indepen
 
 ## Performance Considerations
 
-- Need-to-Contact calculation: computed at query time via SQL aggregation. Single-user with hundreds of orders — runs in milliseconds. No background job or materialized view needed. A customer with a scheduled order is never overdue (`overdue_days` NULL, excluded from the widget) — an order is already booked, so there is nothing to contact them about (Task 74, 2026-08-02).
+- Need-to-Contact calculation: computed at query time via SQL aggregation. Single-user with hundreds of orders — runs in milliseconds. No background job or materialized view needed. A customer with a scheduled order is never overdue (`overdue_days` NULL, excluded from the widget) — an order is already booked, so there is nothing to contact them about (Task 74, 2026-8-2).
 - **Calendar range filter is index-backed again (2026-07-27).** `getCalendarOrders` now filters on the bare column (`o.production_date >= from AND <= to`), which is sargable, so `orders_production_date_idx` serves it. The previous `COALESCE(production_date, …)` form forced a sequential scan and was logged as **FI-02**; removing the read-time derivation removed the problem rather than working around it. No functional index is needed.
 - Server Components: data fetched before page renders — no client-side loading state for initial content.
 - Animations: `useReducedMotion()` checked in all animated components — instant transitions when accessibility preference set.

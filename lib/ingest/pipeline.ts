@@ -19,7 +19,7 @@ import type { IngestLimitFailure, InboundMessage } from './types'
  * decides which). The module writes through injected collaborators only — it
  * imports no runtime value from `@/db` or `@/lib/supabase`, exactly as
  * `gmail.ts` does not, so its tests need neither a database nor a bucket.
- * Production wiring belongs to the trigger (Task 102).
+ * Production wiring belongs to the trigger (Task 104).
  *
  * **Classification here is provisional and structural.** An accepted
  * attachment means "probably a PO"; body text cannot be judged without the

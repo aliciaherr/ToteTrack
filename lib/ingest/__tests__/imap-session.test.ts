@@ -113,7 +113,7 @@ describe('assertUsableWatermark', () => {
   })
 
   // L-14: the value is interpolated into the IMAP fetch range, and the
-  // TypeScript `number` type is not a runtime check. Task 102 will supply it
+  // TypeScript `number` type is not a runtime check. Task 99 will supply it
   // from persisted state, which is where a type stops being sufficient.
   it('rejects anything that is not a safe integer UID', () => {
     for (const bad of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2]) {

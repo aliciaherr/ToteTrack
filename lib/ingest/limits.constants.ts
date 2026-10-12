@@ -95,7 +95,7 @@ export const MAX_TOTAL_INGEST_BYTES = INGEST_BATCH_SIZE * MAX_ATTACHMENT_BYTES
  *
  * Not an env var: like the byte ceiling, it is pinned by what one serverless
  * invocation can finish before its timeout, which is a property of the runtime
- * and the per-message round trips, not of the deployment. Task 102 owns the
+ * and the per-message round trips, not of the deployment. Task 104 owns the
  * cron interval and should revise this against it and against measured
  * per-message latency.
  */

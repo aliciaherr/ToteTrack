@@ -1,5 +1,5 @@
 /**
- * Named failures for PO extraction (EH-05). Each is a distinct mode Task 101's
+ * Named failures for PO extraction (EH-05). Each is a distinct mode Task 103's
  * worker must tell apart: a config error is permanent, a timeout is worth a
  * retry, a too-long PDF needs a human. Messages carry identifiers, counts and
  * statuses only — never document text or extracted values (SEC-01 / SEC-05).

@@ -635,7 +635,7 @@ describe('fetchUnprocessedMail', () => {
     })
   })
 
-  // L-14: a TypeScript `number` is not a runtime check, and Task 102 will
+  // L-14: a TypeScript `number` is not a runtime check, and Task 99 will
   // supply this value from persisted state.
   it('rejects a watermark that is not a usable IMAP UID', async () => {
     for (const bad of [0, -1, 1.5, Number.NaN]) {

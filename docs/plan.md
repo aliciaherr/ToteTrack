@@ -3289,7 +3289,7 @@ The Next-specific surface here is small — an impact scan on 2026-08-11 found t
 
 ---
 
-# Feature 16 — Email PO Ingestion (Tasks 94–111)
+# Feature 16 — Email PO Ingestion (Tasks 94–113)
 
 **Source:** `docs/prd.md` → "Feature 16: Email PO Ingestion". Supersedes the cut recorded at
 `prd.md:178` (Tasks 19 and 33). New assumptions A-07 through A-13 in `docs/assumptions.md`.
@@ -3299,53 +3299,53 @@ project predates the requirement. Following the Task 49 precedent: the waiver is
 here, and `**Specialist:**` fields use the existing `@db` / `@ui-totetrack` convention rather
 than being omitted.
 
-**Only Tasks 94–97 are written.** Tasks 98–111 are planned in shape but deliberately not yet
+**Only Tasks 94–97 are written.** Tasks 98–113 are planned in shape but deliberately not yet
 specced — they depend on the extraction schema and field descriptions, which are informed by
 the first real documents. The agreed sequence:
 
 | # | Task | Specialist |
 |---|---|---|
 | 98 | Extraction call — OpenRouter + ZDR, schema, source quotes | — |
-| 112 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **specced 2026-10-12, runs before 99** | @db |
-| 113 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **specced 2026-10-12** | — |
-| 99 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
-| 100 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
-| 101 | Extraction worker — drain, self-chain, retry | — |
+| 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **specced 2026-10-12** | @db |
+| 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **specced 2026-10-12** | — |
+| 101 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
+| 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
+| 103 | Extraction worker — drain, self-chain, retry | — |
 
-**Task 101 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
+**Task 103 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
 deadline cannot interrupt one page mid-render, so the worker must guarantee a hostile PDF still
 ends visible (CONSTRAINT-34): (1) increment `attempt_count` **before** rendering starts;
 (2) at `MAX_EXTRACTION_ATTEMPTS` the PO becomes a visible review row and is never retried;
 (3) set the function's `maxDuration` explicitly; (4) render in a `worker_thread`, **or** the
-builder records accepting the CPU cost. HIGH-01 still blocks Task 102 and any production deploy
+builder records accepting the CPU cost. HIGH-01 still blocks Task 104 and any production deploy
 that runs ingestion.
-| 102 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret (route only; the watermark moved to Task 112's `runIngestion`) | — |
-| 103 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
-| 104 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
-| 105 | Review modal — right pane, quote highlighting, pickers | @ui-totetrack |
-| 106 | Approve / skip / delete — duplicates blocked with a message | — |
-| 107 | Auto-advance and "You are all caught up" | @ui-totetrack |
-| 108 | Architecture + `document-extraction.md` updates | — |
+| 104 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret (route only; the watermark moved to Task 99's `runIngestion`) | — |
+| 105 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
+| 106 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
+| 107 | Review modal — right pane, quote highlighting, pickers | @ui-totetrack |
+| 108 | Approve / skip / delete — duplicates blocked with a message | — |
+| 109 | Auto-advance and "You are all caught up" | @ui-totetrack |
+| 110 | Architecture + `document-extraction.md` updates | — |
 | — | **core complete — re-evaluate before continuing** | |
-| 109 | Duplicate diff + update-existing-order path | — |
-| 110 | Inline customer creation, pre-filled, secondary to the picker | @ui-totetrack |
-| 111 | Learned per-customer name aliases | @db |
+| 111 | Duplicate diff + update-existing-order path | — |
+| 112 | Inline customer creation, pre-filled, secondary to the picker | @ui-totetrack |
+| 113 | Learned per-customer name aliases | @db |
 
-Tasks 109–111 are **in scope but sequenced last by decision (2026-10-07)**. They were
+Tasks 111–113 are **in scope but sequenced last by decision (2026-10-07)**. They were
 proposed for cutting as exception-path work; the builder kept them and moved them behind the
 core. That ordering only pays off if the core is genuinely used before they are started —
 `prd.md` records them as "sequenced after the core, pending real usage", not as committed.
 
-**A-12 is open** and gates Task 100 only: confirm `pg_trgm` is available on Supabase free
+**A-12 is open** and gates Task 102 only: confirm `pg_trgm` is available on Supabase free
 before starting it. Do not assume it.
 
-**`check_results` shape — settled by Task 95, 2026-10-07.** The column is free-form
+**`check_results` shape — settled by Task 95, 2026-10-7.** The column is free-form
 `jsonb`, but one key is a contract the queue query already depends on: **a failure is an
 entry in a top-level `failures` array.** `db/queries/inbound.ts:82-93` sorts the review
 queue on `jsonb_array_length(check_results -> 'failures') > 0`, written total so a NULL
 column, a missing key or a non-array all count as "no failures" rather than breaking the
-queue. **Task 99 must emit that key**; what goes *inside* each entry is deliberately still
-open and Task 99 decides it. **Task 105** reads it to order and label the right pane.
+queue. **Task 101 must emit that key**; what goes *inside* each entry is deliberately still
+open and Task 101 decides it. **Task 107** reads it to order and label the right pane.
 Note what the shape cannot express: every entry ranks equally — there is no hard-failure
 vs. warning distinction. Adding one is a change *inside* an entry, not to this contract.
 Checks rank attention and never gate acceptance: a failure sorts a row to the top, it does
@@ -3449,7 +3449,7 @@ note that called for a unique index here.
 
 **Why `extracted` and `confirmed` are both retained:** together they are the Feature 16
 success metric (% approved with zero edits) and the only correction signal available to
-Tasks 109–111. Deleting either loses it permanently.
+Tasks 111–113. Deleting either loses it permanently.
 
 **Functions to implement:**
 - `insertInboundEmail(input): Promise<{ id: string } | { duplicate: true }>` — unique
@@ -3486,7 +3486,7 @@ Tasks 109–111. Deleting either loses it permanently.
   does not throw
 - `listPendingReview` → check-failures sort ahead of clean rows; skipped sort last
 
-**Status:** [x] Done (2026-10-07) — `db/schema/inbound.ts`, `db/migrations/0016_inbound_email_ingestion.sql`, `db/queries/inbound.ts` and `db/queries/__tests__/inbound.test.ts` created, plus `db/migrations/__tests__/0016.test.ts` (every migration since 0008 has one, and four criteria here are assertions about the SQL file). Three enums — the Files line says two, the body specifies three; the body wins. `content_hash` is NOT NULL + indexed + **not unique**, with the reason comments in both the schema and the migration and a test asserting no unique index, so it cannot be reverted by tidying. `message_id` NOT NULL UNIQUE; a repeat insert returns `{ duplicate: true }` without throwing. `duplicate_of_id` is a nullable self-FK; `duplicate_of_id` and `order_id` are `set null` (spec silent — follows the `orders.invoice_id` precedent). **New contract Task 99 must honour:** a check failure is an entry in a `failures` array on `check_results`, and the ORDER BY type-tests the jsonb before `jsonb_array_length` so an unexpected shape sorts as "no failures" rather than breaking the queue. CONSTRAINT-05's count made non-numeric (log row 32) and `architecture.md`'s RLS list reconciled to 12. **Migration 0016 written by hand and deliberately NOT applied** — no `db:*` command was run against the live database; applying it is the builder's call. `db/migrations/meta/` left untouched: it is a drizzle-kit artifact (`_journal.json` still lists only `0001`). No integration test split out — `db/queries/__tests__/` has never had one; all 11 files mock `@/db` and assert on compiled SQL, so there were no DB-dependent tests to move. Suite: 115 files / 1425 tests passing; `tsc` and `eslint` clean. **Open for Task 108:** `architecture.md:101` still calls `db/queries/*` "read-only DB functions", which this module's insert helpers contradict by spec.
+**Status:** [x] Done (2026-10-07) — `db/schema/inbound.ts`, `db/migrations/0016_inbound_email_ingestion.sql`, `db/queries/inbound.ts` and `db/queries/__tests__/inbound.test.ts` created, plus `db/migrations/__tests__/0016.test.ts` (every migration since 0008 has one, and four criteria here are assertions about the SQL file). Three enums — the Files line says two, the body specifies three; the body wins. `content_hash` is NOT NULL + indexed + **not unique**, with the reason comments in both the schema and the migration and a test asserting no unique index, so it cannot be reverted by tidying. `message_id` NOT NULL UNIQUE; a repeat insert returns `{ duplicate: true }` without throwing. `duplicate_of_id` is a nullable self-FK; `duplicate_of_id` and `order_id` are `set null` (spec silent — follows the `orders.invoice_id` precedent). **New contract Task 101 must honour:** a check failure is an entry in a `failures` array on `check_results`, and the ORDER BY type-tests the jsonb before `jsonb_array_length` so an unexpected shape sorts as "no failures" rather than breaking the queue. CONSTRAINT-05's count made non-numeric (log row 32) and `architecture.md`'s RLS list reconciled to 12. **Migration 0016 written by hand and deliberately NOT applied** — no `db:*` command was run against the live database; applying it is the builder's call. `db/migrations/meta/` left untouched: it is a drizzle-kit artifact (`_journal.json` still lists only `0001`). No integration test split out — `db/queries/__tests__/` has never had one; all 11 files mock `@/db` and assert on compiled SQL, so there were no DB-dependent tests to move. Suite: 115 files / 1425 tests passing; `tsc` and `eslint` clean. **Open for Task 110:** `architecture.md:101` still calls `db/queries/*` "read-only DB functions", which this module's insert helpers contradict by spec.
 **Depends on:** None
 **Specialist:** @db
 
@@ -3542,7 +3542,7 @@ with the 7-day testing-mode refresh-token trap noted in A-09.
 - `fetchUnprocessedMail` → error: auth failure throws with host and user in the message and
   the app password absent from it
 
-**Status:** [x] Done (2026-10-07) — `lib/ingest/gmail.ts`, `lib/ingest/types.ts` and `lib/ingest/__tests__/gmail.test.ts` created (14 tests), plus `lib/ingest/ingest.constants.ts`, which this Files line omits but the feature preamble requires and Task 97 imports: it holds exactly the seven tunables the preamble names, each with its reason for being a constant rather than an env var. **No mailbox, network service or database was contacted** — `GmailDeps.openSession` is required with no default and `createImapSession` (the real `imapflow` session) is exported separately, so no test can reach a live inbox by forgetting to inject a fake. Three error classes went into `lib/errors.ts` beside the nine existing ones: `IngestConfigError`, `ImapConnectionError` (host + user in the message, app password actively scrubbed out of the interpolated reason) and `MimeParseError` (carries the IMAP UID, never body content). The `ADMIN_EMAIL` guard compares trimmed and case-insensitively and names `GMAIL_IMAP_USER`, `ADMIN_EMAIL` and CONSTRAINT-04 — but **not either address**, which CONSTRAINT-04 keeps out of every file including a log sink. Inbox opened `readOnly: true` and `imapflow`'s own logger disabled, so "`\Seen` is never touched" and "the LOGIN line is never printed" are properties of the connection, not promises about the code. **`GmailDeps` carries `config` and `sinceUid`, which the spec does not mention** — the spec requires a UID watermark but gives it no route into the pinned signature, so it travels in this task's own deps type, defaulting to the whole mailbox. **Nothing advances that watermark: Task 102 must decide where the high-water mark is persisted, or every run re-reads the whole mailbox** and relies on `processedIds` alone. **A-09 did NOT resolve** — the spec expects this task's first action to be a live IMAP connection, none was made, so a revoked app password is still undetected. Three constants the preamble names without pinning (`MAX_EXTRACTION_ATTEMPTS`, `COMPRESSED_IMAGE_MAX_DIMENSION`, `COMPRESSED_IMAGE_QUALITY`) were given starting values, each commented as such and pointing at the task that owns revising it. MIME fixture built in memory because `*.pdf` is gitignored repo-wide (CONSTRAINT-30). No integration-test file — nothing under `lib/` has ever had one. Suite: 116 files / 1439 tests passing (1425 before); `tsc` and `eslint` clean. **Doc defect, flagged not fixed:** this task's criteria cite SEC-01, SEC-05, EH-01, EH-02 and CQ-01, none of which exist in `docs/constraints.md` — they are framework rule ids, read as their obvious intent. No constraint was amended.
+**Status:** [x] Done (2026-10-07) — `lib/ingest/gmail.ts`, `lib/ingest/types.ts` and `lib/ingest/__tests__/gmail.test.ts` created (14 tests), plus `lib/ingest/ingest.constants.ts`, which this Files line omits but the feature preamble requires and Task 97 imports: it holds exactly the seven tunables the preamble names, each with its reason for being a constant rather than an env var. **No mailbox, network service or database was contacted** — `GmailDeps.openSession` is required with no default and `createImapSession` (the real `imapflow` session) is exported separately, so no test can reach a live inbox by forgetting to inject a fake. Three error classes went into `lib/errors.ts` beside the nine existing ones: `IngestConfigError`, `ImapConnectionError` (host + user in the message, app password actively scrubbed out of the interpolated reason) and `MimeParseError` (carries the IMAP UID, never body content). The `ADMIN_EMAIL` guard compares trimmed and case-insensitively and names `GMAIL_IMAP_USER`, `ADMIN_EMAIL` and CONSTRAINT-04 — but **not either address**, which CONSTRAINT-04 keeps out of every file including a log sink. Inbox opened `readOnly: true` and `imapflow`'s own logger disabled, so "`\Seen` is never touched" and "the LOGIN line is never printed" are properties of the connection, not promises about the code. **`GmailDeps` carries `config` and `sinceUid`, which the spec does not mention** — the spec requires a UID watermark but gives it no route into the pinned signature, so it travels in this task's own deps type, defaulting to the whole mailbox. **Nothing advances that watermark: Task 99 must decide where the high-water mark is persisted, or every run re-reads the whole mailbox** and relies on `processedIds` alone. **A-09 did NOT resolve** — the spec expects this task's first action to be a live IMAP connection, none was made, so a revoked app password is still undetected. Three constants the preamble names without pinning (`MAX_EXTRACTION_ATTEMPTS`, `COMPRESSED_IMAGE_MAX_DIMENSION`, `COMPRESSED_IMAGE_QUALITY`) were given starting values, each commented as such and pointing at the task that owns revising it. MIME fixture built in memory because `*.pdf` is gitignored repo-wide (CONSTRAINT-30). No integration-test file — nothing under `lib/` has ever had one. Suite: 116 files / 1439 tests passing (1425 before); `tsc` and `eslint` clean. **Doc defect, flagged not fixed:** this task's criteria cite SEC-01, SEC-05, EH-01, EH-02 and CQ-01, none of which exist in `docs/constraints.md` — they are framework rule ids, read as their obvious intent. No constraint was amended.
 **Depends on:** None
 
 ---
@@ -3605,7 +3605,7 @@ nothing auto-approves, and the save-time PO-number check is the backstop.
 - `normalizeBodyForHash` → happy: two forwarded variants of the same body hash equal
 - `contentHash` → error case: empty input throws rather than returning a hash of nothing
 
-**Status:** [x] Done (2026-10-07) — `lib/ingest/pipeline.ts` (240 lines), `lib/ingest/hash.ts`, `lib/ingest/candidates.ts` and the two test files created (22 tests; suite 118 files / 1461 tests passing, `tsc` and `eslint` clean); documents are hashed and uploaded **before** the `inbound_emails` row is written, because the Task 95 data layer has no classification-update helper and a storage failure must land as `classification = 'failed'` with no PO row on the first and only write; a repeat `content_hash` still inserts a row with `duplicate_of_id` set and `status` left to its column default, so a duplicate is flagged and reviewed rather than rejected; storage keys are content-addressed (`inbound/<sha256><ext>`, never the sender's filename), which is what makes a repeated batch create no duplicate object; `normalizeBodyForHash` unquotes `>` markers rather than dropping those lines (in a forward the PO *is* the quoted block) and strips forward/reply separators, attribution lines, re-emitted headers and the signature; `contentHash` throws `ContentHashError` on empty input; logs carry message ids, counts and 12-character hash prefixes only. **Deviations:** `candidates.ts` is a fifth file, split out because `pipeline.ts` was 331 lines against the 300-line cap this task's own CQ-01 criterion cites; `IngestDeps` / `IngestSummary` are declared in `pipeline.ts` because `types.ts` defines neither and was off-limits; `lib/errors.ts` gained `ContentHashError` and `DocumentUploadError`. **Flagged, not fixed:** a DB failure *after* the email row is written cannot correct that row's classification — it is logged with the message id and reported in `failedMessageIds`, but reconciling it needs an update helper in `db/queries/inbound.ts` (at 298/300 lines). **Owed by Task 102:** production wiring of `IngestDeps`, and a "list processed message ids" query, which `db/queries/inbound.ts` does not have.
+**Status:** [x] Done (2026-10-07) — `lib/ingest/pipeline.ts` (240 lines), `lib/ingest/hash.ts`, `lib/ingest/candidates.ts` and the two test files created (22 tests; suite 118 files / 1461 tests passing, `tsc` and `eslint` clean); documents are hashed and uploaded **before** the `inbound_emails` row is written, because the Task 95 data layer has no classification-update helper and a storage failure must land as `classification = 'failed'` with no PO row on the first and only write; a repeat `content_hash` still inserts a row with `duplicate_of_id` set and `status` left to its column default, so a duplicate is flagged and reviewed rather than rejected; storage keys are content-addressed (`inbound/<sha256><ext>`, never the sender's filename), which is what makes a repeated batch create no duplicate object; `normalizeBodyForHash` unquotes `>` markers rather than dropping those lines (in a forward the PO *is* the quoted block) and strips forward/reply separators, attribution lines, re-emitted headers and the signature; `contentHash` throws `ContentHashError` on empty input; logs carry message ids, counts and 12-character hash prefixes only. **Deviations:** `candidates.ts` is a fifth file, split out because `pipeline.ts` was 331 lines against the 300-line cap this task's own CQ-01 criterion cites; `IngestDeps` / `IngestSummary` are declared in `pipeline.ts` because `types.ts` defines neither and was off-limits; `lib/errors.ts` gained `ContentHashError` and `DocumentUploadError`. **Flagged, not fixed:** a DB failure *after* the email row is written cannot correct that row's classification — it is logged with the message id and reported in `failedMessageIds`, but reconciling it needs an update helper in `db/queries/inbound.ts` (at 298/300 lines). **Owed by Task 104:** production wiring of `IngestDeps`, and a "list processed message ids" query, which `db/queries/inbound.ts` does not have.
 **Depends on:** Task 95, Task 96
 
 ---
@@ -3617,7 +3617,7 @@ single-page digital PDFs). Sample documents are production data and are **not** 
 or quoted here — not even sender names (`constraints.md:536`).
 
 **Scope: one pure function, document in → structured reading out.** No database writes, no
-queue, no retries — those are Task 101's worker. No checks — those are Task 99. This task
+queue, no retries — those are Task 103's worker. No checks — those are Task 101. This task
 produces the JSON that `inbound_pos.extracted` will hold.
 
 **Decisions from the brainstorm (2026-10-12), binding on this task:**
@@ -3632,9 +3632,9 @@ produces the JSON that `inbound_pos.extracted` will hold.
 - **Delivery-date synonyms include ship date.** `Sched. Delivery Date`, `Need Date`,
   `Expected`, `Ship Date` are delivery-date candidates; `Order Date` / `P.O. Date` are
   not. All labelled dates are returned with label and role — choosing among several is
-  Task 99/105's job (PRD: none pre-selected).
+  Task 101/107's job (PRD: none pre-selected).
 - **Price = Σ(qty × unit price) over tote lines only.** Non-tote lines (service notes,
-  accruals, freight) are returned as `other` lines with any amount, **for Task 99's
+  accruals, freight) are returned as `other` lines with any amount, **for Task 101's
   arithmetic check only — never persisted to `orders`.** A dedicated "Other" order field was
   proposed and **parked by the builder** — the existing order structure is unchanged.
 - **One PO per document.** Confirmed by the builder; multi-PO PDFs are not handled.
@@ -3668,7 +3668,7 @@ in the header, not one quoted inside a line description.
 **Approach:**
 1. **Input by kind.** PDF → rendered to page images. Image (`jpeg`/`png`/`webp`) → passed
    through unmodified. Email body → sent as text. Over `MAX_PDF_PAGES` → a typed error
-   naming the page count, which Task 101 turns into a visible review row (CONSTRAINT-34) —
+   naming the page count, which Task 103 turns into a visible review row (CONSTRAINT-34) —
    **never silently truncated**.
 2. **PDF renderer: `pdfjs-dist` + `@napi-rs/canvas`** (Apache-2.0 / MIT, prebuilt Linux
    binaries for Vercel). Rejected: `mupdf` — one package, but **AGPL**; native PDF
@@ -3711,7 +3711,7 @@ where present; nothing invented where the document is blank.
 - [x] Every returned value carries a quote; `unknown` tote type is a valid output, not an error
 - [x] Over-page-limit, malformed response, non-2xx and timeout each throw a distinct typed
       error; none caught and swallowed (EH-01/02)
-- [~] Logs carry model, status, page count, durations — **moved to Task 101** (@security L-A, 2026-10-12): `lib/extraction/` deliberately has no log statements; the worker that calls it logs model, status, page count and ms, never content. Ticked in error at first
+- [~] Logs carry model, status, page count, durations — **moved to Task 103** (@security L-A, 2026-10-12): `lib/extraction/` deliberately has no log statements; the worker that calls it logs model, status, page count and ms, never content. Ticked in error at first
 - [x] Evaluation passes on all 4 POs, confirmed by the builder
 - [x] CQ-01/02: functions < 50 lines, files < 300
 - [x] Full suite green; `tsc` and `lint` clean
@@ -3725,27 +3725,26 @@ where present; nothing invented where the document is blank.
 - `toOrderQuantities` → lines sum into the right slots; one type at two prices reports a
   conflict; `other` lines excluded from price
 
-**Model output is untrusted input for Tasks 99/105 (@security L-D).** Prompt injection in a
+**Model output is untrusted input for Tasks 101/107 (@security L-D).** Prompt injection in a
 document can set any field: `isPurchaseOrder: false`, negative or huge quantities and prices,
 arbitrary-length quotes. Downstream must: keep `no_po_found` a visible review row, never a drop
 (CONSTRAINT-34); bound numbers (integer quantity > 0, price ≥ 0 with a sane max) before they
 reach `orders`; render quotes as text only, never HTML.
 
-**Open for Task 99, surfaced so it is not lost:** quote verification against a **rendered
+**Open for Task 101, surfaced so it is not lost:** quote verification against a **rendered
 image** has no local text to check — CONSTRAINT-35 forbids local text extraction.
-Body-text POs verify trivially; images do not. Task 99 must decide how.
+Body-text POs verify trivially; images do not. Task 101 must decide how.
 
 **Specialist:** —
-**Status:** [x] Done 2026-10-12 — `lib/extraction/`: constants, types, errors, schema, prompt, config, render-pdf, openrouter, extract (largest file 150 lines, longest function ~30). Built by three parallel subagents against a hand-written shared contract (types, schema, errors). **Evaluation passed on all 4 real POs, confirmed by the builder** — tote type, qty and unit price right on every tote line; PO number and delivery date right where present; nothing invented. **It took two prompt iterations:** first run named one PO's ship-to company as the customer; second named a buyer's initials; the customer rule is now "Bill To company, else letterhead — never ship-to, never a person". Empty `$0.00` template rows were also being returned as lines; now skipped. **Deviations:** errors live in `lib/extraction/errors.ts` rather than `lib/errors.ts` (merging would push that file to ~319 lines, over CQ-02); `toOrderQuantities` stayed in `extract.ts` (141 lines). **New deps:** `pdfjs-dist` 6.4.299, `@napi-rs/canvas` 1.0.11, pinned — **not yet run on Vercel** (A-14 records the `serverExternalPackages` + Node ≥ 22.13 prerequisites for Task 101/102). Timeout covers the response body too, not just headers. Suite 127 files / 1591 tests; `tsc` and `eslint` clean. Also fixed in passing: a `db/seed.ts` type error introduced by the CONSTRAINT-20 guard commit.
+**Status:** [x] Done 2026-10-12 — `lib/extraction/`: constants, types, errors, schema, prompt, config, render-pdf, openrouter, extract (largest file 150 lines, longest function ~30). Built by three parallel subagents against a hand-written shared contract (types, schema, errors). **Evaluation passed on all 4 real POs, confirmed by the builder** — tote type, qty and unit price right on every tote line; PO number and delivery date right where present; nothing invented. **It took two prompt iterations:** first run named one PO's ship-to company as the customer; second named a buyer's initials; the customer rule is now "Bill To company, else letterhead — never ship-to, never a person". Empty `$0.00` template rows were also being returned as lines; now skipped. **Deviations:** errors live in `lib/extraction/errors.ts` rather than `lib/errors.ts` (merging would push that file to ~319 lines, over CQ-02); `toOrderQuantities` stayed in `extract.ts` (141 lines). **New deps:** `pdfjs-dist` 6.4.299, `@napi-rs/canvas` 1.0.11, pinned — **not yet run on Vercel** (A-14 records the `serverExternalPackages` + Node ≥ 22.13 prerequisites for Task 103/104). Timeout covers the response body too, not just headers. Suite 127 files / 1591 tests; `tsc` and `eslint` clean. Also fixed in passing: a `db/seed.ts` type error introduced by the CONSTRAINT-20 guard commit.
 **Depends on:** Task 94 (done)
 
 ---
 
-## Task 112: Track processed mail by UID + UIDVALIDITY (CONSTRAINT-33)
+## Task 99: Track processed mail by UID + UIDVALIDITY (CONSTRAINT-33)
 
-**Planned 2026-10-12. Placed before Task 99 by decision; numbered 112 so existing references
-("HIGH-01 gates Task 102", "Task 101 sign-off conditions") stay true.** Clears HIGH-01, the only
-open High. **Re-run `@security` after this task.**
+**Planned 2026-10-12.** Pulled ahead of the check suite by decision: it has no dependency on
+extraction and clears HIGH-01, the only open High. **Re-run `@security` after this task.**
 
 **Files:**
 - `db/migrations/0017_uid_watermark.sql` — create. `inbound_emails` gains `uid_validity bigint
@@ -3765,7 +3764,7 @@ open High. **Re-run `@security` after this task.**
 - `lib/ingest/hash.ts` — modify. `refusalHash(uidValidity, uid, failure)` replaces
   `surrogateContentHash`
 - `lib/ingest/pipeline.ts` — modify. Writes via `stageEmailWithPos`
-- `lib/ingest/run.ts` — create. Orchestrator; not wired to any route (Task 102)
+- `lib/ingest/run.ts` — create. Orchestrator; not wired to any route (Task 104)
 
 **Approach:**
 1. **Admission is by UID only.** `collectUnprocessed` drops `processedIds`; a message is admitted
@@ -3822,7 +3821,7 @@ open High. **Re-run `@security` after this task.**
 
 ---
 
-## Task 113: No silent drops, and the exact accepted file types (CONSTRAINT-34/35)
+## Task 100: No silent drops, and the exact accepted file types (CONSTRAINT-34/35)
 
 **Planned 2026-10-12.** Every path that today drops part of a message becomes a review row.
 
@@ -3844,7 +3843,7 @@ open High. **Re-run `@security` after this task.**
 - Empty attachment → `empty_attachment` refusal row (replaces the `console.error` + `continue`).
 - No candidates and no refusals → one `email_body` row with reason `no_po_found`, in the review
   queue. Spam is dismissed by a human, never by the system.
-- **Storage upload failure throws for that message** — nothing commits, Task 112's watermark halts
+- **Storage upload failure throws for that message** — nothing commits, Task 99's watermark halts
   below it, the next run retries. The current "write the refusals only and classify `failed`"
   partial path is removed.
 - **M-03 (inline parts) accepted as-is, by decision 2026-10-12:** a signature GIF becomes an
@@ -3865,14 +3864,14 @@ open High. **Re-run `@security` after this task.**
   empty attachment refused; nothing → `no_po_found`
 - `ingestMessages` / `runIngestion` → upload failure throws and nothing commits
 
-**Depends on:** Task 112
+**Depends on:** Task 99
 **Status:** [ ]
 
 ---
 
-## Task 99: Check suite — quotes, arithmetic, dates, field gates
+## Task 101: Check suite — quotes, arithmetic, dates, field gates
 
-**Planned 2026-10-12.** Pure functions: extraction in, `check_results` out. No DB writes (Task 101's
+**Planned 2026-10-12.** Pure functions: extraction in, `check_results` out. No DB writes (Task 103's
 worker persists). Quote verification per FB-40 / CONSTRAINT-35 (amended).
 
 **Files:**

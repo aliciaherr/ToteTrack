@@ -307,7 +307,7 @@ in a single invocation. The design has each run process 4–5 POs then immediate
 itself, with the daily cron as a restart net. This assumes a fire-and-forget
 self-invocation reliably survives the parent returning on the Hobby tier.
 
-**Why not validated:** builder declined the spike. Surfaces at Task 101.
+**Why not validated:** builder declined the spike. Surfaces at Task 103.
 
 **Contingency if false:** revert to an external cron draining the queue every 5 minutes
 (cron-job.org, already in use for the Supabase keep-alive). Changes only how the worker is
@@ -325,7 +325,7 @@ This requires the `pg_trgm` extension.
 `select * from pg_available_extensions where name = 'pg_trgm'` against the live project:
 one row, `default_version` **1.6**, `installed_version` **null**. So the extension ships
 with this Supabase free-tier project and only needs switching on — `CREATE EXTENSION
-IF NOT EXISTS pg_trgm;` — which **Task 100 must carry in its own migration**, not as an
+IF NOT EXISTS pg_trgm;` — which **Task 102 must carry in its own migration**, not as an
 ad-hoc statement. Until it runs, any `similarity()` or `%` operator fails as an unknown
 function rather than silently degrading, so the enable statement and the first query that
 needs it belong in the same migration.
@@ -335,7 +335,7 @@ needs it belong in the same migration.
 matching. The existing `lib/actions/leads.convert.ts` already matches customers with
 `ilike` on `company_name`, so there is precedent for the simpler approach.
 
-**Status:** [x] Resolved 2026-10-08 — available (1.6), not installed; Task 100 enables it in its migration
+**Status:** [x] Resolved 2026-10-08 — available (1.6), not installed; Task 102 enables it in its migration
 
 ### A-13 — Cost holds at real volume on free tiers
 
@@ -366,13 +366,13 @@ the source image is lost.
 load-bearing. The chosen renderer is `pdfjs-dist` drawing onto `@napi-rs/canvas`, a
 **native** module (prebuilt binaries, no system libraries). It is verified locally on
 Windows; it is **not** yet verified inside a Vercel serverless function (Linux), which is
-where Task 101's worker will run it.
+where Task 103's worker will run it.
 
 **Resolution:** accepted risk, approved with the Task 98 plan. **Verify at the first Vercel
-deploy that exercises extraction** (Task 101/102) — render one synthetic PDF in a preview
+deploy that exercises extraction** (Task 103/104) — render one synthetic PDF in a preview
 deployment before any real PO depends on it.
 
-**Deploy prerequisites found while building (2026-10-12), for Task 101/102:**
+**Deploy prerequisites found while building (2026-10-12), for Task 103/104:**
 `next.config.js` will need `serverExternalPackages: ['pdfjs-dist', '@napi-rs/canvas']` — a
 native `.node` binary cannot be bundled, and the renderer locates pdfjs's font/CMap files in
 `node_modules`. The Vercel project must run **Node ≥ 22.13** (pdfjs-dist 6). The Linux
@@ -381,7 +381,7 @@ canvas binary is ~25–30 MB unpacked, counted against the function size limit.
 **Update cadence (@security L-E):** both packages are pinned exactly and `@napi-rs/canvas`
 wraps Skia (native C++) fed attacker-derived drawing data, so its security fixes never arrive
 on their own. Check advisories for `pdfjs-dist` and `@napi-rs/canvas` before each deploy that
-ships extraction, starting with Task 101.
+ships extraction, starting with Task 103.
 
 **Contingency:** a WebAssembly renderer needs no native binary. `mupdf` was rejected for
 its AGPL licence, so the fallback must be re-chosen then, not assumed.
@@ -395,7 +395,7 @@ its AGPL licence, so the fallback must be re-chosen then, not assumed.
 | A-09 | Gmail IMAP app password remains available | Service capability | Accepted risk | Fallback: Gmail API OAuth |
 | A-10 | Salesperson checks rather than rubber-stamps | User behavior | Accepted risk | Tripwire: zero-edit rate near 100% |
 | A-11 | Self-chaining drains a batch within free-tier limits | Technical feasibility | Accepted risk | Fallback: 5-minute external cron |
-| A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Resolved 2026-10-08** — available (1.6), not installed; Task 100 enables it |
+| A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Resolved 2026-10-08** — available (1.6), not installed; Task 102 enables it |
 | A-13 | ~$8/yr API, 1GB storage holds ~2 years compressed | Cost | Accepted risk | Retention policy when cap nears |
 | A-14 | `@napi-rs/canvas` PDF renderer runs on Vercel (added 2026-10-12) | Technical feasibility | Accepted risk | Verify on first preview deploy; fallback: WASM renderer, re-chosen |
 
@@ -409,7 +409,7 @@ Tasks 94–97 depended on none of the above.
 
 Three spikes were proposed (IMAP connect, extraction accuracy on real POs, Vercel
 self-chaining) and all three were declined by the builder. Two were genuinely redundant —
-Task 96 opens with an IMAP connection and Task 101 opens with a self-invocation, so each
+Task 96 opens with an IMAP connection and Task 103 opens with a self-invocation, so each
 task is its own spike with a known fallback. The third (extraction accuracy) was the one
 with real information value; it is absorbed by A-07 and A-10, both of which are detected
 automatically from real use because nothing auto-approves. Consistent with the original
