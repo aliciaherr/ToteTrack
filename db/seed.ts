@@ -26,11 +26,10 @@ import {
   invoices,
   supportTickets,
 } from './schema'
+import { requireLocalDatabaseUrl } from './local-guard'
 
-if (!process.env.DATABASE_URL) {
-  console.error('[seed] DATABASE_URL is not set. Run via `npm run db:seed` (which uses --env-file=.env.local).')
-  process.exit(1)
-}
+// Throws unless DATABASE_URL is localhost — this script TRUNCATEs every table.
+requireLocalDatabaseUrl('seed')
 
 const WIPE_ONLY = process.argv.includes('--wipe-only')
 const TODAY = new Date()

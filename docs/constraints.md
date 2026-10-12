@@ -327,6 +327,15 @@ The delivery date is used **once**, at order creation, to seed a starting `produ
 
 ### CONSTRAINT-20 — Dev and prod share one Supabase project (no sandbox exists)
 
+> **LIFTED 2026-10-12, with conditions.** A local Supabase CLI stack (Docker) is now the dev database; `.env` points at it (`127.0.0.1:54321` / `:54322`). Boundary verified: a marker row written locally was confirmed absent from prod by the builder. **Conditions that keep it lifted:**
+> - `.env` holds **local values only**. No prod string lives anywhere on the dev machine — prod's only home is Vercel. Never recreate a local prod env file (`.env.prod.reference` is gitignored in case one reappears).
+> - `db:seed`, `db:wipe` and `db:migrate-local` refuse any non-localhost `DATABASE_URL` (`db/local-guard.ts`). Do not remove the guard.
+> - Local schema is built by `npm run db:migrate-local` replaying `db/migrations/`. Do not copy migrations into `supabase/migrations/`. Prod migrations remain manual (Supabase SQL editor).
+> - Local has no session pooler and different storage, so **CONSTRAINT-28 is only exercised in prod**.
+> - Write-flow QA and seeding are now allowed **against local only**. Setup and rationale: `docs/local-dev-setup.md`.
+>
+> The original decision below is kept for history.
+
 **Decision:** Confirmed by the builder 2026-07-28: local dev, the deployed production app, the seed/wipe scripts, and the admin auth user all point at the **same** Supabase project and database. There is no dev environment. Until a separate dev project (or local Supabase CLI stack) exists:
 
 - **Never run `npm run db:wipe` or `npm run db:seed`** — they destroy/pollute the user's production data.

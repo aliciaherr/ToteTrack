@@ -89,3 +89,6 @@ yarn-error.log*
 # is the QA-artifact shape that leaked.
 /*.csv
 /*.log
+
+# Prod values parked here while .env points at the local Supabase stack (docs/local-dev-setup.md)
+.env.prod.reference

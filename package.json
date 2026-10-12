@@ -10,8 +10,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx --env-file=.env.local db/seed.ts",
-    "db:wipe": "tsx --env-file=.env.local db/seed.ts --wipe-only",
+    "db:migrate-local": "tsx --env-file=.env db/migrate-local.ts",
+    "db:seed": "tsx --env-file=.env db/seed.ts",
+    "db:wipe": "tsx --env-file=.env db/seed.ts --wipe-only",
     "test": "vitest run",
     "test:watch": "vitest"
   },
