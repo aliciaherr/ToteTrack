@@ -240,7 +240,7 @@ support_tickets (1) ─< support_attachments (N)
 
 | Bucket | Access | Path pattern | Max file size |
 |--------|--------|-------------|---------------|
-| `po-documents` | Private | `po-documents/[orderId]/[filename]` | 10MB |
+| `po-documents` | Private | `inbound/[content-hash].[ext]` (email ingestion) | 15MB (0018; was 10MB in 0003) |
 | `support-attachments` | Private | `support-attachments/[ticketId]/[filename]` | 5MB |
 
 Both buckets: serve files via signed URLs only (1-hour expiry). Never via public direct URLs.

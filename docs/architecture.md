@@ -559,7 +559,7 @@ lib/
 
 **Supabase pausing mitigation:** cron-job.org pings `[SUPABASE_URL]/rest/v1/customers?select=id&limit=1` with `apikey` header every 5 days. Prevents 7-day inactivity pause. Setup documented in `README.md`.
 
-**File storage budget:** 1GB free. At 10MB max per PO document, that's ~100 PO docs before limit. Typical PDFs (100KB–500KB) give substantially more headroom.
+**File storage budget:** 1GB free. At the 15MB max per PO document (bucket limit raised by migration 0018 to match `MAX_ATTACHMENT_BYTES`, HIGH-03), that's ~66 PO docs in the worst case. Typical PDFs (100KB–500KB) give substantially more headroom.
 
 ---
 
