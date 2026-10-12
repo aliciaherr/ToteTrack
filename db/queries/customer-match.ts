@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { DrizzleQueryError, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { DatabaseError } from '@/lib/errors'
 import {
@@ -59,6 +59,21 @@ function toCandidate(row: RawRow): CandidateRow {
 }
 
 /**
+ * A query failure reduced to the error's name and SQLSTATE (MEDIUM-08, SEC-05).
+ *
+ * drizzle wraps a failed query in `DrizzleQueryError`, whose message lists the
+ * bound parameters: here, the customer name and ship-to read off the PO.
+ * Postgres's own message can echo a value too ("invalid input syntax …: "x""),
+ * so neither message is kept, only the name and code.
+ */
+function parameterFreeCause(error: unknown): Error {
+  const inner = error instanceof DrizzleQueryError ? error.cause : error
+  const name = inner instanceof Error ? inner.name : typeof inner
+  const code = (inner as { code?: unknown } | null | undefined)?.code
+  return new Error(typeof code === 'string' ? `${name} (SQLSTATE ${code})` : name)
+}
+
+/**
  * Every customer whose normalised name is at least `NAME_SIMILARITY_MIN`
  * similar to `name` (or equal to it), plus every customer with a saved
  * delivery address at least `ADDRESS_SIMILARITY_MIN` similar to `shipTo`, plus
@@ -103,7 +118,8 @@ export async function findCustomerCandidates(name: string | null, shipTo: string
          OR address_score >= ${ADDRESS_SIMILARITY_MIN}
          OR name_in_address_score >= ${NAME_IN_ADDRESS_SIMILARITY_MIN}
     `)) as unknown as RawRow[]
-  } catch (cause) {
+  } catch (error) {
+    const cause = parameterFreeCause(error)
     console.error('findCustomerCandidates: query failed', { operation: 'findCustomerCandidates', cause })
     throw new DatabaseError('findCustomerCandidates', 'Failed to score customers against a PO', { cause })
   }

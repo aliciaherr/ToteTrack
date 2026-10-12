@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import type { SQL } from 'drizzle-orm'
+import { DrizzleQueryError, type SQL } from 'drizzle-orm'
+import { inspect } from 'node:util'
 
 const mockExecute = vi.hoisted(() => vi.fn())
 
@@ -44,12 +45,22 @@ describe('findCustomerCandidates', () => {
     ])
   })
 
-  it('throws a DatabaseError that does not name the inputs when the query fails', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockExecute.mockRejectedValueOnce(new Error('function extensions.similarity does not exist'))
-    const failure = findCustomerCandidates('Secret Customer Name', null)
-    await expect(failure).rejects.toBeInstanceOf(DatabaseError)
-    await expect(failure).rejects.not.toThrow(/Secret Customer Name/)
+  it('never logs or throws the inputs when drizzle wraps the failure with its parameters (MEDIUM-08)', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const name = 'Secret Customer Name'
+    const shipTo = '12 Hidden Road, Secretville'
+    const postgresError = Object.assign(new Error(`invalid input syntax: "${name}"`), { code: '22P02' })
+    mockExecute.mockRejectedValueOnce(new DrizzleQueryError('SELECT …', [name, shipTo], postgresError))
+
+    const thrown = await findCustomerCandidates(name, shipTo).catch((error: unknown) => error)
+
+    expect(thrown).toBeInstanceOf(DatabaseError)
+    const chain: unknown[] = []
+    for (let link: unknown = thrown; link instanceof Error; link = link.cause) chain.push(link.message, link.stack)
+    const everything = JSON.stringify(chain) + inspect(logged.mock.calls, { depth: null })
+    expect(everything).not.toContain(name)
+    expect(everything).not.toContain(shipTo)
+    expect(everything).toContain('SQLSTATE 22P02')
   })
 
   it('throws on a malformed row instead of trusting it', async () => {
