@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ExtractionResponseError, PdfTooManyPagesError } from '../errors'
-import { MAX_PDF_PAGES, OWN_COMPANY_NAMES } from '../extraction.constants'
+import { ExtractionResponseError, PdfTooManyPagesError, TextInputTooLongError } from '../errors'
+import { MAX_PDF_PAGES, MAX_TEXT_INPUT_CHARS, OWN_COMPANY_NAMES } from '../extraction.constants'
 import { extractPo } from '../extract'
 import { callOpenRouter } from '../openrouter'
 import { buildSystemPrompt } from '../prompt'
@@ -82,6 +82,27 @@ describe('extractPo — input by kind', () => {
     const request = sentRequest()
     expect(request.content).toContainEqual({ type: 'text', text })
     expect(request.content.some((part) => part.type === 'image_url')).toBe(false)
+  })
+
+  it('throws TextInputTooLongError over MAX_TEXT_INPUT_CHARS and never calls the model', async () => {
+    const deps = makeDeps()
+    const text = 'x'.repeat(MAX_TEXT_INPUT_CHARS + 1)
+
+    const error = await extractPo({ kind: 'text', text }, CONFIG, deps).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(TextInputTooLongError)
+    expect((error as TextInputTooLongError).length).toBe(MAX_TEXT_INPUT_CHARS + 1)
+    expect((error as TextInputTooLongError).maxChars).toBe(MAX_TEXT_INPUT_CHARS)
+    expect(mockedCall).not.toHaveBeenCalled()
+    expect(deps.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('sends an email body exactly at MAX_TEXT_INPUT_CHARS in full', async () => {
+    const text = 'x'.repeat(MAX_TEXT_INPUT_CHARS)
+
+    await extractPo({ kind: 'text', text }, CONFIG, makeDeps())
+
+    expect(sentRequest().content).toContainEqual({ type: 'text', text })
   })
 
   it('passes the system prompt, config and fetch through to callOpenRouter', async () => {

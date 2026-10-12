@@ -434,7 +434,7 @@ async function seedSupport(): Promise<void> {
 // ===== Main =====
 
 async function main() {
-  const host = DATABASE_URL.split('@')[1]?.split('/')[0] ?? 'unknown'
+  const host = new URL(DATABASE_URL).host
   console.log(`[seed] Target: ${host}`)
 
   try {

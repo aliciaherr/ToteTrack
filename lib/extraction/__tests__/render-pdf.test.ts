@@ -1,7 +1,31 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
-import { PdfRenderError, PdfTooManyPagesError } from '../errors'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  PdfPageTooLargeError,
+  PdfRenderError,
+  PdfRenderTimeoutError,
+  PdfTooManyPagesError,
+} from '../errors'
 import { renderPdfPages } from '../render-pdf'
+
+/** Every canvas size render-pdf asks for, so a test can prove none was oversized. */
+const canvasAllocations = vi.hoisted(() => [] as Array<[number, number]>)
+
+vi.mock('@napi-rs/canvas', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@napi-rs/canvas')>()
+  return {
+    ...real,
+    createCanvas: (width: number, height: number) => {
+      canvasAllocations.push([width, height])
+      return real.createCanvas(width, height)
+    },
+  }
+})
+
+afterEach(() => {
+  canvasAllocations.length = 0
+  vi.restoreAllMocks()
+})
 
 /** The eight bytes every PNG file starts with. */
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -11,8 +35,14 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
  * one line of Helvetica text. Synthetic on purpose: no real PO ever enters the
  * test suite. Xref offsets are computed from the actual bytes, so the file is
  * well-formed rather than relying on pdfjs's broken-xref recovery.
+ *
+ * `mediaBox` and `content` override one page (1-based `page`) so a test can
+ * build a hostile page among ordinary ones.
  */
-function buildPdf(pageCount: number): Buffer {
+function buildPdf(
+  pageCount: number,
+  override: { page: number; mediaBox?: string; content?: string } = { page: 0 },
+): Buffer {
   const pageIds = Array.from({ length: pageCount }, (_, i) => 4 + i * 2)
   const objects: string[] = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -20,9 +50,12 @@ function buildPdf(pageCount: number): Buffer {
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
   ]
   for (let i = 0; i < pageCount; i++) {
-    const stream = `BT /F1 24 Tf 72 700 Td (Synthetic page ${i + 1}) Tj ET`
+    const own = override.page === i + 1
+    const stream =
+      (own ? override.content : undefined) ?? `BT /F1 24 Tf 72 700 Td (Synthetic page ${i + 1}) Tj ET`
+    const mediaBox = (own ? override.mediaBox : undefined) ?? '0 0 612 792'
     objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageIds[i] + 1} 0 R >>`,
+      `<< /Type /Page /Parent 2 0 R /MediaBox [${mediaBox}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageIds[i] + 1} 0 R >>`,
       `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
     )
   }
@@ -81,5 +114,42 @@ describe('renderPdfPages', () => {
 
   it('throws PdfRenderError for an empty buffer', async () => {
     await expect(renderPdfPages(Buffer.alloc(0), 5)).rejects.toBeInstanceOf(PdfRenderError)
+  })
+})
+
+describe('renderPdfPages resource bounds (@security H-02, M-04)', () => {
+  it('refuses an oversized page before allocating its canvas', async () => {
+    const pdf = buildPdf(2, { page: 2, mediaBox: '0 0 100000 100000' })
+    const started = Date.now()
+    const error = await renderPdfPages(pdf, 5).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PdfPageTooLargeError)
+    // 100000 pt at scale 2 → 200000 × 200000 px.
+    expect(error).toMatchObject({ pageNumber: 2, pixels: 200_000 * 200_000 })
+    // Only page 1 (US Letter at scale 2) ever got a canvas.
+    expect(canvasAllocations).toEqual([[1224, 1584]])
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  it('renders a letter page well under the pixel cap', async () => {
+    await expect(renderPdfPages(buildPdf(1), 5)).resolves.toHaveLength(1)
+    expect(canvasAllocations).toEqual([[1224, 1584]])
+  })
+
+  it('throws PdfRenderTimeoutError when the deadline passes, and clears its timer', async () => {
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout')
+    const error = await renderPdfPages(buildPdf(3), 5, 1).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PdfRenderTimeoutError)
+    expect(error).toMatchObject({ timeoutMs: 1 })
+    expect(clearSpy).toHaveBeenCalled()
+  })
+
+  it('clears the deadline timer after a successful render', async () => {
+    const DISTINCT_TIMEOUT_MS = 98_765
+    const setSpy = vi.spyOn(globalThis, 'setTimeout')
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout')
+    await renderPdfPages(buildPdf(1), 5, DISTINCT_TIMEOUT_MS)
+    const armed = setSpy.mock.calls.findIndex(([, delay]) => delay === DISTINCT_TIMEOUT_MS)
+    expect(armed).toBeGreaterThanOrEqual(0)
+    expect(clearSpy).toHaveBeenCalledWith(setSpy.mock.results[armed].value)
   })
 })

@@ -1,4 +1,5 @@
 import {
+  EXTRACTION_MAX_OUTPUT_TOKENS,
   EXTRACTION_TEMPERATURE,
   EXTRACTION_TIMEOUT_MS,
   OPENROUTER_CHAT_URL,
@@ -11,8 +12,8 @@ import {
 import { extractionJsonSchema } from './schema'
 import type { ExtractionConfig, ExtractionRequest } from './types'
 
-/** Longest slice of OpenRouter's error message carried into our error. */
-const MAX_DETAIL_CHARS = 300
+/** Longest `error.code` carried into our error; codes are short identifiers. */
+const MAX_CODE_CHARS = 64
 const REDACTED = '[REDACTED]'
 
 /** The strict schema minus `$schema`, which strict structured output rejects. */
@@ -27,6 +28,9 @@ function buildBody(request: ExtractionRequest, config: ExtractionConfig): string
   return JSON.stringify({
     model: config.model,
     temperature: EXTRACTION_TEMPERATURE,
+    // Bounds spend per call when an injected prompt asks for endless output
+    // (@security M-05). A reply cut here is rejected, never parsed.
+    max_tokens: EXTRACTION_MAX_OUTPUT_TOKENS,
     messages: [
       { role: 'system', content: request.system },
       { role: 'user', content: request.content },
@@ -50,25 +54,40 @@ function scrubSecret(text: string, secret: string): string {
   return secret ? text.split(secret).join(REDACTED) : text
 }
 
-/** OpenRouter's `error.message` if the body carries one; never the raw body. */
+/**
+ * The HTTP status text plus OpenRouter's `error.code`, if the body carries one.
+ *
+ * Provider error text is untrusted and can quote request content, so the
+ * free-text `error.message` and the raw body are never carried (@security L-B).
+ * The API key is still scrubbed in case a code or status text echoes it.
+ */
 async function readErrorDetail(response: Response, apiKey: string): Promise<string> {
-  let message = response.statusText || 'no error message'
+  const status = response.statusText || 'no status text'
+  let code: string | null = null
   try {
-    const body = (await response.json()) as { error?: { message?: unknown } }
-    if (typeof body?.error?.message === 'string') message = body.error.message
+    const body = (await response.json()) as { error?: { code?: unknown } }
+    const raw = body?.error?.code
+    if (typeof raw === 'string' || typeof raw === 'number') code = String(raw).slice(0, MAX_CODE_CHARS)
   } catch {
-    // Body was not JSON: keep the status text. The status itself is the signal.
+    // Body was not JSON: report the status text alone. The status is the signal.
   }
-  return scrubSecret(message, apiKey).slice(0, MAX_DETAIL_CHARS)
+  return scrubSecret(code === null ? status : `${status} (code ${code})`, apiKey)
 }
 
-/** Pulls `choices[0].message.content` and parses it. Never echoes the content. */
+/**
+ * Pulls `choices[0].message.content` and parses it. Never echoes the content.
+ * A reply stopped by `max_tokens` (`finish_reason: 'length'`) is rejected
+ * before parsing — a cut-off reading must not pass as a complete one.
+ */
 async function parseCompletion(response: Response, model: string): Promise<unknown> {
-  let body: { choices?: Array<{ message?: { content?: unknown } }> }
+  let body: { choices?: Array<{ finish_reason?: unknown; message?: { content?: unknown } }> }
   try {
     body = await response.json()
   } catch (cause) {
     throw new ExtractionResponseError(model, 'response body is not JSON', { cause })
+  }
+  if (body?.choices?.[0]?.finish_reason === 'length') {
+    throw new ExtractionResponseError(model, 'response truncated at max_tokens')
   }
   const content = body?.choices?.[0]?.message?.content
   if (typeof content !== 'string' || content.trim() === '') {
@@ -117,8 +136,9 @@ async function readResponse(response: Response, config: ExtractionConfig): Promi
 /**
  * Calls OpenRouter once for one document and returns the model's parsed JSON.
  *
- * Every request demands zero data retention (`provider.zdr: true`, hardcoded)
- * and strict structured output against `extractionJsonSchema`. Validation of
+ * Every request demands zero data retention (`provider.zdr: true`, hardcoded),
+ * caps the answer at `EXTRACTION_MAX_OUTPUT_TOKENS`, and demands strict
+ * structured output against `extractionJsonSchema`. Validation of
  * the returned shape with zod is the caller's job.
  *
  * The timeout covers the whole exchange — headers AND body — so a response
@@ -127,7 +147,8 @@ async function readResponse(response: Response, config: ExtractionConfig): Promi
  *
  * @throws OpenRouterTimeoutError after `EXTRACTION_TIMEOUT_MS`.
  * @throws OpenRouterHttpError on non-2xx (status) or network failure (status 0).
- * @throws ExtractionResponseError when the content is missing or not JSON.
+ * @throws ExtractionResponseError when the content is missing, not JSON, or
+ *   truncated at `EXTRACTION_MAX_OUTPUT_TOKENS`.
  */
 export async function callOpenRouter(
   request: ExtractionRequest,

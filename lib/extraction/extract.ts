@@ -1,5 +1,5 @@
-import { ExtractionResponseError } from './errors'
-import { MAX_PDF_PAGES, TOTE_TYPES } from './extraction.constants'
+import { ExtractionResponseError, TextInputTooLongError } from './errors'
+import { MAX_PDF_PAGES, MAX_TEXT_INPUT_CHARS, TOTE_TYPES } from './extraction.constants'
 import { callOpenRouter } from './openrouter'
 import { buildSystemPrompt } from './prompt'
 import { renderPdfPages } from './render-pdf'
@@ -27,7 +27,9 @@ export const defaultExtractionDeps: ExtractionDeps = { fetchImpl: fetch, renderP
  * Reads one purchase-order document with the model (Task 98).
  *
  * A PDF is rendered to page images first (CONSTRAINT-35/36), an image is sent
- * unmodified, and an email body is sent as text. Renderer errors — including
+ * unmodified, and an email body is sent as text. An email body longer than
+ * `MAX_TEXT_INPUT_CHARS` throws `TextInputTooLongError` before any network
+ * call — it is never truncated (@security M-05). Renderer errors — including
  * `PdfTooManyPagesError` — propagate unchanged. The model's answer is
  * validated against `extractedPoSchema`; a mismatch throws
  * `ExtractionResponseError` naming the failing paths, never their values.
@@ -66,6 +68,9 @@ async function buildContent(input: ExtractionInput, deps: ExtractionDeps): Promi
     case 'image':
       return [textPart('The purchase order is a single image.'), imagePart(input.mimeType, input.bytes)]
     case 'text':
+      if (input.text.length > MAX_TEXT_INPUT_CHARS) {
+        throw new TextInputTooLongError(input.text.length, MAX_TEXT_INPUT_CHARS)
+      }
       return [textPart('The purchase order is the email body below.'), textPart(input.text)]
   }
 }

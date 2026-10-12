@@ -6,3 +6,6 @@
 .env.keys
 .env.local
 .env.*.local
+
+# Studio-saved SQL snippets can hold pasted real data (@security L-F, CONSTRAINT-30)
+snippets/

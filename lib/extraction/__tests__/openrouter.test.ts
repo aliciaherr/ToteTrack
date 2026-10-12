@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { callOpenRouter } from '../openrouter'
 import { readExtractionConfig } from '../config'
 import {
+  EXTRACTION_MAX_OUTPUT_TOKENS,
   EXTRACTION_TEMPERATURE,
   EXTRACTION_TIMEOUT_MS,
   OPENROUTER_CHAT_URL,
@@ -32,6 +33,7 @@ function fakeFetch(response: Response) {
 type SentBody = {
   model: string
   temperature: number
+  max_tokens: number
   messages: Array<{ role: string; content: unknown }>
   response_format: {
     type: string
@@ -64,6 +66,7 @@ describe('callOpenRouter: request', () => {
     expect(body.provider.require_parameters).toBe(true)
     expect(body.model).toBe('test/model')
     expect(body.temperature).toBe(EXTRACTION_TEMPERATURE)
+    expect(body.max_tokens).toBe(EXTRACTION_MAX_OUTPUT_TOKENS)
     expect(body.messages).toEqual([
       { role: 'system', content: request.system },
       { role: 'user', content: request.content },
@@ -95,19 +98,34 @@ describe('callOpenRouter: response', () => {
     expect(result).toEqual({ po_number: 'A1' })
   })
 
-  it('throws OpenRouterHttpError with the status and the key scrubbed from the detail', async () => {
-    const response = jsonResponse({ error: { message: 'No ZDR route; key test-key rejected' } }, 404)
+  it('carries the status and error.code but never the provider error.message', async () => {
+    const response = jsonResponse({ error: { code: 'no_zdr_route', message: 'echoed ECHO-PO-CONTENT-123' } }, 404)
     const error = await callOpenRouter(request, config, fakeFetch(response)).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(OpenRouterHttpError)
     expect((error as OpenRouterHttpError).status).toBe(404)
-    expect((error as Error).message).toContain('No ZDR route')
-    expect((error as Error).message).not.toContain('test-key')
+    expect((error as Error).message).toContain('no_zdr_route')
+    expect((error as Error).message).not.toContain('ECHO-PO-CONTENT-123')
   })
 
-  it('truncates a long error detail', async () => {
-    const response = jsonResponse({ error: { message: 'x'.repeat(5000) } }, 500)
+  it('carries a numeric error.code', async () => {
+    const response = jsonResponse({ error: { code: 429, message: 'slow down' } }, 429)
     const error = await callOpenRouter(request, config, fakeFetch(response)).catch((e: unknown) => e)
-    expect((error as Error).message.length).toBeLessThan(500)
+    expect((error as Error).message).toContain('code 429')
+    expect((error as Error).message).not.toContain('slow down')
+  })
+
+  it('scrubs the key from an error.code and bounds its length', async () => {
+    const response = jsonResponse({ error: { code: `bad-test-key-${'x'.repeat(5000)}` } }, 401)
+    const error = await callOpenRouter(request, config, fakeFetch(response)).catch((e: unknown) => e)
+    expect((error as Error).message).not.toContain('test-key')
+    expect((error as Error).message.length).toBeLessThan(300)
+  })
+
+  it('falls back to the status text when the error body is not JSON', async () => {
+    const response = new Response('raw provider text RAW-BODY-XYZ', { status: 502, statusText: 'Bad Gateway' })
+    const error = await callOpenRouter(request, config, fakeFetch(response)).catch((e: unknown) => e)
+    expect((error as Error).message).toContain('Bad Gateway')
+    expect((error as Error).message).not.toContain('RAW-BODY-XYZ')
   })
 
   it('wraps a network failure as OpenRouterHttpError status 0 with a cause', async () => {
@@ -161,6 +179,18 @@ describe('callOpenRouter: response', () => {
     const error = await callOpenRouter(request, config, fakeFetch(response)).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(ExtractionResponseError)
     expect((error as Error).message).not.toContain('secret model prose')
+  })
+
+  it("throws ExtractionResponseError when finish_reason is 'length', without parsing", async () => {
+    const response = jsonResponse({ choices: [{ finish_reason: 'length', message: { content: '{"ok":true}' } }] })
+    const error = await callOpenRouter(request, config, fakeFetch(response)).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ExtractionResponseError)
+    expect((error as Error).message).toContain('truncated at max_tokens')
+  })
+
+  it("returns the content when finish_reason is 'stop'", async () => {
+    const response = jsonResponse({ choices: [{ finish_reason: 'stop', message: { content: '{"ok":true}' } }] })
+    await expect(callOpenRouter(request, config, fakeFetch(response))).resolves.toEqual({ ok: true })
   })
 
   it('throws ExtractionResponseError when the content is missing', async () => {

@@ -62,3 +62,39 @@ export const TOTE_TYPES = [
   '330_rebot',
   '330_new',
 ] as const
+
+/**
+ * Largest page canvas the renderer will allocate, in pixels (@security H-02).
+ * A PDF declares its own page size, so an attacker-sized MediaBox would
+ * otherwise make the canvas allocation unbounded. 16M px ≈ 64 MB RGBA — far
+ * above any legible PO page at `PDF_RENDER_SCALE` (US Letter at scale 2 is
+ * ~1.9M px), far below a function's memory.
+ */
+export const MAX_RENDER_PIXELS = 16_000_000
+
+/**
+ * Largest embedded image pdfjs will decode, in pixels (@security M-04).
+ * pdfjs's default is -1 (unlimited). Same budget as the canvas.
+ */
+export const MAX_EMBEDDED_IMAGE_PIXELS = 16_000_000
+
+/**
+ * Wall-clock budget for rendering one whole PDF (@security M-04). A one-page
+ * PO renders in well under a second; past this the document is hostile or
+ * broken and needs a human, not more CPU.
+ */
+export const PDF_RENDER_TIMEOUT_MS = 20_000
+
+/**
+ * Longest email-body PO sent to the model, in characters (@security M-05).
+ * A typed PO is a few hundred characters; this bounds what a stranger mailing
+ * the inbox can spend. Over the cap is a review row (CONSTRAINT-34), not a cut.
+ */
+export const MAX_TEXT_INPUT_CHARS = 20_000
+
+/**
+ * Cap on the model's answer, in tokens (@security M-05). A full PO reading is
+ * ~500–1,500 tokens; this leaves room for a long multi-line order while
+ * bounding spend per call.
+ */
+export const EXTRACTION_MAX_OUTPUT_TOKENS = 4_000

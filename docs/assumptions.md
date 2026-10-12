@@ -378,6 +378,11 @@ native `.node` binary cannot be bundled, and the renderer locates pdfjs's font/C
 `node_modules`. The Vercel project must run **Node ≥ 22.13** (pdfjs-dist 6). The Linux
 canvas binary is ~25–30 MB unpacked, counted against the function size limit.
 
+**Update cadence (@security L-E):** both packages are pinned exactly and `@napi-rs/canvas`
+wraps Skia (native C++) fed attacker-derived drawing data, so its security fixes never arrive
+on their own. Check advisories for `pdfjs-dist` and `@napi-rs/canvas` before each deploy that
+ships extraction, starting with Task 101.
+
 **Contingency:** a WebAssembly renderer needs no native binary. `mupdf` was rejected for
 its AGPL licence, so the fallback must be re-chosen then, not assumed.
 

@@ -3309,6 +3309,14 @@ the first real documents. The agreed sequence:
 | 99 | Check suite — quote verification, arithmetic, date ambiguity | — |
 | 100 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
 | 101 | Extraction worker — drain, self-chain, retry | — |
+
+**Task 101 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
+deadline cannot interrupt one page mid-render, so the worker must guarantee a hostile PDF still
+ends visible (CONSTRAINT-34): (1) increment `attempt_count` **before** rendering starts;
+(2) at `MAX_EXTRACTION_ATTEMPTS` the PO becomes a visible review row and is never retried;
+(3) set the function's `maxDuration` explicitly; (4) render in a `worker_thread`, **or** the
+builder records accepting the CPU cost. HIGH-01 still blocks Task 102 and any production deploy
+that runs ingestion.
 | 102 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret | — |
 | 103 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
 | 104 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
@@ -3701,7 +3709,7 @@ where present; nothing invented where the document is blank.
 - [x] Every returned value carries a quote; `unknown` tote type is a valid output, not an error
 - [x] Over-page-limit, malformed response, non-2xx and timeout each throw a distinct typed
       error; none caught and swallowed (EH-01/02)
-- [x] Logs carry model, status, page count, durations — no document text, no field values
+- [~] Logs carry model, status, page count, durations — **moved to Task 101** (@security L-A, 2026-10-12): `lib/extraction/` deliberately has no log statements; the worker that calls it logs model, status, page count and ms, never content. Ticked in error at first
 - [x] Evaluation passes on all 4 POs, confirmed by the builder
 - [x] CQ-01/02: functions < 50 lines, files < 300
 - [x] Full suite green; `tsc` and `lint` clean
@@ -3714,6 +3722,12 @@ where present; nothing invented where the document is blank.
 - `renderPdfPages` → synthetic in-test PDF (never a real PO) yields N PNGs; over limit throws
 - `toOrderQuantities` → lines sum into the right slots; one type at two prices reports a
   conflict; `other` lines excluded from price
+
+**Model output is untrusted input for Tasks 99/105 (@security L-D).** Prompt injection in a
+document can set any field: `isPurchaseOrder: false`, negative or huge quantities and prices,
+arbitrary-length quotes. Downstream must: keep `no_po_found` a visible review row, never a drop
+(CONSTRAINT-34); bound numbers (integer quantity > 0, price ≥ 0 with a sane max) before they
+reach `orders`; render quotes as text only, never HTML.
 
 **Open for Task 99, surfaced so it is not lost:** quote verification against a **rendered
 image** has no local text to check — CONSTRAINT-35 forbids local text extraction.

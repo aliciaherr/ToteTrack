@@ -73,3 +73,40 @@ export class ExtractionResponseError extends Error {
     this.model = model
   }
 }
+
+/** A PDF page would need a canvas larger than `MAX_RENDER_PIXELS` (@security H-02). */
+export class PdfPageTooLargeError extends Error {
+  readonly pageNumber: number
+  readonly pixels: number
+
+  constructor(pageNumber: number, pixels: number, maxPixels: number) {
+    super(`PDF page ${pageNumber} needs ${pixels} pixels; the renderer allows at most ${maxPixels}. Needs manual entry.`)
+    this.name = 'PdfPageTooLargeError'
+    this.pageNumber = pageNumber
+    this.pixels = pixels
+  }
+}
+
+/** Rendering the PDF exceeded `PDF_RENDER_TIMEOUT_MS` (@security M-04). */
+export class PdfRenderTimeoutError extends Error {
+  readonly timeoutMs: number
+
+  constructor(timeoutMs: number) {
+    super(`PDF render exceeded ${timeoutMs}ms. Needs manual entry.`)
+    this.name = 'PdfRenderTimeoutError'
+    this.timeoutMs = timeoutMs
+  }
+}
+
+/** An email-body PO is longer than `MAX_TEXT_INPUT_CHARS` (@security M-05). */
+export class TextInputTooLongError extends Error {
+  readonly length: number
+  readonly maxChars: number
+
+  constructor(length: number, maxChars: number) {
+    super(`Email body is ${length} characters; extraction reads at most ${maxChars}. Needs manual entry.`)
+    this.name = 'TextInputTooLongError'
+    this.length = length
+    this.maxChars = maxChars
+  }
+}
