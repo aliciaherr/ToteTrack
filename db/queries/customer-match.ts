@@ -1,6 +1,7 @@
-import { DrizzleQueryError, sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { DatabaseError } from '@/lib/errors'
+import { parameterFreeCause } from '@/lib/loggable-failure'
 import {
   ADDRESS_SIMILARITY_MIN,
   NAME_IN_ADDRESS_SIMILARITY_MIN,
@@ -56,21 +57,6 @@ function toCandidate(row: RawRow): CandidateRow {
     nameInAddressScore: score(row.name_in_address_score, 'name_in_address_score'),
     exactName: row.exact_name === true,
   }
-}
-
-/**
- * A query failure reduced to the error's name and SQLSTATE (MEDIUM-08, SEC-05).
- *
- * drizzle wraps a failed query in `DrizzleQueryError`, whose message lists the
- * bound parameters: here, the customer name and ship-to read off the PO.
- * Postgres's own message can echo a value too ("invalid input syntax …: "x""),
- * so neither message is kept, only the name and code.
- */
-function parameterFreeCause(error: unknown): Error {
-  const inner = error instanceof DrizzleQueryError ? error.cause : error
-  const name = inner instanceof Error ? inner.name : typeof inner
-  const code = (inner as { code?: unknown } | null | undefined)?.code
-  return new Error(typeof code === 'string' ? `${name} (SQLSTATE ${code})` : name)
 }
 
 /**

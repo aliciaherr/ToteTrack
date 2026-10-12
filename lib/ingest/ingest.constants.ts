@@ -47,6 +47,43 @@ export const INGEST_BATCH_SIZE = 4
 export const MAX_EXTRACTION_ATTEMPTS = 3
 
 /**
+ * How long a claimed row may sit at `extracting` before another worker run
+ * may reclaim it (Task 115, FB-42). A run that dies mid-row — killed at the
+ * function timeout, or crashed while rendering — leaves its row at
+ * `extracting`; the lease is what brings it back.
+ *
+ * Not an env var: it must exceed the worker route's `maxDuration` (60 s,
+ * M-04 condition 3) or a live run's row could be claimed twice. Five minutes
+ * is five times that, so a slow but healthy run is never overtaken.
+ */
+export const EXTRACTION_LEASE_MS = 5 * 60 * 1000
+
+/**
+ * How long a row released after a transient failure waits before it may be
+ * claimed again (MEDIUM-10). Without it, a self-chaining worker re-claims the
+ * row within seconds, and a one-minute model outage spends all
+ * `MAX_EXTRACTION_ATTEMPTS` and parks every queued PO for manual entry.
+ *
+ * Not an env var: it trades how fast a PO recovers against how long an outage
+ * the attempt limit survives. Five minutes spreads three attempts over at
+ * least ten, and matches the fallback cron's cadence (A-11).
+ */
+export const EXTRACTION_RETRY_DELAY_MS = 5 * 60 * 1000
+
+/**
+ * After this long into a run, the worker claims no further row (MEDIUM-09).
+ * Rows are claimed one at a time, so a run killed at the route's 60 s
+ * `maxDuration` spends only the attempt of the row in flight; this cutoff
+ * keeps it from starting a row it has little chance to finish.
+ *
+ * Not an env var: it is pinned by `maxDuration` and per-row latency. Half the
+ * function's limit leaves a typical row (render plus one model call) room to
+ * finish. A row slower than the remaining time still dies with the function
+ * and comes back through the lease.
+ */
+export const EXTRACTION_CLAIM_CUTOFF_MS = 30 * 1000
+
+/**
  * Attachment content types treated as PO candidates — an exact list, never a
  * wildcard (CONSTRAINT-35).
  *

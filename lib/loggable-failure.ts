@@ -1,3 +1,5 @@
+import { DrizzleQueryError } from 'drizzle-orm'
+
 /**
  * A failure reduced to what may safely reach a log sink (SEC-05, MEDIUM-04).
  *
@@ -74,4 +76,20 @@ export function loggableFailure(cause: unknown): LoggableFailure {
     constraint: innermost((layer) => layer.constraint_name),
     operation: stringOrNull(fields.map((layer) => layer.operation).find((value) => typeof value === 'string')),
   }
+}
+
+/**
+ * A query failure reduced to the error's name and SQLSTATE (MEDIUM-08, SEC-05).
+ *
+ * drizzle wraps a failed query in `DrizzleQueryError`, whose message lists the
+ * bound parameters: document text such as a customer name or an extracted value.
+ * Postgres's own message can echo a value too ("invalid input syntax …: "x""),
+ * so neither message is kept, only the name and code. Use it as the `cause`
+ * of an error that will be thrown past a query whose params are document text.
+ */
+export function parameterFreeCause(error: unknown): Error {
+  const inner = error instanceof DrizzleQueryError ? error.cause : error
+  const name = inner instanceof Error ? inner.name : typeof inner
+  const code = (inner as { code?: unknown } | null | undefined)?.code
+  return new Error(typeof code === 'string' ? `${name} (SQLSTATE ${code})` : name)
 }

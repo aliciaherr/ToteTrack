@@ -107,7 +107,9 @@ export const inboundPos = pgTable('inbound_pos', {
   // full; a CHECK keeps it NULL on `pdf` and `image` rows.
   body_text: text('body_text'),
   // The worker's lease: a row at `extracting` is reclaimable once this is
-  // older than `EXTRACTION_LEASE_MS` (Task 115).
+  // older than `EXTRACTION_LEASE_MS` (Task 115). On a released
+  // `pending_extraction` row it is the release time, which holds the row back
+  // for `EXTRACTION_RETRY_DELAY_MS` (MEDIUM-10).
   extraction_started_at: timestamp('extraction_started_at', { withTimezone: true }),
   extracted: jsonb('extracted'),
   check_results: jsonb('check_results'),

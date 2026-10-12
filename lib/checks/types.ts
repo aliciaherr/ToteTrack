@@ -28,6 +28,8 @@ export type CheckName =
   // Customer (Task 102, `customerMatchFailures`)
   | 'no_customer_match'
   | 'ambiguous_customer'
+  // Worker (Task 115): the PO could not be read and needs manual entry
+  | 'extraction_failed'
 
 /**
  * One entry in the `failures` array on `inbound_pos.check_results` — the

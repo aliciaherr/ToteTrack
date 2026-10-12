@@ -3312,7 +3312,7 @@ the first real documents. The agreed sequence:
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **[x] done 2026-10-12**; eval passed on 4 POs, builder confirmed | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal — **[x] done 2026-10-12**; 0020 applied in prod 2026-10-12 | @db |
 | 103 | Worker foundations — body text, lease column, storage module, failed rows visible (split 2026-10-12, FB-42) — **[x] done 2026-10-12**; 0021 applied in prod 2026-10-12 | @db |
-| 115 | Worker core — claim, extract, check, match, persist | @db |
+| 115 | Worker core — claim, extract, check, match, persist — **[x] done 2026-10-12** | @db |
 | 116 | Worker route — secret, `after()`, self-chain | — |
 
 **Task 103 sign-off conditions from `@security` (M-04 residual, 2026-10-12)** — the PDF render
@@ -4173,21 +4173,21 @@ builder: no `worker_thread`) and the L-A logging rule moved here from Task 98.
    nothing in the batch could succeed.
 
 **Acceptance criteria:**
-- [ ] Two concurrent `claimBatch` calls never return the same row (integration test)
-- [ ] The attempt is counted at claim time, before any render (M-04 condition 1)
-- [ ] Lease: a row stuck at `extracting` past `EXTRACTION_LEASE_MS` is reclaimed; one inside the lease is not
-- [ ] Each branch above is tested; a planted permanent error ends `extraction_failed` in one run
-- [ ] Logs carry model, status, page count, duration and row id only. A test asserts that no
+- [x] Two concurrent `claimBatch` calls never return the same row (integration test)
+- [x] The attempt is counted at claim time, before any render (M-04 condition 1)
+- [x] Lease: a row stuck at `extracting` past `EXTRACTION_LEASE_MS` is reclaimed; one inside the lease is not
+- [x] Each branch above is tested; a planted permanent error ends `extraction_failed` in one run
+- [x] Logs carry model, status, page count, duration and row id only. A test asserts that no
       extracted value, quote, body text or `sourceText` reaches `console.*` (L-A, SEC-05)
-- [ ] `sourceText` is never persisted (MEDIUM-07 precondition), asserted on the written row
-- [ ] Every number comes from constants; CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] `sourceText` is never persisted (MEDIUM-07 precondition), asserted on the written row
+- [x] Every number comes from constants; CQ-01/02; full suite green; `tsc` and `eslint` clean
 
 **Tests required:** a happy path and the error case for each function; the integration tests
 for claim and lease on the local stack; the worker with injected deps (download, `extractPo`, matcher).
 
 **Depends on:** Task 103.
 **Specialist:** @db
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). `claimBatch` is one UPDATE over a `FOR UPDATE SKIP LOCKED` subselect, counting the attempt and stamping the lease at claim time; it also reclaims a lease-less `extracting` row. Proven against the local stack: a claim skips rows an open transaction holds, without waiting (mutation-checked: dropping SKIP LOCKED hangs it). The worker reads the extraction config **before** claiming, so a missing key costs no row an attempt. `StorageConfigError` also stops the batch (spec named only `ExtractionConfigError`), and both release every unprocessed row before rethrowing. Image MIME type comes from the stored key's extension (no MIME column). New permanent errors: `MissingExtractionInputError` and `ExtractionAttemptsExhaustedError`. A transient error on the last attempt is parked at once, not released. If the failure write itself fails, the row is logged `stranded` and left to the lease. Queue writes log via `loggableFailure` and throw with `parameterFreeCause`, which moved from `customer-match.ts` into `lib/loggable-failure.ts`. `@security` CLEAR. Its two Mediums were fixed in this task: **MEDIUM-09**, where the worker now claims one row at a time and stops claiming after `EXTRACTION_CLAIM_CUTOFF_MS` (30 s), so a killed run spends only the in-flight row's attempt; and **MEDIUM-10**, where `releaseForRetry` stamps the release time and the claim skips that row for `EXTRACTION_RETRY_DELAY_MS` (5 min). `BatchSummary.rowsMayRemain` (false once a claim comes back empty) is Task 116's self-chain signal; Task 116 must chain on it, never on `claimed`. LOW-T115-1 and -2 are open; **Builder decision 2026-10-12:** `PdfRenderError` stays transient (3 tries), because it also wraps environment glitches. `test:integration` now runs files one at a time (`--no-file-parallelism`): the claim is unscoped and took other files' staged rows. Suite 1836 passed; integration 24/24; `tsc` and `eslint` clean.
 
 ---
 

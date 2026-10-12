@@ -15,7 +15,7 @@
     "db:wipe": "tsx --env-file=.env db/seed.ts --wipe-only",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "node --env-file=.env ./node_modules/vitest/vitest.mjs run integration"
+    "test:integration": "node --env-file=.env ./node_modules/vitest/vitest.mjs run integration --no-file-parallelism"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
