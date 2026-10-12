@@ -3311,7 +3311,7 @@ the first real documents. The agreed sequence:
 | 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **[x] done 2026-10-12**; `@security` re-run owed; 0019 applied in prod 2026-10-12 | @db |
 | 101 | Check suite — quote verification, arithmetic, date ambiguity — **[x] done 2026-10-12**; eval passed on 4 POs, builder confirmed | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal — **[x] done 2026-10-12**; 0020 applied in prod 2026-10-12 | @db |
-| 103 | Worker foundations — body text, lease column, storage module, failed rows visible (split 2026-10-12, FB-42) | @db |
+| 103 | Worker foundations — body text, lease column, storage module, failed rows visible (split 2026-10-12, FB-42) — **[x] done 2026-10-12**; 0021 applied in prod 2026-10-12 | @db |
 | 115 | Worker core — claim, extract, check, match, persist | @db |
 | 116 | Worker route — secret, `after()`, self-chain | — |
 
@@ -4119,16 +4119,16 @@ This task adds data and access only; no extraction runs yet.
 - `.env.example` — add `SUPABASE_SECRET_KEY` and `INGEST_TRIGGER_SECRET` with placeholder values
 
 **Acceptance criteria:**
-- [ ] A body PO staged locally has `body_text` equal to the normalised body; attachment rows have NULL
-- [ ] The CHECK rejects `body_text` on a `pdf` row (integration test)
-- [ ] `extraction_failed` rows appear in `listPendingReview` and `countPendingReview`
-- [ ] Storage module: upload then download round-trips the bytes on the local stack; a second
+- [x] A body PO staged locally has `body_text` equal to the normalised body; attachment rows have NULL
+- [x] The CHECK rejects `body_text` on a `pdf` row (integration test)
+- [x] `extraction_failed` rows appear in `listPendingReview` and `countPendingReview`
+- [x] Storage module: upload then download round-trips the bytes on the local stack; a second
       upload to the same path succeeds (MEDIUM-06); a missing key throws `StorageConfigError`
-- [ ] A test asserts that no other source file references `SUPABASE_SECRET_KEY` (CONSTRAINT-38)
-- [ ] Errors name the path only, never document content (SEC-05)
-- [ ] Applied locally with `db:migrate-local`; the builder pastes it into prod before Task 104.
+- [x] A test asserts that no other source file references `SUPABASE_SECRET_KEY` (CONSTRAINT-38)
+- [x] Errors name the path only, never document content (SEC-05)
+- [x] Applied locally with `db:migrate-local`; the builder pastes it into prod before Task 104.
       **Never `db:migrate`.**
-- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] CQ-01/02; full suite green; `tsc` and `eslint` clean
 
 **Tests required:** a migration-file test; a body-candidate unit test; queue inclusion (the
 compiled SQL lists both statuses); storage happy, missing-key and failure paths (unit, mocked
@@ -4136,7 +4136,7 @@ client) plus an integration round-trip; the CONSTRAINT-38 grep test.
 
 **Depends on:** Task 102 (done).
 **Specialist:** @db
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). Migration 0021 applied locally with `db:migrate-local` and re-run clean (re-runnable); **pasted into prod by the builder 2026-10-12.** `@security` CLEAR (LOW-T103-1 to -3; MEDIUM-06 closes when Task 104 wires `uploadPoDocument`). `body_text` flows candidate → `StagedCandidate` → `poRow`; `InsertInboundPoInput.body_text` is **required** (`string | null`) so no writer can omit it. Queue reads `status IN (pending_review, extraction_failed)` from one constant. `lib/storage/po-documents.ts` builds a fresh session-less client per call (no cached client to outlive a rotated key). CONSTRAINT-38 grep test walks every non-test source file; mutation-checked (a planted reader fails it). Local `.env` gained the local stack's `SUPABASE_SECRET_KEY`. Suite 1784 passed; integration 16/16 incl. the storage round-trip and the CHECK (SQLSTATE 23514); `tsc` and `eslint` clean.
 
 ---
 

@@ -131,6 +131,7 @@ describe('ingestMessages', () => {
       inbound_email_id: 'email-1',
       source_kind: 'pdf',
       document_path: `${PO_DOCUMENT_PATH_PREFIX}/${expectedHash}.pdf`,
+      body_text: null,
       content_hash: expectedHash,
       duplicate_of_id: null,
     })
@@ -235,8 +236,29 @@ describe('ingestMessages', () => {
     expect(fake.pos[0]).toMatchObject({
       source_kind: 'email_body',
       document_path: null,
+      body_text: normalizeBodyForHash(BODY_PO_TEXT),
       content_hash: contentHash(normalizeBodyForHash(BODY_PO_TEXT)),
     })
+  })
+
+  // FB-42: only a body PO writes `body_text`. The 0021 CHECK would reject
+  // text on a file row, and a refusal has no text worth keeping.
+  it('writes NULL body_text on attachment rows and refusal rows', async () => {
+    const fake = recorder()
+    const mixed = message({
+      bodyText: BODY_PO_TEXT,
+      attachments: [
+        attachment('application/pdf', Buffer.from('%PDF-1.4 fixture'), 'po.pdf'),
+        attachment('application/vnd.ms-excel', Buffer.from('not a PO'), 'book.xls'),
+      ],
+    })
+
+    await ingestMessages([mixed], UID_VALIDITY, fake.deps)
+
+    expect(fake.pos.map((row) => [row.source_kind, row.body_text])).toEqual([
+      ['pdf', null],
+      ['email_body', null],
+    ])
   })
 
   // A duplicate is a flag, not a rejection: the row still reaches the review
@@ -273,6 +295,7 @@ describe('ingestMessages', () => {
         inbound_email_id: 'email-1',
         source_kind: 'email_body',
         document_path: null,
+        body_text: null,
         content_hash: refusalHash(UID_VALIDITY, 5, failure),
         status: 'pending_review',
         check_results: { failures: [failure] },

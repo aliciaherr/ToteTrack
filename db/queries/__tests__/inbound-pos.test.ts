@@ -66,12 +66,12 @@ describe('listPendingReview', () => {
     expect(compiled).toMatch(/ELSE FALSE/i)
   })
 
-  it('filters to pending_review only and never paginates', async () => {
+  it('lists pending_review and extraction_failed rows, and never paginates', async () => {
     mockExecute.mockResolvedValueOnce([])
     await listPendingReview()
     const { sql: compiled, params } = compileCall(0)
-    expect(compiled).toMatch(/WHERE\s+p\.status = /i)
-    expect(params).toContain('pending_review')
+    expect(compiled).toMatch(/WHERE\s+p\.status IN \(\$1, \$2\)/i)
+    expect(params).toEqual(['pending_review', 'extraction_failed'])
     expect(compiled).not.toMatch(/\bLIMIT\b|\bOFFSET\b/i)
   })
 
@@ -101,8 +101,9 @@ describe('countPendingReview', () => {
     const { sql: compiled, params } = compileCall(0)
     expect(compiled).toMatch(/COUNT\(\*\)::int AS count/i)
     expect(compiled).not.toMatch(/p\.extracted/i)
-    // Same status as listPendingReview — the badge and the list cannot drift.
-    expect(params).toContain('pending_review')
+    // Same statuses as listPendingReview — the badge and the list cannot drift.
+    expect(compiled).toMatch(/WHERE\s+p\.status IN \(\$1, \$2\)/i)
+    expect(params).toEqual(['pending_review', 'extraction_failed'])
   })
 
   it('returns 0 when the queue is empty', async () => {

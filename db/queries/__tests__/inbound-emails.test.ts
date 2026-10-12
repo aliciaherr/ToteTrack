@@ -30,7 +30,7 @@ const SAMPLE_EMAIL: InsertInboundEmailInput = {
 }
 
 function po(hash: string): InsertInboundPoInput {
-  return { source_kind: 'pdf', document_path: `po-documents/${hash}.pdf`, content_hash: hash }
+  return { source_kind: 'pdf', document_path: `po-documents/${hash}.pdf`, body_text: null, content_hash: hash }
 }
 
 /**

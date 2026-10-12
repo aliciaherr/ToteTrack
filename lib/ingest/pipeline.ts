@@ -96,6 +96,8 @@ interface StagedCandidate {
   hash: string
   /** The object key, or `null` for a body candidate or a refusal. */
   documentPath: string | null
+  /** The normalised body for a body candidate; `null` for a file or a refusal. */
+  bodyText: string | null
   /** The refusal this row records, or `null` for a real PO candidate. */
   failure: IngestLimitFailure | null
 }
@@ -113,7 +115,13 @@ function describe(cause: unknown): string {
 async function stageCandidate(candidate: PoCandidate, deps: IngestDeps): Promise<StagedCandidate> {
   const hash = contentHash(candidate.hashInput)
   if (!candidate.bytes || !candidate.mimeType) {
-    return { sourceKind: candidate.sourceKind, hash, documentPath: null, failure: null }
+    return {
+      sourceKind: candidate.sourceKind,
+      hash,
+      documentPath: null,
+      bodyText: candidate.bodyText,
+      failure: null,
+    }
   }
   const documentPath = documentPathFor(hash, candidate.mimeType)
   try {
@@ -121,7 +129,7 @@ async function stageCandidate(candidate: PoCandidate, deps: IngestDeps): Promise
   } catch (cause) {
     throw new DocumentUploadError(PO_DOCUMENTS_BUCKET, documentPath, describe(cause), { cause })
   }
-  return { sourceKind: candidate.sourceKind, hash, documentPath, failure: null }
+  return { sourceKind: candidate.sourceKind, hash, documentPath, bodyText: null, failure: null }
 }
 
 /**
@@ -134,6 +142,7 @@ function refusedRow(uidValidity: number, uid: number, failure: IngestLimitFailur
     sourceKind: REFUSED_SOURCE_KIND,
     hash: refusalHash(uidValidity, uid, failure),
     documentPath: null,
+    bodyText: null,
     failure,
   }
 }
@@ -158,6 +167,7 @@ function poRow(candidate: StagedCandidate): StagedPoInput {
   return {
     source_kind: candidate.sourceKind,
     document_path: candidate.documentPath,
+    body_text: candidate.bodyText,
     content_hash: candidate.hash,
     ...refusalColumns(candidate.failure),
   }

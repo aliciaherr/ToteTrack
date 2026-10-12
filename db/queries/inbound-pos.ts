@@ -28,6 +28,12 @@ export interface InsertInboundPoInput {
   source_kind: InboundPoSourceKind
   /** NULL exactly when `source_kind` is `email_body` — there is no stored file. */
   document_path: string | null
+  /**
+   * The normalised body, in full, for an `email_body` PO candidate; NULL on
+   * every attachment row and every refusal. A CHECK (migration 0021) rejects
+   * text on a `pdf` or `image` row. Required, so no writer can forget it.
+   */
+  body_text: string | null
   content_hash: string
   /**
    * Omitted on the normal path, so `status` and `attempt_count` keep their
@@ -61,10 +67,16 @@ export interface InboundPoRow {
   created_at: string
 }
 
-// The one status the review queue reads. A constant so the list query and the
+// The statuses the review queue reads. A constant so the list query and the
 // count query can never drift onto different statuses and disagree about how
-// many rows the badge should show.
-const PENDING_REVIEW_STATUS: InboundPoStatus = 'pending_review'
+// many rows the badge should show. `extraction_failed` is listed too (FB-42,
+// PRD): a PO the worker gave up on still reaches a human, as manual entry.
+const REVIEW_QUEUE_STATUSES: readonly InboundPoStatus[] = ['pending_review', 'extraction_failed']
+
+const REVIEW_QUEUE_STATUS_FILTER: SQL = sql`p.status IN (${sql.join(
+  REVIEW_QUEUE_STATUSES.map((status) => sql`${status}`),
+  sql`, `,
+)})`
 
 // Does this row have at least one failed check?
 //
@@ -115,7 +127,7 @@ function buildPendingReviewQuery(): SQL {
       p.skipped_at,
       p.created_at
     FROM inbound_pos p
-    WHERE p.status = ${PENDING_REVIEW_STATUS}
+    WHERE ${REVIEW_QUEUE_STATUS_FILTER}
     ${PENDING_REVIEW_ORDER_CLAUSE}
   `
 }
@@ -124,7 +136,7 @@ function buildPendingReviewCountQuery(): SQL {
   return sql`
     SELECT COUNT(*)::int AS count
     FROM inbound_pos p
-    WHERE p.status = ${PENDING_REVIEW_STATUS}
+    WHERE ${REVIEW_QUEUE_STATUS_FILTER}
   `
 }
 
@@ -144,7 +156,8 @@ export function buildPoByContentHashQuery(hash: string): SQL {
 }
 
 /**
- * Loads every PO awaiting human review, ordered so the reviewer meets the
+ * Loads every PO awaiting human review (`pending_review` and
+ * `extraction_failed`), ordered so the reviewer meets the
  * rows that need them most first: failed checks, then never-skipped before
  * skipped, then oldest first. Unbounded — the queue is drained, not paginated.
  *
@@ -158,7 +171,7 @@ export async function listPendingReview(): Promise<InboundPoRow[]> {
   } catch (cause) {
     console.error('listPendingReview: query failed', {
       operation: 'listPendingReview',
-      status: PENDING_REVIEW_STATUS,
+      statuses: REVIEW_QUEUE_STATUSES,
       cause,
     })
     throw new DatabaseError('listPendingReview', 'Failed to load the review queue', {
@@ -168,7 +181,7 @@ export async function listPendingReview(): Promise<InboundPoRow[]> {
 }
 
 /**
- * Counts the POs awaiting human review, for the nav badge. Its own round trip
+ * Counts the POs awaiting human review, `extraction_failed` included, for the nav badge. Its own round trip
  * rather than `listPendingReview().length` so the badge never pays for the
  * full rows it does not render.
  *
@@ -182,7 +195,7 @@ export async function countPendingReview(): Promise<number> {
   } catch (cause) {
     console.error('countPendingReview: query failed', {
       operation: 'countPendingReview',
-      status: PENDING_REVIEW_STATUS,
+      statuses: REVIEW_QUEUE_STATUSES,
       cause,
     })
     throw new DatabaseError('countPendingReview', 'Failed to count the review queue', {

@@ -71,6 +71,13 @@ export interface PoCandidate {
   mimeType: AcceptedMimeType | null
   /** Exactly what gets hashed: raw bytes, or the normalised body text. */
   hashInput: Buffer | string
+  /**
+   * The normalised body, in full, for a body candidate; `null` for an
+   * attachment. Persisted as `inbound_pos.body_text` — the worker's
+   * extraction input (FB-42). Never truncated: `extractPo` refuses an
+   * over-cap body loudly (M-05).
+   */
+  bodyText: string | null
 }
 
 /** An attachment whose type is accepted, carried with the normalised type. */
@@ -185,6 +192,7 @@ function attachmentCandidate(attachment: UsableAttachment): PoCandidate {
     bytes: attachment.bytes,
     mimeType: attachment.mimeType,
     hashInput: attachment.bytes,
+    bodyText: null,
   }
 }
 
@@ -207,7 +215,9 @@ export function selectCandidates(message: InboundMessage): CandidateSelection {
   const body = normalizeBodyForHash(message.bodyText)
   if (body) {
     return {
-      candidates: [{ sourceKind: BODY_SOURCE_KIND, bytes: null, mimeType: null, hashInput: body }],
+      candidates: [
+        { sourceKind: BODY_SOURCE_KIND, bytes: null, mimeType: null, hashInput: body, bodyText: body },
+      ],
       rejections,
     }
   }

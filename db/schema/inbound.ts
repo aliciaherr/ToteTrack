@@ -103,6 +103,12 @@ export const inboundPos = pgTable('inbound_pos', {
 
   status: inboundPoStatusEnum('status').notNull().default('pending_extraction'),
   attempt_count: integer('attempt_count').notNull().default(0),
+  // Migration 0021 (FB-42). The normalised body of an `email_body` PO, in
+  // full; a CHECK keeps it NULL on `pdf` and `image` rows.
+  body_text: text('body_text'),
+  // The worker's lease: a row at `extracting` is reclaimable once this is
+  // older than `EXTRACTION_LEASE_MS` (Task 115).
+  extraction_started_at: timestamp('extraction_started_at', { withTimezone: true }),
   extracted: jsonb('extracted'),
   check_results: jsonb('check_results'),
   confirmed: jsonb('confirmed'),

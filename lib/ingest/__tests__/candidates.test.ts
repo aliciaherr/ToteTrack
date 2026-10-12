@@ -111,6 +111,29 @@ describe('selectCandidates — no silent drops (CONSTRAINT-34)', () => {
     expect(selection.rejections).toHaveLength(1)
   })
 
+  // FB-42: the body is kept, in full, as the worker's extraction input.
+  it('a body candidate carries its normalised text, identical to what is hashed', () => {
+    const quoted = `> ${BODY_PO_TEXT}
+
+-- 
+Dana Fixture`
+    const [candidate] = selectCandidates(message({ bodyText: quoted })).candidates
+
+    expect(candidate.bodyText).not.toBeNull()
+    expect(candidate.bodyText).toBe(candidate.hashInput)
+    expect(candidate.bodyText).toContain('PO 10042')
+    expect(candidate.bodyText).not.toContain('Dana Fixture')
+  })
+
+  it('an attachment candidate carries no body text', () => {
+    const [candidate] = selectCandidates(
+      message({ bodyText: BODY_PO_TEXT, attachments: [attachment('application/pdf')] })
+    ).candidates
+
+    expect(candidate.sourceKind).toBe('pdf')
+    expect(candidate.bodyText).toBeNull()
+  })
+
   it('still refuses an oversized accepted attachment by size', () => {
     const selection = selectCandidates(
       message({ attachments: [attachment('image/png', Buffer.alloc(MAX_ATTACHMENT_BYTES + 1))] })
