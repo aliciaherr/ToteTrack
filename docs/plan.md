@@ -3309,7 +3309,7 @@ the first real documents. The agreed sequence:
 | 99 | UID + UIDVALIDITY watermark (CONSTRAINT-33) — **[x] done 2026-10-12, security CLEAR** | @db |
 | 100 | No silent drops + exact MIME list (CONSTRAINT-34/35) — **[x] done 2026-10-12** (HIGH-02R still open, not in spec) | — |
 | 114 | Give up on a UID after 3 failing runs + 1 hour (CONSTRAINT-37, HIGH-02R) — **[x] done 2026-10-12**; `@security` re-run owed; 0019 applied in prod 2026-10-12 | @db |
-| 101 | Check suite — quote verification, arithmetic, date ambiguity — **specced 2026-10-12** | — |
+| 101 | Check suite — quote verification, arithmetic, date ambiguity — **[x] done 2026-10-12**; eval passed on 4 POs, builder confirmed | — |
 | 102 | Customer matcher — normalise + `pg_trgm` + address signal | @db |
 | 103 | Extraction worker — drain, self-chain, retry | — |
 
@@ -3996,17 +3996,17 @@ POs via a scratchpad script. Every genuine quote `verified` — **zero false `no
 invented value returns `not_found`; the Dakota-style gap is flagged. Builder confirms.
 
 **Acceptance criteria:**
-- [ ] A test proves `sourceText` never appears in the OpenRouter request body
-- [ ] Image input → every quote `unverifiable`, no quote failures
-- [ ] Each check above has a passing and a failing test
-- [ ] Every number in the checks comes from `checks.constants.ts` (no magic numbers)
-- [ ] Quotes rendered nowhere as HTML (L-D) — checks store status, not markup
-- [ ] Evaluation passes on all 4 POs, confirmed by the builder
-- [ ] CQ-01/02; full suite green; `tsc` and `eslint` clean
+- [x] A test proves `sourceText` never appears in the OpenRouter request body
+- [x] Image input → every quote `unverifiable`, no quote failures
+- [x] Each check above has a passing and a failing test
+- [x] Every number in the checks comes from `checks.constants.ts` (no magic numbers)
+- [x] Quotes rendered nowhere as HTML (L-D) — checks store status, not markup
+- [x] Evaluation passes on all 4 POs, confirmed by the builder
+- [x] CQ-01/02; full suite green; `tsc` and `eslint` clean
 
 **Tests required:** per check — happy and failing; `verifyQuote` → verified / not_found /
 unverifiable / column-reordered match; `renderPdfPages` → synthetic PDF returns text per page,
 blank-text PDF yields `null` upstream; `runChecks` → `failures` key always an array.
 
 **Depends on:** Task 98 (done). Independent of 112/113.
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). `lib/checks/` (constants, types, fuzzy, quotes, arithmetic, dates, fields, run-checks); `renderPdfPages` now returns `{ images, text }` from the same parse; `extractPo` returns `{ extracted, sourceText }`. **Evaluation passed, builder confirmed:** live run on the 4 POs: 36/36 quotes `verified`, zero false `not_found`; a planted total is `not_found` on all 4; Dakota flagged. **Builder decision:** a total gap that `other` lines cover exactly is still a `total_mismatch` failure, with the covering lines named in `detail` (the spec contradicted itself). **Beyond the spec:** (1) all-letter quote tokens of 5+ characters may differ by one edit, because the model fixes misspellings when quoting ("Arlintgon", "VITON"); digits always exact; (2) `MAX_SOURCE_TEXT_CHARS` (30k): over it, quotes are `unverifiable` plus a `source_text_too_long` failure, which bounds the matcher; (3) a tote line with no quantity fails `quantity_out_of_bounds`; (4) the same delivery date printed twice is not flagged. **Known limit:** the token fallback does not require tokens to be adjacent. **Not built:** a check for a date read against the document's proven day/month order. Limits: `MAX_LINE_QUANTITY` 500, `MAX_UNIT_PRICE` $1,000, `MAX_QUOTE_CHARS` 600. Mutation-checked. Suite 1740 passed + 3 integration skipped; `tsc` and `eslint` clean.

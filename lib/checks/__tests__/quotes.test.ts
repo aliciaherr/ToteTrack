@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'vitest'
+import { MAX_QUOTE_CHARS, MAX_SOURCE_TEXT_CHARS } from '../checks.constants'
+import { checkQuotes, verifyQuote } from '../quotes'
+import { makePo, SOURCE_TEXT, toteLine } from './fixtures'
+
+describe('verifyQuote', () => {
+  it('verifies a quote that is in the text', () => {
+    expect(verifyQuote('Example Widgets Co', ['Bill To\nExample Widgets Co\n'])).toBe('verified')
+  })
+
+  it('ignores case, whitespace and line breaks', () => {
+    expect(verifyQuote('PURCHASE ORDER NO.    :  PO-0001', ['Purchase Order No.: PO-\n0001'])).toBe('verified')
+  })
+
+  it('matches across words the text layer split mid-item ("Exam" "ple")', () => {
+    expect(verifyQuote('Example Widgets', ['Exam' + 'ple Widgets'])).toBe('verified')
+  })
+
+  it('matches a ligature in the text layer', () => {
+    expect(verifyQuote('field office', ['ﬁeld office'])).toBe('verified')
+  })
+
+  it('returns not_found for an invented value', () => {
+    expect(verifyQuote('$9,999.00', SOURCE_TEXT)).toBe('not_found')
+  })
+
+  it('returns not_found when one number in a line is changed', () => {
+    expect(verifyQuote('275 RECON TOTE 10 $150.00 $1,000.00', SOURCE_TEXT)).toBe('not_found')
+  })
+
+  it('returns not_found for an empty quote', () => {
+    expect(verifyQuote('', SOURCE_TEXT)).toBe('not_found')
+  })
+
+  it('returns unverifiable when there is no source text', () => {
+    expect(verifyQuote('anything at all', null)).toBe('unverifiable')
+  })
+
+  it('verifies a table row whose cells the text layer lists in another order', () => {
+    const page = '60 1 E Tote\n330 Gallon Recon Tote\n$130.00 $7,800.00330 G Tote - Recon'
+    expect(verifyQuote('60 1 E Tote 330 G Tote - Recon 330 Gallon Recon Tote $130.00 $7,800.00', [page])).toBe('verified')
+  })
+
+  it('verifies a two-column block the text layer interleaves', () => {
+    const page = 'EXAMPLE CO EXAMPLE CO\nPO BOX 1 22 Hwy 9\nTestville Shipton'
+    expect(verifyQuote('EXAMPLE CO\n22 Hwy 9\nShipton', [page])).toBe('verified')
+  })
+
+  it('tolerates one swapped letter in a long word (model "fixed" a typo)', () => {
+    expect(verifyQuote('Arlington, TX', ['Arlintgon, TX 76003'])).toBe('verified')
+  })
+
+  it('does not tolerate a typo in a number', () => {
+    expect(verifyQuote('76030', ['Arlington, TX 76003'])).toBe('not_found')
+  })
+
+  it('does not tolerate a typo in a short word', () => {
+    expect(verifyQuote('Hwy 8 Dr', ['Hwy 8 Rd'])).toBe('not_found')
+  })
+
+  it('does not match tokens spread across different pages', () => {
+    expect(verifyQuote('Shipton 22', ['Shipton', '22'])).toBe('not_found')
+  })
+})
+
+describe('checkQuotes', () => {
+  it('verifies every quote of a clean PO with no failures', () => {
+    const { failures, quotes } = checkQuotes(makePo(), SOURCE_TEXT)
+    expect(failures).toEqual([])
+    expect(quotes.every((quote) => quote.status === 'verified')).toBe(true)
+    expect(quotes.map((quote) => quote.field)).toEqual([
+      'poNumberCandidates[0]',
+      'customerName',
+      'shipToAddress',
+      'statedTotal',
+      'dates[0]',
+      'lines[0]',
+    ])
+  })
+
+  it('skips a quote whose value is null', () => {
+    const { quotes } = checkQuotes(makePo(), SOURCE_TEXT)
+    expect(quotes.some((quote) => quote.field === 'billToAddress')).toBe(false)
+  })
+
+  it('records a quote_not_found failure for an invented quote', () => {
+    const po = makePo({ customerName: { value: 'Invented Corp', quote: 'Invented Corp' } })
+    const { failures } = checkQuotes(po, SOURCE_TEXT)
+    expect(failures).toEqual([{ check: 'quote_not_found', field: 'customerName', detail: expect.any(String) }])
+  })
+
+  it('marks every quote unverifiable, with no failures, for an image (no text)', () => {
+    const { failures, quotes } = checkQuotes(makePo(), null)
+    expect(failures).toEqual([])
+    expect(quotes.length).toBeGreaterThan(0)
+    expect(quotes.every((quote) => quote.status === 'unverifiable')).toBe(true)
+  })
+
+  it('fails a quote over MAX_QUOTE_CHARS without matching it', () => {
+    const long = 'x'.repeat(MAX_QUOTE_CHARS + 1)
+    const { failures, quotes } = checkQuotes(makePo({ lines: [toteLine({ quote: long })] }), SOURCE_TEXT)
+    expect(failures).toEqual([{ check: 'quote_too_long', field: 'lines[0]', detail: expect.any(String) }])
+    expect(quotes.find((quote) => quote.field === 'lines[0]')?.status).toBe('unverifiable')
+  })
+
+  it('accepts a quote exactly at MAX_QUOTE_CHARS', () => {
+    const exact = 'y'.repeat(MAX_QUOTE_CHARS)
+    const { failures } = checkQuotes(makePo({ lines: [toteLine({ quote: exact })] }), [...SOURCE_TEXT, exact])
+    expect(failures).toEqual([])
+  })
+
+  it('refuses to match a document over MAX_SOURCE_TEXT_CHARS, loudly', () => {
+    const huge = ['z'.repeat(MAX_SOURCE_TEXT_CHARS + 1)]
+    const { failures, quotes } = checkQuotes(makePo(), huge)
+    expect(failures).toEqual([{ check: 'source_text_too_long', field: 'sourceText', detail: expect.any(String) }])
+    expect(quotes.every((quote) => quote.status === 'unverifiable')).toBe(true)
+  })
+
+  it('never stores quote text in its results', () => {
+    const po = makePo({ customerName: { value: 'Invented Corp', quote: '<b>Invented Corp</b>' } })
+    const serialized = JSON.stringify(checkQuotes(po, SOURCE_TEXT))
+    expect(serialized).not.toContain('Invented Corp')
+    expect(serialized).not.toContain('<b>')
+  })
+})

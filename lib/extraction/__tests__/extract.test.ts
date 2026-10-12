@@ -28,10 +28,13 @@ const VALID_PO: ExtractedPo = {
   ],
 }
 
-function makeDeps(pages: Buffer[] = []): ExtractionDeps & { renderPdfPages: ReturnType<typeof vi.fn> } {
+function makeDeps(
+  pages: Buffer[] = [],
+  text: string[] = pages.map((_, index) => `Invented text layer, page ${index + 1}`)
+): ExtractionDeps & { renderPdfPages: ReturnType<typeof vi.fn> } {
   return {
     fetchImpl: vi.fn() as unknown as typeof fetch,
-    renderPdfPages: vi.fn().mockResolvedValue(pages),
+    renderPdfPages: vi.fn().mockResolvedValue({ images: pages, text }),
   }
 }
 
@@ -116,7 +119,8 @@ describe('extractPo — input by kind', () => {
 
 describe('extractPo — response handling', () => {
   it('returns the validated reading when the model JSON matches the schema', async () => {
-    await expect(extractPo({ kind: 'text', text: 'x' }, CONFIG, makeDeps())).resolves.toEqual(VALID_PO)
+    const result = await extractPo({ kind: 'text', text: 'x' }, CONFIG, makeDeps())
+    expect(result.extracted).toEqual(VALID_PO)
   })
 
   it('throws ExtractionResponseError naming paths, not values, on a schema mismatch', async () => {
@@ -137,6 +141,37 @@ describe('extractPo — response handling', () => {
 
     await expect(extractPo({ kind: 'pdf', bytes: Buffer.from('%PDF') }, CONFIG, deps)).rejects.toBe(tooMany)
     expect(mockedCall).not.toHaveBeenCalled()
+  })
+})
+
+describe('extractPo — sourceText for quote checks (FB-40)', () => {
+  it("returns a PDF's text layer, one entry per page", async () => {
+    const deps = makeDeps([Buffer.from('png-1'), Buffer.from('png-2')], ['page one text', 'page two text'])
+    const { sourceText } = await extractPo({ kind: 'pdf', bytes: Buffer.from('%PDF') }, CONFIG, deps)
+    expect(sourceText).toEqual(['page one text', 'page two text'])
+  })
+
+  it('returns null for a PDF whose text layer is blank on every page (a scan)', async () => {
+    const deps = makeDeps([Buffer.from('png-1'), Buffer.from('png-2')], ['', '  \n '])
+    const { sourceText } = await extractPo({ kind: 'pdf', bytes: Buffer.from('%PDF') }, CONFIG, deps)
+    expect(sourceText).toBeNull()
+  })
+
+  it('returns null for an image', async () => {
+    const input = { kind: 'image', bytes: Buffer.from([1, 2, 3]), mimeType: 'image/png' } as const
+    const { sourceText } = await extractPo(input, CONFIG, makeDeps())
+    expect(sourceText).toBeNull()
+  })
+
+  it('returns the email body as the single page for text input', async () => {
+    const { sourceText } = await extractPo({ kind: 'text', text: 'Invented body' }, CONFIG, makeDeps())
+    expect(sourceText).toEqual(['Invented body'])
+  })
+
+  it('never puts the text layer in the model request', async () => {
+    const deps = makeDeps([Buffer.from('png-1')], ['UNIQUE-TEXT-LAYER-MARKER'])
+    await extractPo({ kind: 'pdf', bytes: Buffer.from('%PDF') }, CONFIG, deps)
+    expect(JSON.stringify(sentRequest())).not.toContain('UNIQUE-TEXT-LAYER-MARKER')
   })
 })
 

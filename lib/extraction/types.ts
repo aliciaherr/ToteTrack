@@ -1,4 +1,4 @@
-import type { ToteType } from './schema'
+import type { ExtractedPo, ToteType } from './schema'
 
 export type { ExtractedPo, ExtractedLine, ExtractedDate, ToteType } from './schema'
 
@@ -35,10 +35,31 @@ export interface ExtractionRequest {
   content: ChatContentPart[]
 }
 
+/**
+ * One PDF after rendering: a PNG per page for the model, plus each page's
+ * embedded text layer. The text is used **only** to verify the model's quotes
+ * (CONSTRAINT-35, amended by FB-40) — it is never sent to the model.
+ */
+export interface RenderedPdf {
+  images: Buffer[]
+  /** One entry per page, in page order. A scanned page yields `''`. */
+  text: string[]
+}
+
 /** Injected so tests never reach the network or the PDF renderer. */
 export interface ExtractionDeps {
   fetchImpl: typeof fetch
-  renderPdfPages: (pdf: Buffer, maxPages: number) => Promise<Buffer[]>
+  renderPdfPages: (pdf: Buffer, maxPages: number) => Promise<RenderedPdf>
+}
+
+/**
+ * What `extractPo` returns. `sourceText` is the document's own text, one entry
+ * per page (`[body]` for an email body), or `null` when there is none to check
+ * quotes against: an image, or a PDF whose text layer is blank (a scan).
+ */
+export interface ExtractionResult {
+  extracted: ExtractedPo
+  sourceText: string[] | null
 }
 
 /** Per-type quantity and unit price, derived from tote lines. */

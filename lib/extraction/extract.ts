@@ -11,6 +11,7 @@ import type {
   ExtractionDeps,
   ExtractionInput,
   ExtractionRequest,
+  ExtractionResult,
   ImageDataUrl,
   OrderQuantities,
   ToteSlot,
@@ -34,17 +35,22 @@ export const defaultExtractionDeps: ExtractionDeps = { fetchImpl: fetch, renderP
  * validated against `extractedPoSchema`; a mismatch throws
  * `ExtractionResponseError` naming the failing paths, never their values.
  *
+ * Alongside the reading it returns the document's own text for Task 101's
+ * quote checks (FB-40). **That text is never added to the model request** —
+ * for a PDF it is the text layer from the same parse that drew the pages.
+ *
  * @param input - The document, by kind.
  * @param config - API key and model, resolved by `readExtractionConfig`.
  * @param deps - `fetch` and the PDF renderer; injected in tests.
- * @returns The validated reading of the document.
+ * @returns The validated reading, plus the source text (`null` for an image
+ *   or a PDF with a blank text layer).
  */
 export async function extractPo(
   input: ExtractionInput,
   config: ExtractionConfig,
   deps: ExtractionDeps = defaultExtractionDeps
-): Promise<ExtractedPo> {
-  const content = await buildContent(input, deps)
+): Promise<ExtractionResult> {
+  const { content, sourceText } = await prepareDocument(input, deps)
   const request: ExtractionRequest = { system: buildSystemPrompt(), content }
   const raw = await callOpenRouter(request, config, deps.fetchImpl)
 
@@ -52,26 +58,39 @@ export async function extractPo(
   if (!parsed.success) {
     throw new ExtractionResponseError(config.model, summarizeIssues(parsed.error.issues))
   }
-  return parsed.data
+  return { extracted: parsed.data, sourceText }
+}
+
+/** One document as model input, plus its own text kept back for quote checks. */
+interface PreparedDocument {
+  content: ChatContentPart[]
+  sourceText: string[] | null
 }
 
 /** Turns one document into the user-message parts, led by a short framing line. */
-async function buildContent(input: ExtractionInput, deps: ExtractionDeps): Promise<ChatContentPart[]> {
+async function prepareDocument(input: ExtractionInput, deps: ExtractionDeps): Promise<PreparedDocument> {
   switch (input.kind) {
     case 'pdf': {
-      const pages = await deps.renderPdfPages(input.bytes, MAX_PDF_PAGES)
-      return [
-        textPart(`The purchase order is a PDF, rendered as ${pages.length} page image(s) in page order.`),
-        ...pages.map((png) => imagePart('image/png', png)),
+      const { images, text } = await deps.renderPdfPages(input.bytes, MAX_PDF_PAGES)
+      const content = [
+        textPart(`The purchase order is a PDF, rendered as ${images.length} page image(s) in page order.`),
+        ...images.map((png) => imagePart('image/png', png)),
       ]
+      // A scan has no text layer: nothing to verify against, so `null`.
+      return { content, sourceText: text.some((page) => page.trim() !== '') ? text : null }
     }
-    case 'image':
-      return [textPart('The purchase order is a single image.'), imagePart(input.mimeType, input.bytes)]
+    case 'image': {
+      const content = [textPart('The purchase order is a single image.'), imagePart(input.mimeType, input.bytes)]
+      return { content, sourceText: null }
+    }
     case 'text':
       if (input.text.length > MAX_TEXT_INPUT_CHARS) {
         throw new TextInputTooLongError(input.text.length, MAX_TEXT_INPUT_CHARS)
       }
-      return [textPart('The purchase order is the email body below.'), textPart(input.text)]
+      return {
+        content: [textPart('The purchase order is the email body below.'), textPart(input.text)],
+        sourceText: [input.text],
+      }
   }
 }
 

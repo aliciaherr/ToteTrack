@@ -5,9 +5,11 @@ import {
   getDocument,
   type PDFDocumentLoadingTask,
   type PDFDocumentProxy,
+  type PDFPageProxy,
   type PageViewport,
   type RenderTask,
 } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { RenderedPdf } from './types'
 import {
   MAX_EMBEDDED_IMAGE_PIXELS,
   MAX_RENDER_PIXELS,
@@ -73,7 +75,9 @@ function pdfjsDir(name: string): string {
  *   parameter so tests can exercise the limit without building large PDFs.
  * @param timeoutMs - Deadline for the whole call. Production callers omit it
  *   and get `PDF_RENDER_TIMEOUT_MS`; it is a parameter so tests can trip it.
- * @returns One PNG buffer per page, in page order.
+ * @returns One PNG per page, in page order, plus each page's text layer from
+ *   the same parse (`''` for a page with none). The text is for quote
+ *   verification only and is never sent to the model (FB-40).
  * @throws {PdfTooManyPagesError} The document has more than `maxPages` pages.
  *   Thrown before any page is rendered.
  * @throws {PdfPageTooLargeError} A page would need a canvas over
@@ -88,7 +92,7 @@ export async function renderPdfPages(
   pdf: Buffer,
   maxPages: number,
   timeoutMs: number = PDF_RENDER_TIMEOUT_MS,
-): Promise<Buffer[]> {
+): Promise<RenderedPdf> {
   const task = startLoading(pdf)
   const deadline = startDeadline(timeoutMs)
   try {
@@ -150,19 +154,21 @@ async function renderAll(
   task: PDFDocumentLoadingTask,
   maxPages: number,
   deadline: Deadline,
-): Promise<Buffer[]> {
+): Promise<RenderedPdf> {
   const doc = await openDocument(task)
   if (doc.numPages > maxPages) {
     throw new PdfTooManyPagesError(doc.numPages, maxPages)
   }
-  const pages: Buffer[] = []
+  const rendered: RenderedPdf = { images: [], text: [] }
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
     // After a timeout the caller already has its PdfRenderTimeoutError; this
     // result is discarded, so stop instead of starting another page.
-    if (deadline.timedOut()) return pages
-    pages.push(await renderPage(doc, pageNumber, deadline))
+    if (deadline.timedOut()) return rendered
+    const page = await renderPage(doc, pageNumber, deadline)
+    rendered.images.push(page.image)
+    rendered.text.push(page.text)
   }
-  return pages
+  return rendered
 }
 
 /** Starts parsing the bytes. Node-only, network-free options throughout. */
@@ -203,28 +209,17 @@ async function openDocument(task: PDFDocumentLoadingTask): Promise<PDFDocumentPr
   }
 }
 
-/** Draws one page onto a fresh canvas and encodes it as PNG. */
+/** Draws one page onto a fresh canvas, encodes it as PNG, and reads its text layer. */
 async function renderPage(
   doc: PDFDocumentProxy,
   pageNumber: number,
   deadline: Deadline,
-): Promise<Buffer> {
+): Promise<{ image: Buffer; text: string }> {
   try {
     const page = await doc.getPage(pageNumber)
     try {
-      const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
-      const { width, height } = checkCanvasSize(viewport, pageNumber)
-      const canvas = createCanvas(width, height)
-      // pdfjs types its canvas as a DOM element; @napi-rs/canvas is the Node
-      // implementation pdfjs itself uses for its NodeCanvasFactory.
-      const render = page.render({ canvas: canvas as unknown as HTMLCanvasElement, viewport })
-      deadline.track(render)
-      try {
-        await render.promise
-      } finally {
-        deadline.track(null)
-      }
-      return await canvas.encode('png')
+      const image = await drawPage(page, pageNumber, deadline)
+      return { image, text: await readPageText(page) }
     } finally {
       page.cleanup()
     }
@@ -235,6 +230,37 @@ async function renderPage(
       cause: error,
     })
   }
+}
+
+/**
+ * A page's embedded text, items joined with nothing between them and a newline
+ * where pdfjs marks an end of line. pdfjs splits words across items (ligatures,
+ * kerning runs: "Mans" "fi" "eld"), so a space between every item would break
+ * words apart; the cost is that adjacent table cells can run together, which
+ * quote matching tolerates by ignoring whitespace.
+ */
+async function readPageText(page: PDFPageProxy): Promise<string> {
+  const content = await page.getTextContent()
+  return content.items
+    .map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : '') : ''))
+    .join('')
+}
+
+/** Draws one page onto a fresh canvas and encodes it as PNG. */
+async function drawPage(page: PDFPageProxy, pageNumber: number, deadline: Deadline): Promise<Buffer> {
+  const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
+  const { width, height } = checkCanvasSize(viewport, pageNumber)
+  const canvas = createCanvas(width, height)
+  // pdfjs types its canvas as a DOM element; @napi-rs/canvas is the Node
+  // implementation pdfjs itself uses for its NodeCanvasFactory.
+  const render = page.render({ canvas: canvas as unknown as HTMLCanvasElement, viewport })
+  deadline.track(render)
+  try {
+    await render.promise
+  } finally {
+    deadline.track(null)
+  }
+  return await canvas.encode('png')
 }
 
 /**

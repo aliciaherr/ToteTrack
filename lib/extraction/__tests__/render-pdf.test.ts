@@ -74,21 +74,33 @@ function buildPdf(
 
 describe('renderPdfPages', () => {
   it('renders a one-page PDF to a single PNG', async () => {
-    const pages = await renderPdfPages(buildPdf(1), 5)
+    const { images: pages } = await renderPdfPages(buildPdf(1), 5)
     expect(pages).toHaveLength(1)
     expect(pages[0].subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true)
   })
 
   it('renders one PNG per page, in order', async () => {
-    const pages = await renderPdfPages(buildPdf(2), 5)
+    const { images: pages } = await renderPdfPages(buildPdf(2), 5)
     expect(pages).toHaveLength(2)
     for (const page of pages) {
       expect(page.subarray(0, 8).equals(PNG_SIGNATURE)).toBe(true)
     }
   })
 
+  it("returns each page's text layer, in page order", async () => {
+    const { text } = await renderPdfPages(buildPdf(2), 5)
+    expect(text).toEqual(['Synthetic page 1', 'Synthetic page 2'])
+  })
+
+  it('returns an empty string for a page with no text layer (a scan)', async () => {
+    const pdf = buildPdf(2, { page: 2, content: '0 0 m 100 100 l S' })
+    const { images, text } = await renderPdfPages(pdf, 5)
+    expect(images).toHaveLength(2)
+    expect(text).toEqual(['Synthetic page 1', ''])
+  })
+
   it('renders exactly at the page limit', async () => {
-    await expect(renderPdfPages(buildPdf(2), 2)).resolves.toHaveLength(2)
+    await expect(renderPdfPages(buildPdf(2), 2)).resolves.toMatchObject({ images: [expect.any(Buffer), expect.any(Buffer)] })
   })
 
   it('refuses a PDF over the page limit instead of truncating it', async () => {
@@ -131,7 +143,7 @@ describe('renderPdfPages resource bounds (@security H-02, M-04)', () => {
   })
 
   it('renders a letter page well under the pixel cap', async () => {
-    await expect(renderPdfPages(buildPdf(1), 5)).resolves.toHaveLength(1)
+    await expect(renderPdfPages(buildPdf(1), 5)).resolves.toMatchObject({ images: [expect.any(Buffer)] })
     expect(canvasAllocations).toEqual([[1224, 1584]])
   })
 
