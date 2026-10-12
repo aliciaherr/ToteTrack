@@ -1,5 +1,5 @@
 import type { ExtractedPo } from '@/lib/extraction/types'
-import { FUZZY_MIN_TOKEN_CHARS, MAX_QUOTE_CHARS, MAX_SOURCE_TEXT_CHARS } from './checks.constants'
+import { FUZZY_MIN_TOKEN_CHARS, MAX_FUZZY_WORK, MAX_QUOTE_CHARS, MAX_SOURCE_TEXT_CHARS } from './checks.constants'
 import { containsWithinOneEdit } from './fuzzy'
 import type { CheckFailure, QuoteResult, QuoteStatus } from './types'
 
@@ -33,11 +33,45 @@ function tokenize(quote: string): string[] {
   return (lowered.match(/\p{L}+|\p{N}+(?:[.,]\p{N}+)*|[^\s\p{L}\p{N}]+/gu) ?? []).map(normalize)
 }
 
-/** Only longer all-letter words may match with a typo; anything numeric is exact. */
-function tokenOnPage(token: string, page: string): boolean {
+/**
+ * Fuzzy-matcher work left for one document, in edit-table cells (MEDIUM-07).
+ * Shared by every quote of the document, so the total is capped, not each call.
+ */
+interface FuzzyBudget {
+  cellsLeft: number
+}
+
+function newBudget(): FuzzyBudget {
+  return { cellsLeft: MAX_FUZZY_WORK }
+}
+
+/**
+ * Only longer all-letter words may match with a typo; anything numeric is
+ * exact. A fuzzy search is charged its worst case up front; once the budget
+ * cannot cover it the token counts as absent — the quote turns `not_found`
+ * and sorts to the top, never silently `verified`.
+ */
+function tokenOnPage(token: string, page: string, budget: FuzzyBudget): boolean {
   if (page.includes(token)) return true
   const fuzzyEligible = token.length >= FUZZY_MIN_TOKEN_CHARS && /^\p{L}+$/u.test(token)
-  return fuzzyEligible && containsWithinOneEdit(token, page)
+  if (!fuzzyEligible) return false
+  const cost = token.length * page.length
+  if (cost > budget.cellsLeft) return false
+  budget.cellsLeft -= cost
+  return containsWithinOneEdit(token, page)
+}
+
+function totalLength(sourceText: string[]): number {
+  return sourceText.reduce((sum, page) => sum + page.length, 0)
+}
+
+/** The matching itself, on pages already normalised once per document. */
+function matchQuote(quote: string, pages: string[], budget: FuzzyBudget): QuoteStatus {
+  const whole = normalize(quote)
+  if (whole === '') return 'not_found'
+  if (pages.some((page) => page.includes(whole))) return 'verified'
+  const tokens = tokenize(quote)
+  return pages.some((page) => tokens.every((token) => tokenOnPage(token, page, budget))) ? 'verified' : 'not_found'
 }
 
 /**
@@ -53,18 +87,19 @@ function tokenOnPage(token: string, page: string): boolean {
  * other, so a quote stitched from words found elsewhere on the same page
  * passes. Every number in it must still be printed on that page.
  *
+ * Work is bounded (MEDIUM-07): text over `MAX_SOURCE_TEXT_CHARS` or a quote
+ * over `MAX_QUOTE_CHARS` is not matched, and typo matching stops at
+ * `MAX_FUZZY_WORK` (a token past it counts as absent).
+ *
  * @param quote - The model's quote.
  * @param sourceText - One string per page, or `null` when there is none.
- * @returns `unverifiable` without text; `not_found` for an empty quote.
+ * @returns `unverifiable` without text or when a size limit is exceeded;
+ *   `not_found` for an empty quote.
  */
 export function verifyQuote(quote: string, sourceText: string[] | null): QuoteStatus {
-  if (sourceText === null) return 'unverifiable'
-  const whole = normalize(quote)
-  if (whole === '') return 'not_found'
-  const pages = sourceText.map(normalize)
-  if (pages.some((page) => page.includes(whole))) return 'verified'
-  const tokens = tokenize(quote)
-  return pages.some((page) => tokens.every((token) => tokenOnPage(token, page))) ? 'verified' : 'not_found'
+  if (sourceText === null || totalLength(sourceText) > MAX_SOURCE_TEXT_CHARS) return 'unverifiable'
+  if (quote.length > MAX_QUOTE_CHARS) return 'unverifiable'
+  return matchQuote(quote, sourceText.map(normalize), newBudget())
 }
 
 /** One quote the model gave, with where it sits in the extraction. */
@@ -94,7 +129,8 @@ function collectQuotes(extracted: ExtractedPo): ClaimedQuote[] {
  * `not_found` and an over-long quote are failures; `unverifiable` is recorded
  * in `quotes` only. A document with more text than `MAX_SOURCE_TEXT_CHARS`
  * is not matched at all: every quote is `unverifiable` and one failure says
- * so, rather than letting a huge text layer stall the matcher.
+ * so, rather than letting a huge text layer stall the matcher. Pages are
+ * normalised once, and one `MAX_FUZZY_WORK` budget covers every quote.
  *
  * @returns The failures, and one status per quote (no quote text).
  */
@@ -104,8 +140,10 @@ export function checkQuotes(
 ): { failures: CheckFailure[]; quotes: QuoteResult[] } {
   const claimed = collectQuotes(extracted)
   const failures: CheckFailure[] = []
-  const sourceLength = sourceText?.reduce((sum, page) => sum + page.length, 0) ?? 0
+  const sourceLength = sourceText === null ? 0 : totalLength(sourceText)
   const tooMuchText = sourceLength > MAX_SOURCE_TEXT_CHARS
+  const pages = sourceText === null || tooMuchText ? null : sourceText.map(normalize)
+  const budget = newBudget()
   if (tooMuchText) {
     failures.push({
       check: 'source_text_too_long',
@@ -122,7 +160,7 @@ export function checkQuotes(
       })
       return { field, status: 'unverifiable' }
     }
-    const status = tooMuchText ? 'unverifiable' : verifyQuote(quote, sourceText)
+    const status = pages === null ? 'unverifiable' : matchQuote(quote, pages, budget)
     if (status === 'not_found') {
       failures.push({ check: 'quote_not_found', field, detail: 'quoted text is not in the document' })
     }

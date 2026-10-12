@@ -34,6 +34,15 @@ export const MAX_SOURCE_TEXT_CHARS = 30_000
  */
 export const FUZZY_MIN_TOKEN_CHARS = 5
 
+/**
+ * Total typo-matching work allowed per document, in edit-table cells (token
+ * length × page length per search) — @security MEDIUM-07. A real PO uses a
+ * few thousand cells; a crafted one could otherwise cost seconds of blocking
+ * CPU (measured: 5.4 s). 20M cells is roughly 100–200 ms. Past it, remaining
+ * typo searches count as no match, so the quote is `not_found` and flagged.
+ */
+export const MAX_FUZZY_WORK = 20_000_000
+
 /** Edits (insert, delete, substitute or swap two neighbours) a fuzzy token may need. */
 export const FUZZY_MAX_EDITS = 1
 

@@ -58,6 +58,11 @@ describe('verifyQuote', () => {
     expect(verifyQuote('Hwy 8 Dr', ['Hwy 8 Rd'])).toBe('not_found')
   })
 
+  it('returns unverifiable for text over MAX_SOURCE_TEXT_CHARS or a quote over MAX_QUOTE_CHARS', () => {
+    expect(verifyQuote('zzz', ['z'.repeat(MAX_SOURCE_TEXT_CHARS + 1)])).toBe('unverifiable')
+    expect(verifyQuote('y'.repeat(MAX_QUOTE_CHARS + 1), SOURCE_TEXT)).toBe('unverifiable')
+  })
+
   it('does not match tokens spread across different pages', () => {
     expect(verifyQuote('Shipton 22', ['Shipton', '22'])).toBe('not_found')
   })
@@ -114,6 +119,23 @@ describe('checkQuotes', () => {
     const { failures, quotes } = checkQuotes(makePo(), huge)
     expect(failures).toEqual([{ check: 'source_text_too_long', field: 'sourceText', detail: expect.any(String) }])
     expect(quotes.every((quote) => quote.status === 'unverifiable')).toBe(true)
+  })
+
+  it('caps typo-matching work per document: a crafted input ends not_found, fast (MEDIUM-07)', () => {
+    // Every quote word appears only near the end of the page, one letter swapped,
+    // so each fuzzy search scans the whole page. Unbudgeted, this took ~5.4 s.
+    const quote = Array.from({ length: Math.floor(MAX_QUOTE_CHARS / 6) }, () => 'qwxzj').join(' ')
+    const page = '7'.repeat(MAX_SOURCE_TEXT_CHARS - 10) + 'qxwzj'
+    const po = makePo({ lines: Array.from({ length: 27 }, () => toteLine({ quote })) })
+
+    const started = Date.now()
+    const { quotes } = checkQuotes(po, [page])
+    const elapsed = Date.now() - started
+
+    const lineStatuses = quotes.filter((result) => result.field.startsWith('lines')).map((result) => result.status)
+    expect(lineStatuses[0]).toBe('verified')
+    expect(lineStatuses.at(-1)).toBe('not_found')
+    expect(elapsed).toBeLessThan(2_000)
   })
 
   it('never stores quote text in its results', () => {
