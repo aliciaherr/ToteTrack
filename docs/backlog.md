@@ -10,8 +10,7 @@
 
 ## Decisions owed (builder)
 
-- **Brenntag branches (`@cpo`, before Task 107).** Should an exact parent-name match skip the
-  customer pre-fill when a *different* customer matches the ship-to address?
+- None.
 
 ## Verifications owed
 
@@ -19,7 +18,7 @@
   "Review", and check the layout, zoom, Esc and focus on the iPad width.
 
 - **A-14:** the first deploy renders a PDF in a Vercel function (go-live checklist, `roadmap.md`).
-- **A-15:** pdf.js draws PDFs in iPad Safari (Task 117 is not done until this is checked).
+- **A-15 and Task 106 on the iPad:** on the Feature 16 go-live checklist (`roadmap.md`); builder tests at the end.
 - **`@security` on Task 114 (HIGH-02R):** the plan recorded a re-run as owed, and the report
   that would show it was overwritten by later audits. Confirm it was covered, or run it.
 
@@ -48,7 +47,7 @@
 - LOW-T115-1, LOW-T115-2: accepted.
 - LOW-T103-1 to -3.
 - LOW-NEW-1 to -6: the review UI. NEW-1/-4 (stuck-import alert) shipped in Task 105; NEW-2/-3
-  are in Task 106; NEW-5 (label quotes "found in document text") belongs to Task 107.
+  are in Task 106; NEW-5 (label quotes "found in document text") is planned in Task 118.
 
 ## Deferred by decision (2026-10-12 `@code-review`)
 
