@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertTriangle, Clock, Loader2, Mail, RotateCw } from 'lucide-react'
+import { AlertTriangle, ClipboardCheck, Clock, Loader2, Mail, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { IngestStatus } from '@/lib/actions/ingest'
 import { formatLastChecked, isCheckStale } from '@/lib/ingest/ingest-status-display'
@@ -11,6 +11,8 @@ interface IngestStatusPanelProps {
   isChecking: boolean
   onRetry: () => void
   onCheckMail: () => void
+  /** Opens the review overlay (Task 106). */
+  onReview: () => void
   /** The current time; a prop so tests can pin "Today" and staleness. */
   now?: Date
 }
@@ -56,6 +58,16 @@ function FailingAlert({ count }: { count: number }) {
   )
 }
 
+/** Opens the review overlay; disabled until there is something to review. */
+function ReviewButton({ toReview, onReview }: { toReview: number; onReview: () => void }) {
+  return (
+    <Button type="button" onClick={onReview} disabled={toReview === 0} className="w-full min-h-[44px]">
+      <ClipboardCheck aria-hidden="true" />
+      Review
+    </Button>
+  )
+}
+
 function CheckMailButton({ isChecking, onCheckMail }: { isChecking: boolean; onCheckMail: () => void }) {
   return (
     <Button type="button" variant="outline" onClick={onCheckMail} disabled={isChecking} className="w-full min-h-[44px]">
@@ -80,7 +92,7 @@ function LoadError({ onRetry }: { onRetry: () => void }) {
 /**
  * The review-queue section at the top of the nav drawer (Task 105): every
  * undecided PO, when mail was last checked, emails failing to import, and
- * "Check mail now". Task 106 adds the "Review" action here.
+ * "Check mail now", and "Review", which opens the review overlay (Task 106).
  *
  * Presentational: state and actions come from `useIngestStatus` via `AppShell`.
  */
@@ -90,6 +102,7 @@ export default function IngestStatusPanel({
   isChecking,
   onRetry,
   onCheckMail,
+  onReview,
   now = new Date(),
 }: IngestStatusPanelProps) {
   return (
@@ -106,6 +119,7 @@ export default function IngestStatusPanel({
       ) : (
         <p className="text-sm text-secondary">Loading…</p>
       )}
+      <ReviewButton toReview={!hasLoadError && status ? status.toReview : 0} onReview={onReview} />
       <CheckMailButton isChecking={isChecking} onCheckMail={onCheckMail} />
     </section>
   )

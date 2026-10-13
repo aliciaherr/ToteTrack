@@ -46,6 +46,12 @@ vi.mock('@/lib/actions/ingest', () => ({
   triggerIngestion: vi.fn(),
 }))
 
+// The review overlay reads through server actions; one queued email-body PO.
+vi.mock('@/lib/actions/review', () => ({
+  getReviewQueue: vi.fn(async () => ({ ids: ['11111111-1111-1111-1111-111111111111'] })),
+  getReviewSource: vi.fn(async () => ({ source: { kind: 'text', text: 'PO 4471' } })),
+}))
+
 // NavDrawer's SignOutRow calls useToast, which throws outside a
 // <ToastProvider>; the shell tests don't exercise toasts, so stub the hook.
 vi.mock('@/lib/hooks/useToast', () => ({
@@ -120,5 +126,24 @@ describe('AppShell', () => {
     await waitFor(() => expect(getIngestStatus).toHaveBeenCalled())
     expect(screen.queryByTestId('pending-badge')).not.toBeInTheDocument()
     vi.mocked(console.error).mockRestore()
+  })
+
+  it('"Review" closes the drawer and opens the overlay; Esc closes it and focuses the menu button', async () => {
+    vi.mocked(getIngestStatus).mockResolvedValue({ toReview: 1, beingRead: 0, lastRunAt: null, failingCount: 0 })
+    render(<AppShell><div>child</div></AppShell>)
+    await screen.findByTestId('pending-badge')
+    fireEvent.click(screen.getByRole('button', { name: /open navigation/i }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }))
+
+    expect(screen.getByRole('dialog', { name: 'Review' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Review queue' })).not.toBeInTheDocument()
+    expect(await screen.findByText('PO 4471')).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog', { name: 'Review' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open navigation/i })).toHaveFocus()
+    expect(screen.getByText('child')).toBeInTheDocument()
   })
 })

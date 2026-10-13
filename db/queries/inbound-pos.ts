@@ -80,7 +80,8 @@ function statusIn(statuses: readonly InboundPoStatus[]): SQL {
   )})`
 }
 
-const REVIEW_QUEUE_STATUS_FILTER: SQL = statusIn(REVIEW_QUEUE_STATUSES)
+/** The review-queue `WHERE` term, on alias `p`. Shared with `review-source.ts` (Task 106). */
+export const REVIEW_QUEUE_STATUS_FILTER: SQL = statusIn(REVIEW_QUEUE_STATUSES)
 
 // Rows still with the worker: staged and waiting, or claimed and being read.
 // With REVIEW_QUEUE_STATUSES these are every status a human has not yet
@@ -111,7 +112,8 @@ const HAS_CHECK_FAILURES: SQL = sql`
 //    cannot be deferred forever.
 // 3. Then `created_at` ASC — oldest first, so the queue drains in arrival
 //    order and nothing starves at the bottom.
-const PENDING_REVIEW_ORDER_CLAUSE: SQL = sql`
+/** The review-queue `ORDER BY`, on alias `p`. Shared with `review-source.ts` (Task 106). */
+export const PENDING_REVIEW_ORDER_CLAUSE: SQL = sql`
   ORDER BY
     CASE WHEN ${HAS_CHECK_FAILURES} THEN 0 ELSE 1 END ASC,
     p.skipped_at ASC NULLS FIRST,

@@ -15,12 +15,18 @@
 
 ## Verifications owed
 
+- **Task 106 in a browser:** stage a few POs locally (image, body text, a refusal, a PDF), open
+  "Review", and check the layout, zoom, Esc and focus on the iPad width.
+
 - **A-14:** the first deploy renders a PDF in a Vercel function (go-live checklist, `roadmap.md`).
 - **A-15:** pdf.js draws PDFs in iPad Safari (Task 117 is not done until this is checked).
 - **`@security` on Task 114 (HIGH-02R):** the plan recorded a re-run as owed, and the report
   that would show it was overwritten by later audits. Confirm it was covered, or run it.
 
 ## Code
+
+- **`useFocusTrap` / `useEscapeClose` live in `components/calendar/productionCardDialogHooks.ts`**
+  but the review overlay now imports them too (Task 106). Move them to a shared hooks file.
 
 - **Safe error logging app-wide.** `db/queries/*` still log the raw drizzle `cause`, which can
   carry query params. Adopt `loggableFailure` / `parameterFreeCause` everywhere, as one task.

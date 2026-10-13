@@ -12,7 +12,7 @@ function statusOf(overrides: Partial<IngestStatus> = {}): IngestStatus {
 }
 
 function renderPanel(props: Partial<Parameters<typeof IngestStatusPanel>[0]> = {}) {
-  const handlers = { onRetry: vi.fn(), onCheckMail: vi.fn() }
+  const handlers = { onRetry: vi.fn(), onCheckMail: vi.fn(), onReview: vi.fn() }
   render(
     <IngestStatusPanel status={statusOf()} hasLoadError={false} isChecking={false} now={NOW} {...handlers} {...props} />,
   )
@@ -83,5 +83,24 @@ describe('IngestStatusPanel', () => {
     expect(screen.queryByText('5 pending')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
     expect(onRetry).toHaveBeenCalledOnce()
+  })
+
+  it('opens the review overlay on "Review"', () => {
+    const { onReview } = renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+
+    expect(onReview).toHaveBeenCalledOnce()
+  })
+
+  it('disables "Review" when nothing is to review, even with POs being read', () => {
+    renderPanel({ status: statusOf({ toReview: 0, beingRead: 2 }) })
+
+    expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled()
+  })
+
+  it('disables "Review" while the status is loading or failed', () => {
+    renderPanel({ status: null })
+    expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled()
   })
 })

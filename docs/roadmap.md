@@ -8,7 +8,7 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Next task: 106.**
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Next task: 117.**
 - **Feature 16 runs nothing in prod** until the go-live checklist below is done.
 
 ---
@@ -179,7 +179,7 @@
 ### Review UI (the core)
 
 - [x] 105 — Show the review queue in the menu — count, last checked, check mail
-- [ ] 106 — Open the review overlay and show the source — images, email text, refusals
+- [x] 106 — Open the review overlay and show the source — images, email text, refusals
 - [ ] 117 — Draw PDFs in the review overlay with pdf.js
 - [ ] 107 — Review overlay — right pane: extracted values, quote highlighting, pickers · *not specced yet*
 - [ ] 108 — Approve / skip / delete — duplicates blocked with a message · *not specced yet*

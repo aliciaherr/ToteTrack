@@ -5,6 +5,8 @@ import { badgeLabel } from '@/lib/ingest/ingest-status-display'
 
 interface PillHamburgerProps {
   onClick: () => void
+  /** Lets `AppShell` return focus here when the review overlay closes. */
+  ref?: React.Ref<HTMLButtonElement>
   /** Undecided POs (Task 105). The bubble shows whenever this is above 0. */
   pendingCount?: number
   /** A stale last check or emails failing to import: the bubble turns warning-coloured. */
@@ -22,10 +24,11 @@ interface PillHamburgerProps {
  * Carries the review-queue badge (Task 105): the count of every undecided PO,
  * hidden only at 0, so nothing ingested goes quiet before someone decides on it.
  */
-export default function PillHamburger({ onClick, pendingCount = 0, needsAttention = false }: PillHamburgerProps) {
+export default function PillHamburger({ onClick, ref, pendingCount = 0, needsAttention = false }: PillHamburgerProps) {
   const hasPending = pendingCount > 0
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onClick}
       aria-label={hasPending ? `Open navigation, ${pendingCount} pending` : 'Open navigation'}

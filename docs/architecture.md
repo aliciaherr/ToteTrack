@@ -147,15 +147,21 @@ components/
   auth/
     LoginForm.tsx           ← 'use client'
   shell/
-    AppShell.tsx            ← 'use client' — owns drawer state; mounts PillHamburger + NavDrawer; wraps children in DrawerStateProvider so descendants can read drawer-open state without prop drilling
+    AppShell.tsx            ← 'use client' — owns drawer state and the review overlay's open state (Task 106: "Review" closes the drawer; closing the overlay focuses the menu button); mounts PillHamburger + NavDrawer; wraps children in DrawerStateProvider so descendants can read drawer-open state without prop drilling
     PillHamburger.tsx       ← 'use client' — sole chrome element on authenticated routes; 44×44 white pill, fixed top-left at top-6 left-6 (FB-09). Carries the review-queue badge (Task 105): the undecided-PO count, hidden only at 0, amber when the last check is stale or emails are failing to import
     NavDrawer.tsx           ← 'use client' — Framer Motion slide-over (left); `reviewQueue` slot at the top (Task 105), then 8 nav items (Dashboard, Customers, Orders, Pickups, Calendar, Leads, Invoices, Support) + Sign Out at bottom (FB-09)
-    IngestStatusPanel.tsx   ← 'use client' — presentational review-queue section: undecided total split into to-review / being-read, last checked (amber when stale or never), failing-import alert, "Check mail now" with spinner (Task 105; Task 106 adds "Review")
+    IngestStatusPanel.tsx   ← 'use client' — presentational review-queue section: undecided total split into to-review / being-read, last checked (amber when stale or never), failing-import alert, "Check mail now" with spinner (Task 105); "Review" opens the review overlay, disabled when nothing is to review (Task 106)
     useIngestStatus.ts      ← 'use client' — owned by AppShell so polling survives the drawer closing. Reads `getIngestStatus` on mount and on drawer open; "Check mail now" calls `triggerIngestion` then polls until `lastRunAt` moves, giving up at `INGEST_RUN_WATCH_MS` (a failed run writes no state)
     drawer-state.tsx        ← 'use client' — Context provider + useAppShellDrawerState hook (shared signal for components like QuickAddFab that need to react to drawer open/close) (FB-09)
     DetailDrawer.tsx        ← 'use client' — CSS-only responsive right-panel wrapper (FB-06). Optional `alwaysOverlay` (Feature 12) keeps the fixed-overlay classes at every breakpoint instead of docking inline at `lg:` — required by `/calendar`, whose root is `overflow-hidden` and must never scroll as a page (CONSTRAINT-19). Default is unchanged, so Orders/Customers/Leads/Invoices keep docking
     PageTransition.tsx      ← 'use client' — Framer Motion page fade
     ToastProvider.tsx       ← 'use client' — toast queue management
+  review/                   ← the review overlay (Feature 16, Task 106+)
+    ReviewOverlay.tsx       ← 'use client' — full-screen dialog over the current page, not a route (a refresh closes it). Left pane = source, right pane = PO fields (Task 107). Esc/close; focus trapped (`useFocusTrap`)
+    useReviewQueue.ts       ← 'use client' — loads `getReviewQueue` on open, then `getReviewSource` for the row on screen; retry
+    SourcePane.tsx          ← 'use client' — loading / error+retry / image / plain text / PDF holding (until Task 117) / refusal, by `ReviewSource.kind`
+    RefusalCard.tsx         ← 'use client' — refusal title + next step, sender/subject/received/file type as plain text, Gmail link when there is a Message-ID
+    ExpandedSource.tsx      ← 'use client' — full-screen image or text with bounded zoom; its Esc is captured so it closes only itself
   dashboard/
     DashboardView.tsx       ← 'use client' — period toggle state; mounts QuickAddFab
     QuickAddFab.tsx         ← 'use client' — speed-dial FAB (Purchase Order / Customer / Lead options), navigates to destination with ?new=1 deep link; hides when drawer is open (FB-09)
@@ -510,6 +516,10 @@ The one cost is that a failing UID is counted once per overlapping run, so it re
 **The count is every ingested PO without a decision**: every status except `approved` and `discarded` (`countUndecided` in `db/queries/inbound-pos.ts`). Skipping only stamps `skipped_at`, so a skipped PO stays counted, and rows still with the worker (`pending_extraction`, `extracting`) count as "being read". Only approve or discard lowers the number, so nothing ingested can go quiet before a human decides on it (builder decision). `countPendingReview` is unchanged: it is the review-queue count Task 106 uses.
 
 **It lives in the menu button, not a page header** (deviation from `prd.md`, builder 2026-10-12): every page header already has buttons at the top right, so a header pill would collide with them. `getIngestStatus` (`lib/actions/ingest.ts`) returns counts and one timestamp only (SEC-05). The badge refreshes on page load, on drawer open and after a check, not live while the cron runs.
+
+### Review overlay source (Task 106, 2026-10-12)
+
+`lib/actions/review.ts` exports only `getReviewQueue` and `getReviewSource`. The queue order comes from `listReviewQueueIds` (`db/queries/review-source.ts`), which imports `REVIEW_QUEUE_STATUS_FILTER` and `PENDING_REVIEW_ORDER_CLAUSE` from `inbound-pos.ts`, so it cannot drift from `listPendingReview`. PDF and image rows get a 1-hour signed URL from the **session** client: migration 0003 lets any signed-in user read `po-documents`, so the secret key stays confined (CONSTRAINT-38). Email-body rows return their text, which React renders as text, never HTML. Refused rows (`email_body` with NULL `body_text` and an `ingest_limit` failure) return plain-language wording from `lib/review/review-source.ts`. That wording is a `Record` over `IngestLimitReason`, so a new reason fails the type check, and an unknown one at runtime throws `UnknownRefusalReasonError`. Only the PO id is logged.
 
 ### Email-body POs keep their text in `inbound_pos.body_text` (FB-42)
 

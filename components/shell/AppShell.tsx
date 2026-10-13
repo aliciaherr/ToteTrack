@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { isCheckStale } from '@/lib/ingest/ingest-status-display'
 import PillHamburger from './PillHamburger'
 import NavDrawer from './NavDrawer'
 import IngestStatusPanel from './IngestStatusPanel'
+import ReviewOverlay from '@/components/review/ReviewOverlay'
 import { DrawerStateProvider } from './drawer-state'
 import { useIngestStatus } from './useIngestStatus'
 
@@ -21,12 +22,35 @@ import { useIngestStatus } from './useIngestStatus'
  * count, the drawer shows the details. Held here, not in the drawer, so a
  * "Check mail now" keeps polling after the drawer closes.
  *
+ * Owns the review overlay's open state too (Task 106): "Review" closes the
+ * drawer and opens it; closing it returns focus to the menu button, because
+ * the "Review" button left with the drawer.
+ *
  * The `pt-3` on main keeps a thin 12px buffer at the very top so content
  * shares the same horizontal band as the pill (which sits at top-6/left-6,
  * 44×44px → occupies y=24–68px). Pages are responsible for left-padding
  * their first row enough to clear the pill horizontally (~80px from the
  * viewport edge).
  */
+/** The review overlay's open state, and the menu button focus returns to on close. */
+function useReviewOverlayState(closeDrawer: () => void) {
+  const [isOpen, setIsOpen] = useState(false)
+  const wasOpenRef = useRef(false)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const open = useCallback(() => {
+    closeDrawer()
+    setIsOpen(true)
+  }, [closeDrawer])
+  const close = useCallback(() => setIsOpen(false), [])
+
+  useEffect(() => {
+    if (wasOpenRef.current && !isOpen) menuButtonRef.current?.focus()
+    wasOpenRef.current = isOpen
+  }, [isOpen])
+
+  return { isReviewOpen: isOpen, openReview: open, closeReview: close, menuButtonRef }
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const ingest = useIngestStatus()
@@ -36,6 +60,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     void refresh()
   }, [refresh])
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), [])
+  const { isReviewOpen, openReview, closeReview, menuButtonRef } = useReviewOverlayState(closeDrawer)
 
   // A failed read hides the badge: a stale number would look trustworthy.
   const status = ingest.hasLoadError ? null : ingest.status
@@ -44,7 +69,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-svh bg-app-bg">
-      <PillHamburger onClick={openDrawer} pendingCount={pendingCount} needsAttention={needsAttention} />
+      <PillHamburger ref={menuButtonRef} onClick={openDrawer} pendingCount={pendingCount} needsAttention={needsAttention} />
       <NavDrawer
         isOpen={isDrawerOpen}
         onClose={closeDrawer}
@@ -55,9 +80,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             isChecking={ingest.isChecking}
             onRetry={refresh}
             onCheckMail={ingest.checkMail}
+            onReview={openReview}
           />
         }
       />
+      {isReviewOpen && <ReviewOverlay onClose={closeReview} />}
       <DrawerStateProvider isOpen={isDrawerOpen}>
         <main className="pt-3">{children}</main>
       </DrawerStateProvider>
