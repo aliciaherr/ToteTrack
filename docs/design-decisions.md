@@ -25,6 +25,7 @@
 | Card background | White `#FFFFFF` |
 | Sidebar background | White / off-white |
 | Overdue / warning | Red-orange (as shown in mockup) |
+| Success / confident (review pane, Task 119) | `#15803D` (green-700, `--success`; 5:1 on white) |
 
 ### Typography
 - **Font:** ~~Inter (both headline and body)~~ — **as-built: the system sans stack.** `app/layout.tsx` loads Inter via `next/font/google` and sets `--font-inter`, but nothing maps `--font-sans` to it in the `@theme` block of `app/globals.css`, so `font-sans` resolves to Tailwind's default. Discovered 2026-07-26 during Feature 11 design review. Accepted as-is — see Deliberate Deviations.
@@ -154,6 +155,16 @@
 | Top bar | Full bar with logo, search, notification bell, user avatar | No top bar — pill-contained hamburger top-left only | Single-user internal tool — no need for avatar/notifications/branding inside the app. Global search would either be inert (Dashboard) or duplicate scoped per-screen search (list screens). Removing it recovers ~56–64px of vertical real estate (8–9% of iPad-landscape viewport). Decided 2026-04-23, see PRD Cross-cutting: App Shell Chrome (D10). |
 
 All other visual decisions — colors, typography, layout, spacing, component shapes, density — must match the Stitch mockup as closely as possible.
+
+---
+
+### Review pane field status (Task 119, 2026-10-13)
+Every issue on a reviewed PO is listed once, in the "To check" section at the top of the right
+pane. The form below carries no text of its own. Each field group sits in a 2 px status frame:
+**green + ✓** when it was read with confidence (filled, and no check flagged it), **red + !**
+when it is empty or flagged, and **no border** once the salesperson edits it. Screen-reader
+text accompanies every status, so colour is never the only signal. Scan and photo POs are
+coloured by the checks that ran.
 
 ---
 
