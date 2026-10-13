@@ -388,6 +388,21 @@ ships extraction, starting with Task 103.
 **Contingency:** a WebAssembly renderer needs no native binary. `mupdf` was rejected for
 its AGPL licence, so the fallback must be re-chosen then, not assumed.
 
+### A-15 — pdf.js draws PDFs correctly in iPad Safari
+
+**Added 2026-10-12, Tasks 106/117.** The review overlay shows a PDF PO by drawing its pages
+in the browser with `pdfjs-dist` (already installed for the server renderer), not by embedding
+the file: iPad Safari often shows only page 1 of an embedded PDF and will not scroll it. The
+iPad is the primary device, so the review screen depends on pdf.js working there.
+
+**Resolution:** accepted risk, approved with the Task 106/117 plan (builder 2026-10-12).
+pdf.js is Firefox's own PDF viewer and is widely used on iOS. **Verify on the real iPad
+before Task 117 is marked done.**
+
+**Contingency:** every PDF view carries an "Open the file" link to the signed URL, which
+opens Safari's native viewer in a new tab. If pdf.js fails on the iPad, that link becomes the
+PDF view: it works, but leaves the app.
+
 ### Summary of items added 2026-10-07
 
 | ID | Assumption | Category | Resolution | Outcome |
@@ -400,6 +415,7 @@ its AGPL licence, so the fallback must be re-chosen then, not assumed.
 | A-12 | `pg_trgm` on Supabase free tier | Technical feasibility | Research | **Resolved 2026-10-08** — available (1.6), not installed; Task 102 enables it |
 | A-13 | ~$8/yr API, 1GB storage holds ~2 years compressed | Cost | Accepted risk | Retention policy when cap nears |
 | A-14 | `@napi-rs/canvas` PDF renderer runs on Vercel (added 2026-10-12) | Technical feasibility | Accepted risk | Verify on first preview deploy; fallback: WASM renderer, re-chosen |
+| A-15 | pdf.js draws PDFs in iPad Safari (added 2026-10-12) | Technical feasibility | Accepted risk | Verify on the iPad in Task 117; fallback: open in Safari's viewer |
 
 **Open count: 0.** A-12 closed 2026-10-08 (see its entry above — the table row read
 "Open" until 2026-10-11, three days after the entry itself recorded the resolution; a
