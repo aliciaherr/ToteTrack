@@ -26,6 +26,7 @@ export type ReviewOnlyFlag =
   | 'unknown_check'
   | 'no_tote_lines'
   | 'wording_unchecked'
+  | 'duplicate_document'
 
 export type ReviewFlagKind = CheckName | ReviewOnlyFlag
 

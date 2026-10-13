@@ -20,7 +20,7 @@ function candidate(customerId: string, addressMatched = false) {
 }
 
 function fieldsFor(extracted: ExtractedPo | null | unknown, checkResults: unknown = null, customers: ReviewCustomer[] = []) {
-  return reviewFieldsOf({ id: PO_ID, extracted, check_results: checkResults }, customers)
+  return reviewFieldsOf({ id: PO_ID, extracted, check_results: checkResults, duplicate_of_id: null }, customers)
 }
 
 beforeEach(() => {
@@ -250,5 +250,23 @@ describe('reviewFieldsOf: reading flags', () => {
     const mixed = [{ field: 'lines[0]', status: 'unverifiable' }, { field: 'customerName', status: 'verified' }]
     expect(kinds(fieldsFor(makePo(), { quotes: mixed }))).not.toContain('wording_unchecked')
     expect(kinds(fieldsFor(makePo(), { quotes: [] }))).not.toContain('wording_unchecked')
+  })
+})
+
+describe('reviewFieldsOf: duplicate document', () => {
+  const EARLIER_PO = '44444444-4444-4444-4444-444444444444'
+
+  it('flags a PO whose document repeats an earlier one, first in the list', () => {
+    const fields = reviewFieldsOf({ id: PO_ID, extracted: makePo(), check_results: null, duplicate_of_id: EARLIER_PO }, [])
+    expect(fields.flags[0]).toEqual({
+      field: 'general',
+      kind: 'duplicate_document',
+      message: 'Same document as a PO already received',
+      detail: '',
+    })
+  })
+
+  it('does not flag a PO without a duplicate_of_id', () => {
+    expect(fieldsFor(makePo()).flags.map((flag) => flag.kind)).not.toContain('duplicate_document')
   })
 })

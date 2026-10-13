@@ -29,9 +29,10 @@
 
 - **Safe error logging app-wide.** `db/queries/*` still log the raw drizzle `cause`, which can
   carry query params. Adopt `loggableFailure` / `parameterFreeCause` everywhere, as one task.
-- **Unique-violation checks miss drizzle's wrapping:** `lib/actions/orders.ts` (~line 59) and
-  `lib/actions/invoices.ts` (~line 216) check `code` on the top-level error only, so a duplicate
-  is reported as a generic failure. `inbound-emails.ts` `isMarkerViolation` shows the fix.
+- **Unique-violation check misses drizzle's wrapping in `createInvoice`:** `lib/actions/invoices.ts`
+  (~line 216) checks `code` on the top-level error only, so an invoice-number collision is reported
+  as a generic failure. Orders were fixed in Task 108 (`isUniqueViolation` in `orders.create.ts`
+  checks `.cause` too); reuse it or copy the two-layer check.
 
 ## Operations
 

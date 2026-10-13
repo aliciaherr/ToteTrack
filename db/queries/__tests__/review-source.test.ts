@@ -61,6 +61,7 @@ describe('getReviewSourceRow', () => {
         document_path: 'inbound/abc.jpg',
         body_text: null,
         check_results: null,
+        duplicate_of_id: null,
         from_address: 'buyer@example.com',
         subject: 'PO 4471',
         received_at: receivedAt,
@@ -73,6 +74,7 @@ describe('getReviewSourceRow', () => {
     const { sql: compiled, params } = compileCall(0)
     expect(compiled).toMatch(/JOIN inbound_emails e ON e\.id = p\.inbound_email_id/i)
     expect(compiled).toMatch(/WHERE p\.id = \$1/i)
+    expect(compiled).toMatch(/p\.duplicate_of_id/)
     expect(params).toEqual([PO_ID])
     expect(row).toMatchObject({ id: PO_ID, source_kind: 'image', received_at: '2026-10-12T15:04:05.000Z' })
   })

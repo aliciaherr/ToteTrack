@@ -17,50 +17,27 @@ import {
 } from './orders.validation'
 import {
   QTY_AND_PRICE_SNAPSHOT_COLUMNS,
-  normalizeCreate,
   normalizeUpdate,
   detectQtyOrPriceChange,
 } from './orders.internal'
 import {
-  addressBelongsToCustomer,
-  recordDeliveryAddressUsage,
-} from './orders.addresses'
+  DUPLICATE_PO_MESSAGE,
+  ORDER_REVALIDATE_PATHS,
+  afterOrderCreated,
+  checkAddressOwnership,
+  insertOrderRow,
+  isUniqueViolation,
+} from './orders.create'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
-const DUPLICATE_PO_MESSAGE = 'PO number already exists.'
-const ADDRESS_NOT_OWNED_MESSAGE =
-  'Selected delivery address does not belong to this customer.'
 const PO_LOCKED_MESSAGE =
   'PO is locked. Revert to scheduled before editing quantities or price.'
-
-// Postgres unique-violation SQLSTATE. The orders table has a unique constraint
-// on po_number; when it trips, the driver error has this code. Captured as
-// a named constant so the catch block reads self-documenting.
-const POSTGRES_UNIQUE_VIOLATION = '23505'
 
 // Statuses where qty + price edits are blocked. Other field edits remain
 // allowed. The salesperson can revert via the existing FB-08 flow if a real
 // correction is needed (revertOrderToScheduled returns the PO to
 // `scheduled`, where qty/price edits are unrestricted).
 const QTY_OR_PRICE_LOCKED_STATUSES: readonly PoStatus[] = ['invoiced', 'cancelled']
-
-// Routes a PO appears on, revalidated whenever one is created, edited, or its
-// status changes: the orders list, the production calendar (the card lands in
-// the column its `production_date` names, and leaves the calendar entirely when
-// it is cancelled) and the dashboard (its production widget reads the same
-// column). `/dashboard`, not `/` — `app/page.tsx` only redirects, so
-// revalidating `/` would refresh nothing. Same set as
-// `CALENDAR_REVALIDATE_PATHS` in `calendar.ts`, plus the orders list.
-const ORDER_REVALIDATE_PATHS = ['/orders', '/calendar', '/dashboard'] as const
-
-function isUniqueViolation(cause: unknown): boolean {
-  return (
-    typeof cause === 'object' &&
-    cause !== null &&
-    'code' in cause &&
-    (cause as { code?: unknown }).code === POSTGRES_UNIQUE_VIOLATION
-  )
-}
 
 /**
  * Creates a new purchase order. Validates input server-side via Zod (PO#
@@ -87,34 +64,13 @@ export async function createOrder(
     const authError = await assertAuthenticated()
     if (authError) return authError
 
-    // SEC-03: a submitted saved-address id must belong to the submitted
-    // customer, checked BEFORE the order insert so a forged id fails the
-    // whole create. Skipped when the customer collects — no address is used
-    // at all.
-    if (!parsed.data.customer_collects && parsed.data.delivery_address_id) {
-      const owned = await addressBelongsToCustomer(
-        parsed.data.delivery_address_id,
-        parsed.data.customer_id,
-      )
-      if (!owned) return { error: ADDRESS_NOT_OWNED_MESSAGE }
-    }
+    // SEC-03 ownership gate, before the insert (see its JSDoc).
+    const addressError = await checkAddressOwnership(parsed.data)
+    if (addressError) return { error: addressError }
 
-    const [row] = await db
-      .insert(orders)
-      .values(normalizeCreate(parsed.data))
-      .returning({ id: orders.id })
-    // Feature 14 MRU bookkeeping (no transaction — mirrors the plain insert
-    // above): bump the picked address, or dedupe/insert typed text. Contains
-    // its own failures (see its JSDoc); true means the address book changed,
-    // which the /customers detail panel renders.
-    if (await recordDeliveryAddressUsage(parsed.data, row.id)) {
-      revalidatePath('/customers')
-    }
-    // A new PO lands on three screens at once: the orders list, the calendar
-    // column its `production_date` names, and the dashboard production widget
-    // when that day is inside the widget's window. Revalidate all three or the
-    // salesperson has to reload to see the card they just created.
-    for (const path of ORDER_REVALIDATE_PATHS) revalidatePath(path)
+    const row = await insertOrderRow(db, parsed.data)
+    // Address-book MRU bump + revalidation of every screen the PO lands on.
+    await afterOrderCreated(parsed.data, row.id)
     return { id: row.id }
   } catch (cause) {
     if (isUniqueViolation(cause)) return { error: DUPLICATE_PO_MESSAGE }

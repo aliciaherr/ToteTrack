@@ -74,6 +74,7 @@ describe.skipIf(!process.env.DATABASE_URL)('review-source (local Postgres)', () 
       subject: 'PO 4471',
       received_at: '2026-10-12T15:04:05.000Z',
       message_id: '<m1@example.com>',
+      duplicate_of_id: null,
     })
   })
 

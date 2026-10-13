@@ -29,4 +29,5 @@ export const REVIEW_FLAG_WORDING: Record<ReviewFlagKind, string> = {
   unknown_check: 'A check flagged this PO',
   no_tote_lines: 'No tote lines found: enter quantities',
   wording_unchecked: "Read from a scan or photo: wording couldn't be checked against the document",
+  duplicate_document: 'Same document as a PO already received',
 }

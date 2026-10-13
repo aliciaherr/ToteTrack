@@ -18,6 +18,7 @@ function row(overrides: Partial<ReviewSourceRow> = {}): ReviewSourceRow {
     body_text: null,
     check_results: null,
     extracted: null,
+    duplicate_of_id: null,
     from_address: 'buyer@example.com',
     subject: 'PO 4471',
     received_at: '2026-10-12T15:04:05.000Z',

@@ -23,6 +23,8 @@ export interface ReviewSourceRow {
   check_results: unknown
   /** The model's reading as stored; `unknown` until `lib/review/` re-validates it (L-D). */
   extracted: unknown
+  /** The earlier PO whose document hash this one repeats; NULL when it is not a duplicate. */
+  duplicate_of_id: string | null
   from_address: string | null
   subject: string | null
   /** ISO timestamp, or `null` when the email carried no date. */
@@ -71,7 +73,7 @@ export async function getReviewSourceRow(poId: string): Promise<ReviewSourceRow 
   try {
     rows = (await db.execute(sql`
       SELECT
-        p.id, p.source_kind, p.document_path, p.body_text, p.check_results, p.extracted,
+        p.id, p.source_kind, p.document_path, p.body_text, p.check_results, p.extracted, p.duplicate_of_id,
         e.from_address, e.subject, e.received_at, e.message_id
       FROM inbound_pos p
       JOIN inbound_emails e ON e.id = p.inbound_email_id

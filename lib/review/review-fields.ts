@@ -115,6 +115,11 @@ function readingFlags(stored: StoredCheckResults, extracted: ExtractedPo | null)
   return flags
 }
 
+/** Flags about the PO row itself: the same document hash as a PO already received (Task 108). */
+function rowFlags(row: Pick<ReviewSourceRow, 'duplicate_of_id'>): DraftFlag[] {
+  return row.duplicate_of_id ? [{ field: 'general', kind: 'duplicate_document', detail: '' }] : []
+}
+
 function totalsOf(extracted: ExtractedPo | null): ReviewTotals {
   if (!extracted) return { stated: null, computed: 0, otherLines: [] }
   return {
@@ -138,19 +143,29 @@ function readExtraction(row: Pick<ReviewSourceRow, 'id' | 'extracted'>): { extra
 /**
  * The right pane for one PO.
  *
- * @param row The PO row: `extracted` and `check_results` as stored, any shape.
+ * @param row The PO row: `extracted` and `check_results` as stored, any shape;
+ *   a non-null `duplicate_of_id` raises `duplicate_document`.
  * @param customers Every customer the stored match names that still exists,
  *   inactive ones included, from `getCustomersForReview`.
  * @returns Pre-filled values (empty when there is no usable extraction, so the
  *   pane works as a manual-entry screen), flags, quotes, options and totals.
  */
-export function reviewFieldsOf(row: Pick<ReviewSourceRow, 'id' | 'extracted' | 'check_results'>, customers: ReviewCustomer[]): ReviewFields {
+export function reviewFieldsOf(
+  row: Pick<ReviewSourceRow, 'id' | 'extracted' | 'check_results' | 'duplicate_of_id'>,
+  customers: ReviewCustomer[],
+): ReviewFields {
   const stored = storedCheckResultsOf(row.check_results)
   const reading = readExtraction(row)
   const extracted = reading.extracted
   const customer = customersOf(stored, customers)
   const values = { ...emptyReviewValues(), customer_id: customer.prefill }
-  const drafts: DraftFlag[] = [...storedFlags(stored, extracted), ...reading.flags, ...readingFlags(stored, extracted), ...customer.flags]
+  const drafts: DraftFlag[] = [
+    ...rowFlags(row),
+    ...storedFlags(stored, extracted),
+    ...reading.flags,
+    ...readingFlags(stored, extracted),
+    ...customer.flags,
+  ]
   let poNumberOptions: ReviewFields['poNumberOptions'] = []
   let deliveryDateOptions: ReviewFields['deliveryDateOptions'] = []
 
