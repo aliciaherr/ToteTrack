@@ -8,7 +8,7 @@ export const REVIEW_FLAG_WORDING: Record<ReviewFlagKind, string> = {
   quote_not_found: 'Not found in the document: this value may be invented',
   quote_too_long: 'Source text too long to check',
   source_text_too_long: "Document too long to check quotes against",
-  total_mismatch: "The document's total doesn't match the lines",
+  total_mismatch: "The document's total doesn't match qty × price",
   line_total_mismatch: "A line's total doesn't equal quantity × unit price",
   line_total_indivisible: "A line total doesn't divide evenly by its quantity",
   ambiguous_date: 'Date could be month-first or day-first: check it',
@@ -27,4 +27,6 @@ export const REVIEW_FLAG_WORDING: Record<ReviewFlagKind, string> = {
   extraction_unreadable: "This PO's reading is unreadable: enter it by hand",
   value_too_long: 'A value was too long to use: enter it by hand',
   unknown_check: 'A check flagged this PO',
+  no_tote_lines: 'No tote lines found: enter quantities',
+  wording_unchecked: "Read from a scan or photo: wording couldn't be checked against the document",
 }

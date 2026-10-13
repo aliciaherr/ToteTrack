@@ -1334,3 +1334,140 @@ task) and UI (Task 118); the right pane reuses the order form's value shape
 **Depends on:** Task 106.
 **Specialist:** @db
 **Status:** [x] Done (2026-10-12). `reviewFieldsOf` (types, check-results reader, values, wording in separate modules), `getCustomersForReview`, `getReviewFields` (returns `{ fields, customers }`: customers = every active one plus inactive candidates, for Task 118's picker), Brenntag rule via `prefillWithheld`. Unit 2078, integration 30/30, tsc, eslint, next build clean. The rule lives in `matchCustomer` above the query, so the matcher's integration test needed no change.
+
+---
+
+## Task 118: Build the review overlay's right pane
+
+**Planned 2026-10-12** (`@create-plan`), split from Task 107. Builder decisions: reuse the order
+form's parts; quotes are labelled under each field and highlighted in email-body text only.
+
+**Files:**
+- `components/review/ReviewFieldsPane.tsx` — create. The right pane: flags summary, then PO
+  number, customer, address, quantities and prices, delivery date, logistics, totals.
+- `components/review/useReviewForm.ts` — create. `useForm<OrderFormValues>` with
+  `defaultValues = fields.values`; resets when the row changes.
+- `components/review/CustomerChoices.tsx` — create. Ranked one-tap list (labels: "Inactive",
+  "Ship-to matches"), plus "Choose another customer…" revealing the full customer select.
+- `components/review/OptionChips.tsx` — create. Labelled one-tap options (PO numbers, dates),
+  none selected at start; a tap fills the field.
+- `components/review/FieldQuote.tsx` — create. The quote and its status under a field.
+- `components/review/ReviewFlags.tsx` — create. Summary at the top; per-field flags inline.
+- `components/review/useReviewQueue.ts` — modify. Loads `getReviewFields` in parallel with the
+  source; its own loading / error / retry state.
+- `components/review/ReviewOverlay.tsx` — modify. Mounts the pane; owns `highlightedQuote`.
+- `components/review/SourcePane.tsx` — modify. The text view takes `highlight: string | null`.
+- `components/orders/*` — modify only if a part needs a prop to fit; backwards compatible.
+
+**Acceptance criteria:**
+- [x] Reuses `OrderContainerFields`, `AddressSelect` and `OrderLogisticsFields` on the review form.
+      New Order and Edit Order behave exactly as before (their tests pass unchanged).
+- [x] Pre-filled values show in their fields; options start unselected; a tap on an option fills
+      its field; a customer tap sets `customer_id` and loads that customer's saved addresses.
+- [x] A `missing_ship_to` flag offers the selected customer's saved address as a one-tap fill.
+- [x] Every flag shows beside its field, and the summary lists them, failures first.
+- [x] Each quote shows under its field as plain text, labelled **"Found in document text"**,
+      **"Not found in document"** (destructive colour) or **"Can't check (scan or photo)"**
+      (LOW-NEW-5).
+- [x] On an email-body PO, tapping a quote highlights its first case-insensitive match in the left
+      pane with `<mark>` (built by splitting the text, never HTML) and scrolls it into view. No
+      match → no highlight, no error. PDFs and images: label only.
+- [x] Totals: the live computed price beside the document's stated total; on a mismatch, both
+      plus the other money lines, with the `total_mismatch` flag.
+- [x] No Approve / Skip / Delete (Task 108). Edits are lost on close.
+- [x] Panes side by side at iPad landscape width, stacked below it; 44 px touch targets; no
+      hover-only interactions; light theme tokens only.
+- [x] Fields load error shows "Couldn't load this PO's values" with Retry (EH-01), never blank.
+- [x] Component files < 200 lines, functions < 50 (CQ-01/02); `tsc`, `eslint`, full suite green.
+- [ ] Viewed in a browser on seeded local rows (body text, PDF, image, failed extraction) by
+      the builder.
+
+**Tests required:**
+- `ReviewFieldsPane` → values rendered; flags beside fields; loading and error with retry.
+- `OptionChips` → none selected; tap fills the field.
+- `CustomerChoices` → ranked labels; tap sets the customer; "Choose another" shows the select.
+- `FieldQuote` → each status label; quote rendered as text, not markup.
+- `SourcePane` text view → highlight wraps the match in `<mark>`; no match leaves text unchanged.
+
+**Depends on:** Task 107.
+**Specialist:** @ui-totetrack
+**Status:** [~] Superseded 2026-10-13 (`@modify-plan`): built but never committed; the builder's first browser check found the pane too wordy. Replaced by Task 119 (one "To check" section, a clean form, green/red field status; quotes and highlighting dropped). Its uncommitted code is Task 119's starting point.
+
+---
+
+## Task 119: Rework the review pane: one "To check" section, a clean form, green/red fields
+
+**Planned 2026-10-13** (`@modify-plan`), superseding Task 118 after the builder's first browser
+check found the pane too wordy. Builder decisions: every issue in one section at the top; below
+it a clean order form like New Order; quotes and the left-pane highlight dropped; green/red
+border plus icon per field; scan/photo POs coloured by the checks that did run (option b).
+Starting point: Task 118's uncommitted code in `components/review/`.
+
+**Files:**
+- `lib/review/review-fields.types.ts` — modify. `ReviewOnlyFlag` gains `no_tote_lines` and
+  `wording_unchecked`.
+- `lib/review/review-fields.wording.ts` — modify. Wording for both; `total_mismatch` becomes
+  "The document's total doesn't match qty × price".
+- `lib/review/review-fields.ts` — modify. Raise `no_tote_lines` (field `general`) when an extraction exists and has no `kind: 'tote'` line. Raise
+  `wording_unchecked` (field `general`) when the row has quotes and every one is `unverifiable`.
+- `components/review/reviewPane.helpers.ts` — modify. Add `missingFieldLines(values, flags)`
+  and `fieldStatus(...)`; drop `splitHighlight` and `notesFor`.
+- `components/review/ToCheckSection.tsx` — create (replaces `ReviewFlags.tsx`). The top section.
+- `components/review/FieldStatusFrame.tsx` — create. Green/red/neutral border and icon around
+  one field group, so `components/orders/*` stay untouched.
+- `components/review/ReviewFieldsPane.tsx`, `ReviewFieldParts.tsx`, `ReviewTotals.tsx`,
+  `useReviewForm.ts` — modify. No quotes, no flag text under fields.
+- `components/review/FieldQuote.tsx`, `ReviewFlags.tsx` — delete.
+- `components/review/SourcePane.tsx`, `ReviewOverlay.tsx` — modify. Remove `highlight` /
+  `highlightedQuote`.
+
+**Functions to implement:**
+- `missingFieldLines(values: OrderFormValues, flags: FieldFlag[]): string[]` — one line per
+  required field left empty (PO number, customer, delivery address unless the customer
+  collects, quantities, delivery date), skipping a field that already has a flag.
+- `fieldStatus(group: FieldGroup, values: OrderFormValues, flags: FieldFlag[], isEdited: boolean): 'confident' | 'attention' | 'neutral'`
+  — `neutral` once edited; `attention` when empty or flagged; else `confident`. Groups: PO
+  number, customer, address, quantities & prices (all `qty_*`/`unit_price_*`), delivery date.
+
+**Acceptance criteria:**
+- [x] A "To check" section heads the pane. It lists every flag in plain words, failures
+      first, then one line per required field left empty. A PO with nothing to check says so.
+- [x] Under a `total_mismatch` line, the PO's other money lines (fees, freight) and the stated
+      vs live total are shown.
+- [x] A PO with no tote lines shows "No tote lines found: enter quantities".
+- [x] A PO whose quotes were all unverifiable shows "Read from a scan or photo: wording
+      couldn't be checked against the document" (closes LOW-NEW-5 in place of quote labels).
+- [x] Below the section, the form is New Order's fields only: no quotes, no labels, no flag
+      text under fields. One-tap choices (PO numbers, dates, customers) stay under their field.
+- [x] Each field group has a green border with ✓ when confidently pre-filled, a red border
+      with ! when empty or flagged, and turns neutral once the salesperson edits it. Icons have
+      text alternatives; colour is never the only signal.
+- [x] Scan/photo POs are coloured by the checks that ran, like any other PO.
+- [x] No quote highlight anywhere; the left pane is as in Task 117.
+- [x] Unchanged from Task 118: reuses `OrderContainerFields`, `AddressSelect`,
+      `OrderLogisticsFields`; New Order and Edit Order tests pass unchanged; customer tap keeps
+      the PO's ship-to and clears only another customer's saved address; `missing_ship_to`
+      offers the customer's saved address; fields load error shows "Couldn't load this PO's
+      values" with Retry (EH-01); no Approve / Skip / Delete; edits lost on close; side by side
+      at iPad landscape, stacked below; 44 px targets; light tokens only; PO text rendered as
+      text (L-D).
+- [x] Component files < 200 lines, functions < 50 (CQ-01/02); `tsc`, `eslint`, full suite and
+      `next build` green.
+- [x] Viewed in a browser by the builder on the four local rows: PDF (no tote lines), email
+      text (choices, inactive customer, missing ship-to), image (all green, scan line), failed
+      extraction (all red).
+
+**Tests required:**
+- `reviewFieldsOf` → `no_tote_lines` raised with no tote line, not with one; `wording_unchecked`
+  raised when all quotes are unverifiable, not when any is verified or there are none.
+- `missingFieldLines` → empty fields listed; a flagged field not repeated; address skipped
+  when the customer collects.
+- `fieldStatus` → confident, attention (empty / flagged), neutral after edit.
+- `ToCheckSection` → failures first; missing lines; money lines under a total mismatch;
+  "nothing to check" state.
+- `ReviewFieldsPane` → no quote text rendered; borders and icons per status; edit turns a
+  field neutral; loading and error with retry.
+
+**Depends on:** Task 107.
+**Specialist:** @ui-totetrack
+**Status:** [x] Done (2026-10-13). One "To check" section (flags failures first, missing-field lines, mismatch arithmetic), a clean form with green/red/neutral `FieldStatusFrame`s, new `no_tote_lines` and `wording_unchecked` flags, `--success` token; quotes and highlighting removed. Builder checked all four local rows (PDF, email text, image, failed extraction). Unit 2115, tsc, eslint, next build clean.

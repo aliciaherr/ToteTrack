@@ -99,6 +99,22 @@ function customersOf(stored: StoredCheckResults, customers: ReviewCustomer[]) {
   return { choices, prefill, flags }
 }
 
+/**
+ * Flags about the reading as a whole: no tote line at all, and wording that
+ * could not be checked because every quote was unverifiable (a scan or a
+ * photo has no text of its own to check against).
+ */
+function readingFlags(stored: StoredCheckResults, extracted: ExtractedPo | null): DraftFlag[] {
+  const flags: DraftFlag[] = []
+  if (extracted && !extracted.lines.some((line) => line.kind === 'tote')) {
+    flags.push({ field: 'general', kind: 'no_tote_lines', detail: '' })
+  }
+  if (stored.quotes.length > 0 && stored.quotes.every((quote) => quote.status === 'unverifiable')) {
+    flags.push({ field: 'general', kind: 'wording_unchecked', detail: '' })
+  }
+  return flags
+}
+
 function totalsOf(extracted: ExtractedPo | null): ReviewTotals {
   if (!extracted) return { stated: null, computed: 0, otherLines: [] }
   return {
@@ -134,7 +150,7 @@ export function reviewFieldsOf(row: Pick<ReviewSourceRow, 'id' | 'extracted' | '
   const extracted = reading.extracted
   const customer = customersOf(stored, customers)
   const values = { ...emptyReviewValues(), customer_id: customer.prefill }
-  const drafts: DraftFlag[] = [...storedFlags(stored, extracted), ...reading.flags, ...customer.flags]
+  const drafts: DraftFlag[] = [...storedFlags(stored, extracted), ...reading.flags, ...readingFlags(stored, extracted), ...customer.flags]
   let poNumberOptions: ReviewFields['poNumberOptions'] = []
   let deliveryDateOptions: ReviewFields['deliveryDateOptions'] = []
 

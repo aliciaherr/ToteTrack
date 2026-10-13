@@ -227,3 +227,28 @@ describe('reviewFieldsOf: flags and quotes', () => {
     expect(Object.values(REVIEW_FLAG_WORDING).every((text) => text.trim().length > 0)).toBe(true)
   })
 })
+
+describe('reviewFieldsOf: reading flags', () => {
+  const kinds = (fields: ReturnType<typeof fieldsFor>) => fields.flags.map((flag) => flag.kind)
+
+  it('flags a reading with no tote line', () => {
+    const fields = fieldsFor(makePo({ lines: [otherLine({ quote: 'Drum', lineTotal: 425 })] }))
+    expect(fields.flags).toContainEqual({ field: 'general', kind: 'no_tote_lines', message: REVIEW_FLAG_WORDING.no_tote_lines, detail: '' })
+  })
+
+  it('does not flag tote lines when one exists, or when there is no reading', () => {
+    expect(kinds(fieldsFor(makePo({ lines: [toteLine()] })))).not.toContain('no_tote_lines')
+    expect(kinds(fieldsFor(null))).not.toContain('no_tote_lines')
+  })
+
+  it('flags unchecked wording when every quote was unverifiable', () => {
+    const quotes = [{ field: 'lines[0]', status: 'unverifiable' }, { field: 'customerName', status: 'unverifiable' }]
+    expect(kinds(fieldsFor(makePo(), { quotes }))).toContain('wording_unchecked')
+  })
+
+  it('does not flag unchecked wording when any quote was checked, or there are none', () => {
+    const mixed = [{ field: 'lines[0]', status: 'unverifiable' }, { field: 'customerName', status: 'verified' }]
+    expect(kinds(fieldsFor(makePo(), { quotes: mixed }))).not.toContain('wording_unchecked')
+    expect(kinds(fieldsFor(makePo(), { quotes: [] }))).not.toContain('wording_unchecked')
+  })
+})

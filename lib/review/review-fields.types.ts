@@ -19,7 +19,13 @@ export interface ReviewCustomer extends CustomerSelectOption {
 export type ReviewFieldKey = keyof OrderFormValues | 'totals' | 'general'
 
 /** Flags the review itself raises, beyond the stored check failures. */
-export type ReviewOnlyFlag = 'customer_no_longer_exists' | 'extraction_unreadable' | 'value_too_long' | 'unknown_check'
+export type ReviewOnlyFlag =
+  | 'customer_no_longer_exists'
+  | 'extraction_unreadable'
+  | 'value_too_long'
+  | 'unknown_check'
+  | 'no_tote_lines'
+  | 'wording_unchecked'
 
 export type ReviewFlagKind = CheckName | ReviewOnlyFlag
 

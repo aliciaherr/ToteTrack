@@ -3,13 +3,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockGetQueue = vi.hoisted(() => vi.fn())
 const mockGetSource = vi.hoisted(() => vi.fn())
+const mockGetFields = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/actions/review', () => ({
   getReviewQueue: mockGetQueue,
   getReviewSource: mockGetSource,
+  getReviewFields: mockGetFields,
 }))
 
 import ReviewOverlay from '../ReviewOverlay'
+import { CUSTOMERS, reviewFields } from './reviewFields.fixture'
 
 const FIRST = '11111111-1111-1111-1111-111111111111'
 const SECOND = '22222222-2222-2222-2222-222222222222'
@@ -18,6 +21,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   mockGetQueue.mockResolvedValue({ ids: [FIRST, SECOND] })
   mockGetSource.mockResolvedValue({ source: { kind: 'text', text: 'PO 4471' } })
+  mockGetFields.mockResolvedValue({ fields: reviewFields(), customers: CUSTOMERS })
 })
 
 afterEach(() => {
@@ -90,5 +94,23 @@ describe('ReviewOverlay', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Expanded document' })).not.toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("loads the first row's fields beside its source", async () => {
+    render(<ReviewOverlay onClose={vi.fn()} />)
+
+    expect(await screen.findByLabelText('PO Number')).toHaveValue('PO-4471')
+    expect(mockGetFields).toHaveBeenCalledWith(FIRST)
+  })
+
+  it('keeps the source up when the fields fail, and retries only the fields', async () => {
+    mockGetFields.mockResolvedValueOnce({ error: 'Something went wrong. Please try again.' })
+    render(<ReviewOverlay onClose={vi.fn()} />)
+
+    expect(await screen.findByText("Couldn't load this PO's values")).toBeInTheDocument()
+    expect(screen.getByText('PO 4471')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }))
+    expect(await screen.findByLabelText('PO Number')).toHaveValue('PO-4471')
+    expect(mockGetSource).toHaveBeenCalledOnce()
   })
 })

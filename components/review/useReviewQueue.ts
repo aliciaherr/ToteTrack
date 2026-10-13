@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getReviewQueue, getReviewSource } from '@/lib/actions/review'
+import { getReviewFields, getReviewQueue, getReviewSource } from '@/lib/actions/review'
+import type { ReviewCustomer, ReviewFields } from '@/lib/review/review-fields.types'
 import type { ReviewSource } from '@/lib/review/review-source'
 
 /**
- * The review overlay's data (Task 106): the queue, loaded on open, and the
- * source of the row on screen. Only the first row for now; next and skip
+ * The review overlay's data (Tasks 106 and 118): the queue, loaded on open,
+ * then the row on screen's source and fields, loaded in parallel, each with
+ * its own loading, error and retry. Only the first row for now; next and skip
  * arrive with Tasks 108 and 109.
  */
 
@@ -18,20 +20,43 @@ export type QueueState =
 
 export type SourceState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; source: ReviewSource }
 
+export type FieldsState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; fields: ReviewFields; customers: ReviewCustomer[] }
+
 export interface ReviewQueueState {
   queue: QueueState
   source: SourceState
+  fields: FieldsState
   /** Reloads whatever failed: the queue, or the current row's source. */
   retry: () => void
+  /** Reloads the current row's fields. */
+  retryFields: () => void
   /** The document loaded a URL but the browser could not draw it. */
   markSourceFailed: () => void
 }
 
-/** Loads the queue on mount and the first row's source after it. */
+/** Loads the queue on mount, then the first row's source and fields in parallel. */
 export function useReviewQueue(): ReviewQueueState {
   const [queue, setQueue] = useState<QueueState>({ status: 'loading' })
   const [source, setSource] = useState<SourceState>({ status: 'loading' })
+  const [fields, setFields] = useState<FieldsState>({ status: 'loading' })
   const isMountedRef = useRef(true)
+
+  const loadFields = useCallback(async (poId: string) => {
+    setFields({ status: 'loading' })
+    try {
+      const result = await getReviewFields(poId)
+      if (!isMountedRef.current) return
+      if ('error' in result) throw new Error(result.error)
+      setFields({ status: 'ready', fields: result.fields, customers: result.customers })
+    } catch (cause) {
+      // The server logged its own cause; this covers a transport failure too (EH-01).
+      console.error('useReviewQueue: could not load the PO fields', { poId, cause })
+      if (isMountedRef.current) setFields({ status: 'error' })
+    }
+  }, [])
 
   const loadSource = useCallback(async (poId: string) => {
     setSource({ status: 'loading' })
@@ -58,12 +83,12 @@ export function useReviewQueue(): ReviewQueueState {
         return
       }
       setQueue({ status: 'ready', ids: result.ids })
-      await loadSource(result.ids[0])
+      await Promise.all([loadSource(result.ids[0]), loadFields(result.ids[0])])
     } catch (cause) {
       console.error('useReviewQueue: could not load the review queue', { cause })
       if (isMountedRef.current) setQueue({ status: 'error' })
     }
-  }, [loadSource])
+  }, [loadSource, loadFields])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -79,10 +104,14 @@ export function useReviewQueue(): ReviewQueueState {
     else void loadQueue()
   }, [queue, loadQueue, loadSource])
 
+  const retryFields = useCallback(() => {
+    if (queue.status === 'ready') void loadFields(queue.ids[0])
+  }, [queue, loadFields])
+
   const markSourceFailed = useCallback(() => {
     console.error('useReviewQueue: the browser could not draw the signed document')
     setSource({ status: 'error' })
   }, [])
 
-  return { queue, source, retry, markSourceFailed }
+  return { queue, source, fields, retry, retryFields, markSourceFailed }
 }

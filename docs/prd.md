@@ -941,6 +941,22 @@ of typing one.
 7. Queue auto-advances to the next PO. When the queue empties: "You are all
    caught up."
 
+### Review Pane (right side)
+> **Revised 2026-10-13 (`@modify-plan`, Task 119):** the first browser check found per-field quotes and flag text too wordy. Issues now sit in one section at the top, above a clean form.
+
+- **"To check" section at the top:** every flag in plain words, failures first, then one
+  line per required field left empty (PO number, customer, delivery address, quantities,
+  delivery date). A total mismatch also shows the stated vs live total and the PO's other
+  money lines. A PO with no tote lines says so. A scan or photo PO says its wording couldn't
+  be checked against the document.
+- **Below it, the order form only:** New Order's fields, with no quotes and no text under
+  fields. One-tap choices (several PO numbers, dates or candidate customers) stay under their
+  field.
+- **Field status:** green border with ✓ when confidently pre-filled (filled, and no check
+  flagged it); red border with ! when empty or flagged; neutral once edited. Scan and photo
+  POs are coloured by the checks that ran.
+- Quotes are still extracted and checked (they drive the "not found" flag) but are not shown.
+
 ### Business Logic
 - **Nothing is auto-approved.** Every PO is reviewed by a human, at any
   confidence level. The checks rank attention, not acceptance.

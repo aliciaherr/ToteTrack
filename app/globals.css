@@ -23,6 +23,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -69,6 +70,8 @@
   --accent-foreground: #1E293B;
   --destructive: #DC2626;
   --destructive-foreground: #FFFFFF;
+  /* Review pane: a field read with confidence (Task 119). Green-700, 5:1 on white. */
+  --success: #15803D;
   --border: #CBD5E1;
   --input: #CBD5E1;
   --ring: #007A8A;

@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { Loader2, RotateCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useEscapeClose, useFocusTrap } from '@/components/calendar/productionCardDialogHooks'
+import ReviewFieldsPane from './ReviewFieldsPane'
 import SourcePane from './SourcePane'
 import { useReviewQueue, type ReviewQueueState } from './useReviewQueue'
 
@@ -51,13 +52,14 @@ function Header({ position, onClose }: { position: string | null; onClose: () =>
 /**
  * The review screen (Task 106): a full-screen overlay over the current page,
  * opened from "Review" in the menu. Not a route, so a refresh closes it.
- * Left pane is the PO's source; the right pane holds the fields from Task 107.
+ * Left pane is the PO's source; the right pane is its pre-filled order form
+ * (Tasks 118, 119). Side by side from iPad landscape width up, stacked below it.
  * Esc and the close button leave the page underneath untouched; `AppShell`
  * mounts this only while open and returns focus to the menu button.
  */
 export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const { queue, source, retry, markSourceFailed } = useReviewQueue()
+  const { queue, source, fields, retry, retryFields, markSourceFailed } = useReviewQueue()
   useEscapeClose(true, onClose, false)
   useFocusTrap(true, panelRef)
 
@@ -73,15 +75,12 @@ export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
     >
       <Header position={position} onClose={onClose} />
       {queue.status === 'ready' ? (
-        <div className="flex-1 min-h-0 grid gap-4 p-4 md:grid-cols-2">
-          <section aria-label="PO document" className="min-h-0 overflow-auto rounded-lg bg-card shadow-sm">
+        <div className="flex-1 min-h-0 grid gap-4 overflow-y-auto p-4 lg:grid-cols-2 lg:overflow-hidden">
+          <section aria-label="PO document" className="rounded-lg bg-card shadow-sm lg:min-h-0 lg:overflow-auto">
             <SourcePane state={source} onRetry={retry} onLoadError={markSourceFailed} />
           </section>
-          <section
-            aria-label="PO details"
-            className="flex items-center justify-center rounded-lg border border-dashed border-border p-6 text-sm text-secondary"
-          >
-            PO details will appear here.
+          <section aria-label="PO details" className="rounded-lg bg-card shadow-sm lg:min-h-0 lg:overflow-auto">
+            <ReviewFieldsPane key={queue.ids[0]} state={fields} onRetry={retryFields} />
           </section>
         </div>
       ) : (

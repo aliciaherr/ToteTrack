@@ -49,7 +49,7 @@
 - LOW-T115-1, LOW-T115-2: accepted.
 - LOW-T103-1 to -3.
 - LOW-NEW-1 to -6: the review UI. NEW-1/-4 (stuck-import alert) shipped in Task 105; NEW-2/-3
-  are in Task 106; NEW-5 (label quotes "found in document text") is planned in Task 118.
+  are in Task 106; NEW-5 (label quotes "found in document text") is planned in Task 119, now as a "wording couldn't be checked" line for scan/photo POs (quotes are no longer shown).
 
 ## Deferred by decision (2026-10-12 `@code-review`)
 
