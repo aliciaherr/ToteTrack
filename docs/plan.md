@@ -4305,3 +4305,110 @@ LOW-T116-1 (chain URL from `request.url`) remains optional.
 
 **Depends on:** Tasks 99, 114, 115, 116.
 **Status:** [x] Done (2026-10-12). One route, two callers: `GET` = Vercel cron (`CRON_SECRET`), `POST` = `triggerIngestion` (`INGEST_TRIGGER_SECRET`); `GET` also needs the worker secret (500 without it). `runAndKick` pokes the worker even when the run fails. MEDIUM-06 closed (`uploadPoDocument` wired). Suite 1889 passed; integration 25/25 incl. `run-deps.integration.test.ts` (real queries, fake mailbox); `tsc`, `eslint` clean. **Not done:** live run against the real inbox (go-live checklist); no button until Task 105. `@security` CLEAR (LOW-T104-1 to -3; MEDIUM-06 closed).
+
+---
+
+## Task 105: Show the review queue in the menu — count, last checked, check mail
+
+**Planned 2026-10-12** (`@create-plan`). Builder decisions:
+- **One control, merged into the menu button** (deviation from `prd.md`, which puts a dropdown
+  on the home, orders and calendar pages). A header pill would collide with existing top-right
+  header buttons; the menu button is on every page and needs no layout change. The menu button
+  shows the count; opening the drawer shows a "Review queue" panel above the nav links.
+- **The count is every ingested PO without a decision**: every status except `approved` and
+  `discarded` — skipped, waiting, being read, failed and refused all count. The bubble only
+  disappears when every PO is approved or deleted, so nothing skipped or stuck goes silent.
+- **Progress is a spinner**, not staged steps. **Count only**, no PO list. **No mockup.**
+- The "Review" action is **not** in this task: Task 106 adds it to this panel.
+
+**Files:**
+- `db/queries/ingest-failures.ts` — modify. Add `countFailingUids`.
+- `db/queries/inbound-pos.ts` — modify. Add `countUndecided`. `countPendingReview` is unchanged
+  (it stays the review-queue count Task 106 uses).
+- `lib/actions/ingest.ts` — modify. Add `getIngestStatus` (the only new export; SEC-08).
+- `lib/ingest/ingest-status.constants.ts` — create. `INGEST_STATUS_POLL_MS` (5 s),
+  `INGEST_RUN_WATCH_MS` (5 min, the run route's `maxDuration`), `INGEST_STALE_AFTER_MS` (26 h:
+  a daily cron plus its one-hour window), `MAX_BADGE_COUNT` (99). No DB import; safe in the browser.
+- `components/shell/useIngestStatus.ts` — create. Loads the status, runs the trigger and polls.
+- `components/shell/IngestStatusPanel.tsx` — create. The drawer section.
+- `components/shell/PillHamburger.tsx` — modify. Count bubble.
+- `components/shell/NavDrawer.tsx` — modify. Mounts the panel above the nav links.
+- `components/shell/AppShell.tsx` — modify. Owns `useIngestStatus`, so polling survives the
+  drawer closing; passes status to the pill and the drawer.
+- `docs/architecture.md`, `docs/design-decisions.md` — modify. Record the menu placement and
+  the undecided-count rule.
+
+**Functions to implement:**
+- `countUndecided(): Promise<{ toReview: number; beingRead: number }>` — `toReview` counts
+  `pending_review` + `extraction_failed`; `beingRead` counts `pending_extraction` + `extracting`.
+  One query. Throws `DatabaseError`.
+- `countFailingUids(): Promise<number>` — rows in `ingest_uid_failures` (emails that keep
+  failing to import). Throws `DatabaseError`.
+- `getIngestStatus(): Promise<{ error: string } | IngestStatus>`, where
+  `IngestStatus = { toReview: number; beingRead: number; lastRunAt: string | null; failingCount: number }`.
+  `assertAuthenticated` first; the three reads run in parallel (`countUndecided`,
+  `readIngestState('INBOX')`, `countFailingUids`). On failure returns
+  `{ error: GENERIC_FAILURE_MESSAGE }` and logs through `loggableFailure`.
+- `useIngestStatus(): { status, loadError, isChecking, refresh, checkMail }`:
+  - loads on mount; `refresh` re-runs it when the drawer opens;
+  - `checkMail` calls `triggerIngestion`, then polls `getIngestStatus` every
+    `INGEST_STATUS_POLL_MS` until `lastRunAt` moves past its value before the click;
+  - polling stops after `INGEST_RUN_WATCH_MS`;
+  - a second `checkMail` while one is in flight does nothing.
+- `IngestStatusPanel` shows:
+  - "**N pending** · X to review · Y being read" (N = X + Y), or "Nothing pending" at 0;
+  - "Last checked …" in the device's time zone; amber when null ("Never checked") or older
+    than `INGEST_STALE_AFTER_MS`;
+  - when `failingCount > 0`: "N emails can't be imported. They retry automatically, then
+    appear for review.";
+  - a "Check mail now" button with a spinner, disabled while a check is in flight.
+- `PillHamburger({ onClick, pendingCount, needsAttention })` — a teal count bubble when
+  `pendingCount > 0`, capped at "99+"; warning-coloured when `needsAttention` (stale check or
+  failing imports).
+
+**Acceptance criteria:**
+- [ ] Given any ingested PO without a decision, when any page loads, then the menu button shows
+      the undecided count; the bubble is hidden only at 0.
+- [ ] Given a PO is skipped, then the count does not change.
+- [ ] Given a PO is waiting for or in extraction, then it is counted (under "being read").
+- [ ] Only approve or delete lowers the count.
+- [ ] Given the drawer opens, then the panel refreshes and shows the split count and the
+      last-checked time.
+- [ ] Given `last_run_at` is null or older than 26 h, then the last-checked line is amber (PRD:
+      silence must be distinguishable from failure).
+- [ ] Given `ingest_uid_failures` has rows, then the alert shows their count and the bubble
+      shows the warning state.
+- [ ] Given "Check mail now" is tapped, then the button disables and spins until `last_run_at`
+      moves, then the count refreshes and a success toast shows.
+- [ ] Given `last_run_at` has not moved after 5 min, then the spinner stops and an error toast
+      says the check did not finish and to look at the last-checked time.
+- [ ] Given `triggerIngestion` returns `{ error }`, then the spinner stops and an error toast shows (EH-04).
+- [ ] Given the status load fails, then the panel says "Couldn't load the review queue" with a
+      retry, the bubble is hidden, and the rest of the app is unaffected (EH-01).
+- [ ] Closing the drawer mid-check does not stop polling (state lives in `AppShell`).
+- [ ] SEC-04: `getIngestStatus` refuses without a session. SEC-08: it is the only new export in
+      `lib/actions/ingest.ts`.
+- [ ] SEC-05: counts and one timestamp only; no email or PO data reaches the client.
+- [ ] Touch targets ≥ 44 px. Components < 200 lines (CQ-02). No literal timings outside the
+      constants file (CQ-04).
+
+**Tests required:**
+- `countUndecided` → counts each status in the right group; `approved` and `discarded` excluded;
+  skipped rows still counted; throws `DatabaseError` on query failure.
+- `countFailingUids` → returns the count; throws `DatabaseError` on query failure.
+- `getIngestStatus` → returns the four values; refuses with no session; returns the generic
+  error and logs when a query fails.
+- `useIngestStatus` (fake timers) → stops polling when `lastRunAt` moves; stops at 5 min with
+  the error result; stops on a trigger error; ignores a second `checkMail` while in flight.
+- `IngestStatusPanel` → split count; "Nothing pending"; stale amber; failing alert; load-error
+  state with retry; button disabled while checking.
+- `PillHamburger` → bubble and "99+"; no bubble at 0; warning state.
+
+**Risks:** The badge refreshes on page load, drawer open and after a check — not live while the
+06:00 cron runs with the app open (accepted for a daily cron). A failed run leaves
+`last_run_at` unchanged, so it surfaces at the 5-minute timeout (the stale-timestamp signal
+from Task 104, by design).
+
+**Depends on:** Task 104 (`triggerIngestion`).
+**Specialist:** @ui-totetrack
+**Status:** [ ]
