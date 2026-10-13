@@ -1,10 +1,14 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MAX_PDF_PAGES } from '@/lib/extraction/extraction.constants'
-import { usePdfPages, pageScale, PDF_VIEW_SCALE, MAX_PDF_VIEW_PIXELS } from '../usePdfPages'
+import { usePdfPages, pageScale } from '../usePdfPages'
+import { PDF_VIEW_SCALE, MAX_PDF_VIEW_PIXELS } from '../pdfView.constants'
 import { openPdf } from '../pdfjsClient'
 
-vi.mock('../pdfjsClient', () => ({ openPdf: vi.fn() }))
+vi.mock('../pdfjsClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../pdfjsClient')>()),
+  openPdf: vi.fn(),
+}))
 
 const URL = 'https://example.supabase.co/storage/v1/object/sign/po-documents/a.pdf?token=t'
 const LETTER = { width: 612, height: 792 }
@@ -57,6 +61,21 @@ describe('usePdfPages', () => {
     const { result } = renderHook(() => usePdfPages(URL))
     await waitFor(() => expect(result.current.status).toBe('error'))
     expect(console.error).toHaveBeenCalledWith('usePdfPages: could not display the PDF', expect.anything())
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('token=t')
+  })
+
+  it('never logs the signed URL that pdf.js puts in a failed fetch (LOW-T117-1)', async () => {
+    const fetchError = Object.assign(new Error(`Unexpected server response (400) while retrieving PDF "${URL}".`), {
+      name: 'ResponseException',
+      status: 400,
+    })
+    vi.mocked(openPdf).mockRejectedValue(fetchError)
+    const { result } = renderHook(() => usePdfPages(URL))
+    await waitFor(() => expect(result.current.status).toBe('error'))
+    expect(console.error).toHaveBeenCalledWith('usePdfPages: could not display the PDF', {
+      name: 'ResponseException',
+      status: 400,
+    })
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('token=t')
   })
 

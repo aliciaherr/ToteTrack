@@ -2,12 +2,33 @@
 
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { MAX_EMBEDDED_IMAGE_PIXELS } from '@/lib/extraction/extraction.constants'
+import { MAX_PDF_SCRATCH_CANVAS_BYTES } from './pdfView.constants'
 
 /** An open PDF and the one call that releases it and its worker. */
 export interface OpenedPdf {
   document: PDFDocumentProxy
   /** Destroys the document, then terminates its worker. Safe to call once per open. */
   close: () => Promise<void>
+}
+
+/** What may be logged about a pdf.js failure: its name and HTTP status, never its message. */
+export interface ErrorSummary {
+  name: string
+  status?: number
+}
+
+/**
+ * Reduces a pdf.js error to a loggable summary (SEC-05, LOW-T117-1). pdf.js
+ * puts the full URL, signed token included, in a failed fetch's message.
+ *
+ * @param cause - Anything thrown.
+ * @returns The error's name (`'non-Error'` if it is not one) and, for a failed
+ *   fetch, its HTTP status.
+ */
+export function errorSummary(cause: unknown): ErrorSummary {
+  if (!(cause instanceof Error)) return { name: 'non-Error' }
+  const status = (cause as { status?: unknown }).status
+  return typeof status === 'number' ? { name: cause.name, status } : { name: cause.name }
 }
 
 /** The worker, served by the app from pdfjs-dist — never from a CDN (Task 117). */
@@ -24,8 +45,8 @@ function startWorker(): Worker {
  * worker it was handed.
  *
  * No font, CMap, colour-profile or wasm URL is set, so pdf.js fetches nothing
- * but `url` itself. Embedded images are capped as on the server (@security
- * M-04). The spec's `isEvalSupported: false` no longer exists: pdf.js 6 never
+ * but `url` itself. Embedded images and pdf.js's scratch canvases are capped,
+ * as on the server (@security M-04, LOW-T117-2). The spec's `isEvalSupported: false` no longer exists: pdf.js 6 never
  * compiles code from a file, so there is nothing to switch off.
  *
  * @param url - A signed Storage URL for the PDF.
@@ -38,7 +59,12 @@ export async function openPdf(url: string): Promise<OpenedPdf> {
   const port = startWorker()
   // pdf.js's own types mistype `port` as `null`; it accepts a Worker.
   const worker = new pdfjs.PDFWorker({ port: port as unknown as null })
-  const task = pdfjs.getDocument({ url, worker, maxImageSize: MAX_EMBEDDED_IMAGE_PIXELS })
+  const task = pdfjs.getDocument({
+    url,
+    worker,
+    maxImageSize: MAX_EMBEDDED_IMAGE_PIXELS,
+    canvasMaxAreaInBytes: MAX_PDF_SCRATCH_CANVAS_BYTES,
+  })
 
   async function close() {
     try {
@@ -53,7 +79,7 @@ export async function openPdf(url: string): Promise<OpenedPdf> {
     return { document: await task.promise, close }
   } catch (cause) {
     await close().catch((closeError: unknown) => {
-      console.error('openPdf: could not release a PDF that failed to open', { closeError })
+      console.error('openPdf: could not release a PDF that failed to open', errorSummary(closeError))
     })
     throw cause
   }

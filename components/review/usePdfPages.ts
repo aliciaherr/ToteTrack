@@ -4,21 +4,8 @@ import { useEffect, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { MAX_PDF_PAGES } from '@/lib/extraction/extraction.constants'
 import { PdfPageDrawError } from '@/lib/review/errors'
-import { openPdf, type OpenedPdf } from './pdfjsClient'
-
-/**
- * Page size in CSS pixels relative to 72 dpi, before the device pixel ratio.
- * 1.5 draws a US Letter page ~920 px wide: sharp in the half-screen pane and
- * still legible when zoomed in the expanded view.
- */
-export const PDF_VIEW_SCALE = 1.5
-
-/**
- * Most device pixels one page canvas may hold. 8M px ≈ 32 MB; five pages stay
- * well inside iPad Safari's total canvas memory. A bigger page is drawn smaller,
- * never refused: this is a view, not the extraction render.
- */
-export const MAX_PDF_VIEW_PIXELS = 8_000_000
+import { errorSummary, openPdf, type OpenedPdf } from './pdfjsClient'
+import { MAX_PDF_VIEW_PIXELS, PDF_VIEW_SCALE } from './pdfView.constants'
 
 export type PdfPagesState =
   | { status: 'loading' }
@@ -63,7 +50,7 @@ function releaseCanvases(canvases: HTMLCanvasElement[]) {
 
 function closeAndLog(opened: OpenedPdf) {
   opened.close().catch((cause: unknown) => {
-    console.error('usePdfPages: could not release the PDF document', { cause })
+    console.error('usePdfPages: could not release the PDF document', errorSummary(cause))
   })
 }
 
@@ -72,7 +59,8 @@ function closeAndLog(opened: OpenedPdf) {
  * each (Task 117). Unmounting destroys the document and its worker, and frees
  * the canvases. Mount it with `key={url}` so a new URL starts from `loading`.
  *
- * @param url - A signed Storage URL for the PDF. Never logged: it carries a token.
+ * @param url - A signed Storage URL for the PDF. Never logged: it carries a token,
+ *   so failures are logged through `errorSummary`.
  * @returns `loading`, then `ready` with the canvases and the document's page
  *   count, or `error` if the file would not open or a page would not draw.
  */
@@ -97,8 +85,8 @@ export function usePdfPages(url: string): PdfPagesState {
     draw().catch((cause: unknown) => {
       // After unmount, a failure is the teardown cancelling the draw, not a broken file.
       if (isCancelled) return
-      // The URL is left out on purpose: it carries a Storage token (SEC-05).
-      console.error('usePdfPages: could not display the PDF', { cause })
+      // Never the message: pdf.js puts the signed URL in it (SEC-05, LOW-T117-1).
+      console.error('usePdfPages: could not display the PDF', errorSummary(cause))
       setState({ status: 'error' })
     })
 

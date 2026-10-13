@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { getDocument, PDFWorker } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { openPdf } from '../pdfjsClient'
+import { errorSummary, openPdf } from '../pdfjsClient'
+import { MAX_PDF_SCRATCH_CANVAS_BYTES } from '../pdfView.constants'
 
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: vi.fn(),
@@ -37,7 +38,7 @@ describe('openPdf', () => {
     const [workerUrl] = vi.mocked(Worker).mock.calls[0] as unknown as [URL]
     expect(String(workerUrl)).toContain('pdfjs-dist/legacy/build/pdf.worker.min.mjs')
     const params = vi.mocked(getDocument).mock.calls[0][0] as Record<string, unknown>
-    expect(params).toMatchObject({ url: URL })
+    expect(params).toMatchObject({ url: URL, canvasMaxAreaInBytes: MAX_PDF_SCRATCH_CANVAS_BYTES })
     for (const key of ['cMapUrl', 'standardFontDataUrl', 'wasmUrl', 'iccUrl']) expect(params[key]).toBeUndefined()
   })
 
@@ -55,5 +56,17 @@ describe('openPdf', () => {
     await expect(openPdf(URL)).rejects.toThrow('Invalid PDF structure')
     expect(task.destroy).toHaveBeenCalledOnce()
     expect(terminate).toHaveBeenCalledOnce()
+  })
+})
+
+describe('errorSummary', () => {
+  it('keeps the name and HTTP status, never the message', () => {
+    const fetchError = Object.assign(new Error(`retrieving PDF "${URL}"`), { name: 'ResponseException', status: 403 })
+    expect(errorSummary(fetchError)).toEqual({ name: 'ResponseException', status: 403 })
+  })
+
+  it('handles an error without a status, and a non-Error throw', () => {
+    expect(errorSummary(new TypeError('x'))).toEqual({ name: 'TypeError' })
+    expect(errorSummary('boom')).toEqual({ name: 'non-Error' })
   })
 })
