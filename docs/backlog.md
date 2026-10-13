@@ -10,7 +10,7 @@
 
 ## Decisions owed (builder)
 
-- Task 108: approving a review PO to an **inactive** customer (the review picker allows it): reactivate the customer, or block? Raised by `@security` on Tasks 118/119, 2026-10-13.
+- None.
 
 ## Verifications owed
 

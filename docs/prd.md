@@ -1029,6 +1029,8 @@ of typing one.
 - **Several candidate customers**: ranked list, nothing pre-selected. A
   mid-confidence match is never pre-filled — a wrong customer that gets
   rubber-stamped is the worst outcome this feature can produce.
+- **Matched customer is inactive** (2026-10-13, Task 108): offered and labelled "Inactive";
+  approving to it reactivates the customer, with a warning line before approval.
 - **No customer match**: PO parks as "unknown customer". The existing-customer
   picker is the primary action; creating a customer is deliberately secondary, to
   avoid duplicate customer records.
