@@ -48,18 +48,18 @@ export interface ClaimedPo {
  * queue drains in arrival order. A released row waits out the retry delay.
  * A lease-less `extracting` row cannot be
  * produced by this module, but is reclaimed rather than stranded if one exists.
+ *
+ * The SELECT is a MATERIALIZED CTE, never `WHERE id IN (SELECT … LIMIT)`: on a
+ * small table the planner runs that as a nested-loop semi join and re-runs the
+ * subquery per outer row, so the LIMIT is not honoured and one claim takes
+ * every waiting row (CONSTRAINT-40).
  */
 export function buildClaimBatchQuery(limit: number, timing: ClaimTiming, now: Date): SQL {
   const claimedAt = now.toISOString()
   const leaseExpiredBefore = new Date(now.getTime() - timing.leaseMs).toISOString()
   const releasedBefore = new Date(now.getTime() - timing.retryDelayMs).toISOString()
   return sql`
-    UPDATE inbound_pos p
-    SET status = 'extracting',
-        attempt_count = p.attempt_count + 1,
-        extraction_started_at = ${claimedAt}::timestamptz,
-        updated_at = ${claimedAt}::timestamptz
-    WHERE p.id IN (
+    WITH claimable AS MATERIALIZED (
       SELECT q.id
       FROM inbound_pos q
       WHERE (q.status = 'pending_extraction'
@@ -70,6 +70,13 @@ export function buildClaimBatchQuery(limit: number, timing: ClaimTiming, now: Da
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
     )
+    UPDATE inbound_pos p
+    SET status = 'extracting',
+        attempt_count = p.attempt_count + 1,
+        extraction_started_at = ${claimedAt}::timestamptz,
+        updated_at = ${claimedAt}::timestamptz
+    FROM claimable
+    WHERE p.id = claimable.id
     RETURNING p.id, p.source_kind, p.document_path, p.body_text, p.attempt_count
   `
 }

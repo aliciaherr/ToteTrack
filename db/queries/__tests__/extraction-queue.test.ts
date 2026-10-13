@@ -39,22 +39,24 @@ describe('buildClaimBatchQuery', () => {
   it('claims in one statement with SKIP LOCKED, counting the attempt and stamping the lease', () => {
     const { sql, params } = dialect.sqlToQuery(buildClaimBatchQuery(4, TIMING, NOW))
 
-    expect(sql).toMatch(/^\s*UPDATE inbound_pos/i)
+    expect(sql).toMatch(/^\s*WITH claimable AS MATERIALIZED \(/i)
+    expect(sql).toMatch(/UPDATE inbound_pos p[\s\S]*FROM claimable\s+WHERE p\.id = claimable\.id/i)
+    expect(sql).not.toMatch(/\bIN \(/i)
     expect(sql).toMatch(/FOR UPDATE SKIP LOCKED/i)
     expect(sql).toMatch(/attempt_count = p\.attempt_count \+ 1/i)
-    expect(sql).toMatch(/extraction_started_at = \$1::timestamptz/i)
+    expect(sql).toMatch(/extraction_started_at = \$4::timestamptz/i)
     expect(sql).toMatch(/ORDER BY q\.created_at ASC/i)
-    expect(params).toEqual([NOW.toISOString(), NOW.toISOString(), '2026-10-12T11:58:00.000Z', '2026-10-12T11:55:00.000Z', 4])
+    expect(params).toEqual(['2026-10-12T11:58:00.000Z', '2026-10-12T11:55:00.000Z', 4, NOW.toISOString(), NOW.toISOString()])
   })
 
   it('reclaims only extracting rows past the lease, and lease-less ones', () => {
     const { sql } = dialect.sqlToQuery(buildClaimBatchQuery(4, TIMING, NOW))
-    expect(sql).toMatch(/q\.status = 'extracting'\s+AND \(q\.extraction_started_at IS NULL OR q\.extraction_started_at < \$4::timestamptz\)/i)
+    expect(sql).toMatch(/q\.status = 'extracting'\s+AND \(q\.extraction_started_at IS NULL OR q\.extraction_started_at < \$2::timestamptz\)/i)
   })
 
   it('holds a released row back until the retry delay has passed (MEDIUM-10)', () => {
     const { sql } = dialect.sqlToQuery(buildClaimBatchQuery(4, TIMING, NOW))
-    expect(sql).toMatch(/q\.status = 'pending_extraction'\s+AND \(q\.extraction_started_at IS NULL OR q\.extraction_started_at < \$3::timestamptz\)/i)
+    expect(sql).toMatch(/q\.status = 'pending_extraction'\s+AND \(q\.extraction_started_at IS NULL OR q\.extraction_started_at < \$1::timestamptz\)/i)
   })
 })
 

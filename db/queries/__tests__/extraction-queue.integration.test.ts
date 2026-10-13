@@ -96,6 +96,16 @@ describe.skipIf(!process.env.DATABASE_URL)('extraction queue (local Postgres)', 
     expect(claimedIds).toHaveLength(6)
   })
 
+  it('a claim takes no more rows than its limit (CONSTRAINT-40)', async () => {
+    const ids = await stage(3)
+
+    const claimed = await queue.claimBatch(1, TIMING, new Date())
+
+    expect(claimed).toHaveLength(1)
+    const attempts = await Promise.all(ids.map(async (id) => (await row(id)).attempt_count))
+    expect(attempts.sort()).toEqual([0, 0, 1])
+  })
+
   it('counts the attempt and stamps the lease at claim time', async () => {
     const [id] = await stage(1)
     const now = new Date()
