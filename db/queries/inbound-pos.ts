@@ -73,10 +73,19 @@ export interface InboundPoRow {
 // PRD): a PO the worker gave up on still reaches a human, as manual entry.
 const REVIEW_QUEUE_STATUSES: readonly InboundPoStatus[] = ['pending_review', 'extraction_failed']
 
-const REVIEW_QUEUE_STATUS_FILTER: SQL = sql`p.status IN (${sql.join(
-  REVIEW_QUEUE_STATUSES.map((status) => sql`${status}`),
-  sql`, `,
-)})`
+function statusIn(statuses: readonly InboundPoStatus[]): SQL {
+  return sql`p.status IN (${sql.join(
+    statuses.map((status) => sql`${status}`),
+    sql`, `,
+  )})`
+}
+
+const REVIEW_QUEUE_STATUS_FILTER: SQL = statusIn(REVIEW_QUEUE_STATUSES)
+
+// Rows still with the worker: staged and waiting, or claimed and being read.
+// With REVIEW_QUEUE_STATUSES these are every status a human has not yet
+// decided on — only `approved` and `discarded` are decisions.
+const BEING_READ_STATUSES: readonly InboundPoStatus[] = ['pending_extraction', 'extracting']
 
 // Does this row have at least one failed check?
 //
@@ -178,6 +187,45 @@ export async function listPendingReview(): Promise<InboundPoRow[]> {
       cause,
     })
   }
+}
+
+/** Every ingested PO no human has decided on yet, split by where it is. */
+export interface UndecidedCounts {
+  /** `pending_review` + `extraction_failed`, skipped rows included. */
+  toReview: number
+  /** `pending_extraction` + `extracting`: still with the worker. */
+  beingRead: number
+}
+
+function toCount(value: unknown, column: string): number {
+  const count = Number(value)
+  if (Number.isSafeInteger(count) && count >= 0) return count
+  throw new DatabaseError('countUndecided', `${column} read back as ${String(value)}; expected a count`)
+}
+
+/**
+ * Counts every ingested PO without a decision, for the menu badge (Task 105).
+ * Only approve or discard lowers it: a skipped row keeps `pending_review`, and
+ * a row the worker has not finished is counted too, so nothing ingested can go
+ * quiet before someone decides on it.
+ *
+ * @returns The two counts; both `0` when nothing is undecided.
+ * @throws {DatabaseError} when the query fails or reads back a non-count.
+ */
+export async function countUndecided(): Promise<UndecidedCounts> {
+  let rows: { to_review: unknown; being_read: unknown }[]
+  try {
+    rows = (await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE ${REVIEW_QUEUE_STATUS_FILTER})::int AS to_review,
+        COUNT(*) FILTER (WHERE ${statusIn(BEING_READ_STATUSES)})::int AS being_read
+      FROM inbound_pos p
+    `)) as unknown as { to_review: unknown; being_read: unknown }[]
+  } catch (cause) {
+    console.error('countUndecided: query failed', { operation: 'countUndecided', cause })
+    throw new DatabaseError('countUndecided', 'Failed to count undecided POs', { cause })
+  }
+  return { toReview: toCount(rows[0]?.to_review, 'to_review'), beingRead: toCount(rows[0]?.being_read, 'being_read') }
 }
 
 /**

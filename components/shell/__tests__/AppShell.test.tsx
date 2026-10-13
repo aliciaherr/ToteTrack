@@ -1,6 +1,7 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import AppShell from '../AppShell'
+import { getIngestStatus } from '@/lib/actions/ingest'
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/dashboard'),
@@ -36,6 +37,13 @@ vi.mock('framer-motion', () => ({
 
 vi.mock('@/lib/actions/auth', () => ({
   signOut: vi.fn(),
+}))
+
+// The review-queue status reaches the DB through a server action; the shell
+// tests cover layout only, so it reports an empty queue.
+vi.mock('@/lib/actions/ingest', () => ({
+  getIngestStatus: vi.fn(async () => ({ toReview: 0, beingRead: 0, lastRunAt: null, failingCount: 0 })),
+  triggerIngestion: vi.fn(),
 }))
 
 // NavDrawer's SignOutRow calls useToast, which throws outside a
@@ -88,5 +96,29 @@ describe('AppShell', () => {
     render(<AppShell><div>child</div></AppShell>)
 
     expect(screen.queryByPlaceholderText(/search/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the undecided count on the menu button and the review queue in the drawer', async () => {
+    vi.mocked(getIngestStatus).mockResolvedValue({ toReview: 2, beingRead: 1, lastRunAt: null, failingCount: 0 })
+    render(<AppShell><div>child</div></AppShell>)
+
+    expect(await screen.findByTestId('pending-badge')).toHaveTextContent('3')
+
+    const callsBeforeOpen = vi.mocked(getIngestStatus).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: /open navigation/i }))
+
+    expect(screen.getByRole('region', { name: 'Review queue' })).toBeInTheDocument()
+    // Opening the drawer re-reads the status.
+    await waitFor(() => expect(vi.mocked(getIngestStatus).mock.calls.length).toBeGreaterThan(callsBeforeOpen))
+  })
+
+  it('hides the badge when the status cannot be read', async () => {
+    vi.mocked(getIngestStatus).mockResolvedValue({ error: 'Something went wrong. Please try again.' })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<AppShell><div>child</div></AppShell>)
+
+    await waitFor(() => expect(getIngestStatus).toHaveBeenCalled())
+    expect(screen.queryByTestId('pending-badge')).not.toBeInTheDocument()
+    vi.mocked(console.error).mockRestore()
   })
 })

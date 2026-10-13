@@ -120,6 +120,29 @@ export async function clearFailures(uidValidity: number, uids: number[]): Promis
 }
 
 /**
+ * How many emails are currently failing to import: one counter row per UID
+ * that has failed at least one run and has neither committed nor given up
+ * (Task 105's alert).
+ *
+ * @returns The row count; `0` when nothing is failing.
+ * @throws {DatabaseError} when the query fails or reads back a non-count.
+ */
+export async function countFailingUids(): Promise<number> {
+  let rows: { count: unknown }[]
+  try {
+    rows = (await db.execute(sql`SELECT COUNT(*)::int AS count FROM ingest_uid_failures`)) as unknown as {
+      count: unknown
+    }[]
+  } catch (cause) {
+    console.error('countFailingUids: query failed', { operation: 'countFailingUids', cause })
+    throw new DatabaseError('countFailingUids', 'Failed to count failing emails', { cause })
+  }
+  const count = Number(rows[0]?.count)
+  if (Number.isSafeInteger(count) && count >= 0) return count
+  throw new DatabaseError('countFailingUids', `count read back as ${String(rows[0]?.count)}; expected a count`)
+}
+
+/**
  * Deletes every counter that belongs to another UIDVALIDITY. Called when the
  * server reports a new one, which invalidates every stored UID at once.
  *

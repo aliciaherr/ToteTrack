@@ -45,4 +45,33 @@ describe('PillHamburger', () => {
     expect(button.tagName).toBe('BUTTON')
     expect(button).toHaveAttribute('type', 'button')
   })
+
+  describe('review-queue badge (Task 105)', () => {
+    it('shows the undecided count and names it for screen readers', () => {
+      render(<PillHamburger onClick={vi.fn()} pendingCount={7} />)
+
+      expect(screen.getByTestId('pending-badge')).toHaveTextContent('7')
+      expect(screen.getByRole('button', { name: 'Open navigation, 7 pending' })).toBeInTheDocument()
+    })
+
+    it('caps the number at 99+', () => {
+      render(<PillHamburger onClick={vi.fn()} pendingCount={140} />)
+
+      expect(screen.getByTestId('pending-badge')).toHaveTextContent('99+')
+    })
+
+    it('shows no badge when nothing is pending', () => {
+      render(<PillHamburger onClick={vi.fn()} pendingCount={0} needsAttention />)
+
+      expect(screen.queryByTestId('pending-badge')).not.toBeInTheDocument()
+    })
+
+    it('turns warning-coloured when the queue needs attention', () => {
+      render(<PillHamburger onClick={vi.fn()} pendingCount={2} needsAttention />)
+
+      const badge = screen.getByTestId('pending-badge')
+      expect(badge).toHaveAttribute('data-attention', 'true')
+      expect(badge.className).toContain('bg-amber-500')
+    })
+  })
 })

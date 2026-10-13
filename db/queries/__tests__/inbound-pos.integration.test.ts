@@ -121,4 +121,22 @@ describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () =>
     expect(queue.find((item) => item.id === row.id)?.status).toBe('extraction_failed')
     expect(await pos.countPendingReview()).toBeGreaterThanOrEqual(1)
   })
+
+  it('counts every undecided status, skipped included, and never approved or discarded (Task 105)', async () => {
+    const before = await pos.countUndecided()
+    const statuses = ['pending_extraction', 'extracting', 'pending_review', 'extraction_failed', 'approved', 'discarded'] as const
+    const emailId = await stage(4, statuses.map((status, index) => {
+      const hash = String(index).repeat(64)
+      return { source_kind: 'pdf' as const, document_path: `inbound/${hash}.pdf`, body_text: null, content_hash: hash, status }
+    }))
+    // A skip keeps the row's status: it must stay counted.
+    await db.execute(sql`
+      UPDATE inbound_pos SET skipped_at = now() WHERE inbound_email_id = ${emailId} AND status = 'pending_review'
+    `)
+
+    const after = await pos.countUndecided()
+
+    expect(after.toReview - before.toReview).toBe(2)
+    expect(after.beingRead - before.beingRead).toBe(2)
+  })
 })

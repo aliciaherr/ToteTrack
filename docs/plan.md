@@ -3323,7 +3323,7 @@ ends visible (CONSTRAINT-34): (1) increment `attempt_count` **before** rendering
 builder records accepting the CPU cost. HIGH-01 was closed by Task 99 (`@security` CLEAR); it no longer blocks Task 104
 (corrected 2026-10-12).
 | 104 | Triggers — daily cron (11:00 UTC) + manual, one route — **[x] done 2026-10-12**; `@security` CLEAR | — |
-| 105 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
+| 105 | Review-queue badge in the menu (count, last checked, check mail) — **[x] done 2026-10-12** | @ui-totetrack |
 | 106 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
 | 107 | Review modal — right pane, quote highlighting, pickers | @ui-totetrack |
 | 108 | Approve / skip / delete — duplicates blocked with a message | — |
@@ -4367,29 +4367,29 @@ LOW-T116-1 (chain URL from `request.url`) remains optional.
   failing imports).
 
 **Acceptance criteria:**
-- [ ] Given any ingested PO without a decision, when any page loads, then the menu button shows
+- [x] Given any ingested PO without a decision, when any page loads, then the menu button shows
       the undecided count; the bubble is hidden only at 0.
-- [ ] Given a PO is skipped, then the count does not change.
-- [ ] Given a PO is waiting for or in extraction, then it is counted (under "being read").
-- [ ] Only approve or delete lowers the count.
-- [ ] Given the drawer opens, then the panel refreshes and shows the split count and the
+- [x] Given a PO is skipped, then the count does not change.
+- [x] Given a PO is waiting for or in extraction, then it is counted (under "being read").
+- [x] Only approve or delete lowers the count.
+- [x] Given the drawer opens, then the panel refreshes and shows the split count and the
       last-checked time.
-- [ ] Given `last_run_at` is null or older than 26 h, then the last-checked line is amber (PRD:
+- [x] Given `last_run_at` is null or older than 26 h, then the last-checked line is amber (PRD:
       silence must be distinguishable from failure).
-- [ ] Given `ingest_uid_failures` has rows, then the alert shows their count and the bubble
+- [x] Given `ingest_uid_failures` has rows, then the alert shows their count and the bubble
       shows the warning state.
-- [ ] Given "Check mail now" is tapped, then the button disables and spins until `last_run_at`
+- [x] Given "Check mail now" is tapped, then the button disables and spins until `last_run_at`
       moves, then the count refreshes and a success toast shows.
-- [ ] Given `last_run_at` has not moved after 5 min, then the spinner stops and an error toast
+- [x] Given `last_run_at` has not moved after 5 min, then the spinner stops and an error toast
       says the check did not finish and to look at the last-checked time.
-- [ ] Given `triggerIngestion` returns `{ error }`, then the spinner stops and an error toast shows (EH-04).
-- [ ] Given the status load fails, then the panel says "Couldn't load the review queue" with a
+- [x] Given `triggerIngestion` returns `{ error }`, then the spinner stops and an error toast shows (EH-04).
+- [x] Given the status load fails, then the panel says "Couldn't load the review queue" with a
       retry, the bubble is hidden, and the rest of the app is unaffected (EH-01).
-- [ ] Closing the drawer mid-check does not stop polling (state lives in `AppShell`).
-- [ ] SEC-04: `getIngestStatus` refuses without a session. SEC-08: it is the only new export in
+- [x] Closing the drawer mid-check does not stop polling (state lives in `AppShell`).
+- [x] SEC-04: `getIngestStatus` refuses without a session. SEC-08: it is the only new export in
       `lib/actions/ingest.ts`.
-- [ ] SEC-05: counts and one timestamp only; no email or PO data reaches the client.
-- [ ] Touch targets ≥ 44 px. Components < 200 lines (CQ-02). No literal timings outside the
+- [x] SEC-05: counts and one timestamp only; no email or PO data reaches the client.
+- [x] Touch targets ≥ 44 px. Components < 200 lines (CQ-02). No literal timings outside the
       constants file (CQ-04).
 
 **Tests required:**
@@ -4411,4 +4411,4 @@ from Task 104, by design).
 
 **Depends on:** Task 104 (`triggerIngestion`).
 **Specialist:** @ui-totetrack
-**Status:** [ ]
+**Status:** [x] Done (2026-10-12). Badge on the menu button + "Review queue" drawer section; `countUndecided` / `countFailingUids` / `getIngestStatus`. Unit 1968 passed, integration 27/27, `tsc`, `eslint`, `next build` clean; SEC-08 manifest checked. **Not done:** browser check; live run (go-live checklist).

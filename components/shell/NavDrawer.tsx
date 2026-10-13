@@ -38,6 +38,8 @@ const NAV_ITEMS = [
 interface NavDrawerProps {
   isOpen: boolean
   onClose: () => void
+  /** The review-queue section above the nav links (Task 105). */
+  reviewQueue?: React.ReactNode
 }
 
 function buildVariants(shouldReduceMotion: boolean | null) {
@@ -121,7 +123,7 @@ function SignOutRow() {
   )
 }
 
-export default function NavDrawer({ isOpen, onClose }: NavDrawerProps) {
+export default function NavDrawer({ isOpen, onClose, reviewQueue }: NavDrawerProps) {
   const pathname = usePathname()
   const shouldReduceMotion = useReducedMotion()
   const { drawer: drawerVariants, backdrop: backdropVariants } = buildVariants(shouldReduceMotion)
@@ -159,6 +161,7 @@ export default function NavDrawer({ isOpen, onClose }: NavDrawerProps) {
             <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
               <span className="font-semibold text-foreground text-lg tracking-tight">ToteTrack</span>
             </div>
+            {reviewQueue}
             <NavItemList pathname={pathname} onClose={onClose} />
             <SignOutRow />
           </motion.nav>

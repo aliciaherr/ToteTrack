@@ -6,7 +6,7 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { clearFailures, clearOtherValidities, recordFailures } from '../ingest-failures'
+import { clearFailures, clearOtherValidities, countFailingUids, recordFailures } from '../ingest-failures'
 import { DatabaseError } from '@/lib/errors'
 
 const dialect = new PgDialect()
@@ -111,6 +111,24 @@ describe('clearOtherValidities', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
     await expect(clearOtherValidities(7)).rejects.toThrow(DatabaseError)
+    consoleError.mockRestore()
+  })
+})
+
+describe('countFailingUids', () => {
+  it('counts the failure counter rows', async () => {
+    mockExecute.mockResolvedValueOnce([{ count: 3 }])
+
+    await expect(countFailingUids()).resolves.toBe(3)
+    expect(compiled().sql).toMatch(/SELECT COUNT\(\*\)::int AS count FROM ingest_uid_failures/)
+  })
+
+  it('throws DatabaseError when the query fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
+
+    await expect(countFailingUids()).rejects.toThrow(DatabaseError)
+    expect(consoleError.mock.calls[0]?.[1]).toMatchObject({ operation: 'countFailingUids' })
     consoleError.mockRestore()
   })
 })

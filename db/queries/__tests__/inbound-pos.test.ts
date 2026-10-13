@@ -6,7 +6,7 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { buildPoByContentHashQuery, countPendingReview, listPendingReview } from '../inbound-pos'
+import { buildPoByContentHashQuery, countPendingReview, countUndecided, listPendingReview } from '../inbound-pos'
 import { DatabaseError } from '@/lib/errors'
 
 const dialect = new PgDialect()
@@ -120,5 +120,31 @@ describe('countPendingReview', () => {
     const logged = consoleError.mock.calls[0]?.[1] as Record<string, unknown>
     expect(logged.operation).toBe('countPendingReview')
     consoleError.mockRestore()
+  })
+})
+
+describe('countUndecided', () => {
+  it('splits the undecided rows into to-review and being-read in one query', async () => {
+    mockExecute.mockResolvedValueOnce([{ to_review: 4, being_read: 2 }])
+    await expect(countUndecided()).resolves.toEqual({ toReview: 4, beingRead: 2 })
+
+    const { sql: compiled, params } = compileCall(0)
+    expect(compiled).toMatch(/COUNT\(\*\) FILTER \(WHERE\s+p\.status IN \(\$1, \$2\)\)::int AS to_review/i)
+    expect(compiled).toMatch(/COUNT\(\*\) FILTER \(WHERE\s+p\.status IN \(\$3, \$4\)\)::int AS being_read/i)
+    expect(params).toEqual(['pending_review', 'extraction_failed', 'pending_extraction', 'extracting'])
+  })
+
+  it('a query failure is logged with context and rethrown as DatabaseError', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
+
+    await expect(countUndecided()).rejects.toThrow(DatabaseError)
+    expect((consoleError.mock.calls[0]?.[1] as Record<string, unknown>).operation).toBe('countUndecided')
+    consoleError.mockRestore()
+  })
+
+  it('throws DatabaseError when a count reads back as something else', async () => {
+    mockExecute.mockResolvedValueOnce([{ to_review: 'many', being_read: 0 }])
+    await expect(countUndecided()).rejects.toThrow(/to_review read back as many/)
   })
 })
