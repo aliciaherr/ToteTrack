@@ -24,3 +24,14 @@ export class ReviewSourceShapeError extends Error {
     this.poId = poId
   }
 }
+
+/** pdf.js opened a PDF but could not draw one of its pages in the review overlay (Task 117). */
+export class PdfPageDrawError extends Error {
+  readonly pageNumber: number
+
+  constructor(pageNumber: number, detail: string, cause?: unknown) {
+    super(`usePdfPages: page ${pageNumber} ${detail}`, { cause })
+    this.name = 'PdfPageDrawError'
+    this.pageNumber = pageNumber
+  }
+}

@@ -1030,3 +1030,18 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - Fluid Compute must be on: the route runs for up to 300 s.
 
 **What this closes off:** Automatic checks more often than daily while on Hobby, whose crons run at most once a day. Faster checks need the button or a paid plan.
+
+## Task 117: PDFs Are Drawn Page by Page in the Review Screen
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → the `components/review/` tree.
+**Tasks:** Task 117. A-15 is the risk it rests on.
+
+**Decided:** The review screen draws PDF pages itself with pdf.js instead of embedding the file. It uses pdf.js's "legacy" build, which supports older iPad Safari, and loads it only when a PDF is on screen. The spec asked for `isEvalSupported: false`, but pdf.js 6 removed that option because it no longer runs code from files at all.
+
+**Means for your product:** Every page of a PDF up to 5 pages scrolls in the left pane, and a tap opens it full screen with zoom. Longer PDFs show the first 5 pages plus a notice. If a PDF won't draw, the pane says so and offers "Open the file". The rest of the app doesn't get slower, because pdf.js (about 0.5 MB) loads only on the review screen.
+
+**Check before approving:**
+- On the real iPad, open a PDF PO in Review. This is on the go-live checklist.
+
+**What this closes off:** Nothing hard to undo. If pdf.js fails on the iPad, "Open the file" becomes the PDF view.

@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { ExternalLink, FileText, Loader2, Maximize2, RotateCw } from 'lucide-react'
+import { Loader2, Maximize2, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ReviewSource } from '@/lib/review/review-source'
 import type { SourceState } from './useReviewQueue'
 import ExpandedSource, { type ExpandableSource } from './ExpandedSource'
+import PdfPages from './PdfPages'
 import RefusalCard from './RefusalCard'
 
 interface SourcePaneProps {
@@ -32,27 +33,6 @@ function ErrorView({ onRetry }: { onRetry: () => void }) {
         <RotateCw aria-hidden="true" />
         Retry
       </Button>
-    </div>
-  )
-}
-
-/** Until Task 117 draws PDFs in place: a holding message and the file itself. */
-function PdfHoldingView({ url }: { url: string }) {
-  return (
-    <div className="space-y-3 p-4">
-      <p className="flex items-center gap-2 text-sm text-secondary">
-        <FileText className="size-4" aria-hidden="true" />
-        PDF preview arrives with Task 117
-      </p>
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-md border border-border text-sm font-medium text-primary hover:bg-muted"
-      >
-        <ExternalLink className="size-4" aria-hidden="true" />
-        Open the file
-      </a>
     </div>
   )
 }
@@ -88,7 +68,7 @@ function ReadyView({ source, onExpand, onLoadError }: { source: ReviewSource; on
     case 'text':
       return <TextView text={source.text} onExpand={onExpand} />
     case 'pdf':
-      return <PdfHoldingView url={source.url} />
+      return <PdfPages key={source.url} url={source.url} />
     case 'refused':
       return <RefusalCard refusal={source.refusal} email={source.email} />
   }

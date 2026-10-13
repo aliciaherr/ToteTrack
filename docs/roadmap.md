@@ -8,7 +8,7 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Next task: 117.**
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Next task: 107** (not specced yet: run `@create-plan`).
 - **Feature 16 runs nothing in prod** until the go-live checklist below is done.
 
 ---
@@ -180,7 +180,7 @@
 
 - [x] 105 — Show the review queue in the menu — count, last checked, check mail
 - [x] 106 — Open the review overlay and show the source — images, email text, refusals
-- [ ] 117 — Draw PDFs in the review overlay with pdf.js
+- [x] 117 — Draw PDFs in the review overlay with pdf.js
 - [ ] 107 — Review overlay — right pane: extracted values, quote highlighting, pickers · *not specced yet*
 - [ ] 108 — Approve / skip / delete — duplicates blocked with a message · *not specced yet*
 - [ ] 109 — Auto-advance and "You are all caught up" · *not specced yet*
@@ -201,6 +201,7 @@
 - [ ] Check the first deploy renders a PDF (A-14).
 - [ ] Check preview deployment protection does not block the internal calls.
 - [ ] Move the 4 sample POs from Gmail Spam to the inbox.
+- [ ] Check the review overlay draws PDFs on the real iPad (A-15; deferred from Task 117). If it fails, "Open the file" becomes the PDF view.
 - [ ] One live end-to-end run on real mail.
 
 ---

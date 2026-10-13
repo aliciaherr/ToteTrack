@@ -159,9 +159,12 @@ components/
   review/                   ← the review overlay (Feature 16, Task 106+)
     ReviewOverlay.tsx       ← 'use client' — full-screen dialog over the current page, not a route (a refresh closes it). Left pane = source, right pane = PO fields (Task 107). Esc/close; focus trapped (`useFocusTrap`)
     useReviewQueue.ts       ← 'use client' — loads `getReviewQueue` on open, then `getReviewSource` for the row on screen; retry
-    SourcePane.tsx          ← 'use client' — loading / error+retry / image / plain text / PDF holding (until Task 117) / refusal, by `ReviewSource.kind`
+    SourcePane.tsx          ← 'use client' — loading / error+retry / image / plain text / PDF (`PdfPages`) / refusal, by `ReviewSource.kind`
     RefusalCard.tsx         ← 'use client' — refusal title + next step, sender/subject/received/file type as plain text, Gmail link when there is a Message-ID
     ExpandedSource.tsx      ← 'use client' — full-screen image or text with bounded zoom; its Esc is captured so it closes only itself
+    PdfPages.tsx            ← 'use client' — a PDF drawn page by page (Task 117): first `MAX_PDF_PAGES`, notice when longer, "Open the file" always; tap a page → `ExpandedSource` (canvas → PNG data URL); failure → "Couldn't display this PDF" + file link (A-15 fallback)
+    usePdfPages.ts          ← 'use client' — opens the signed URL, draws each page to a canvas at `PDF_VIEW_SCALE` × device pixel ratio, capped at `MAX_PDF_VIEW_PIXELS`; unmount destroys the document and zeroes the canvases
+    pdfjsClient.ts          ← 'use client' — `openPdf`: dynamic import of pdfjs-dist's **legacy** build (own lazy chunk, older iPad Safari), one app-served module worker per open (`new URL(…, import.meta.url)`, never a CDN), terminated on close; no font/CMap/ICC/wasm URLs, so nothing but the file is fetched
   dashboard/
     DashboardView.tsx       ← 'use client' — period toggle state; mounts QuickAddFab
     QuickAddFab.tsx         ← 'use client' — speed-dial FAB (Purchase Order / Customer / Lead options), navigates to destination with ?new=1 deep link; hides when drawer is open (FB-09)

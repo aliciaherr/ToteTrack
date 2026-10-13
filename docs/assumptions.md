@@ -399,6 +399,9 @@ iPad is the primary device, so the review screen depends on pdf.js working there
 pdf.js is Firefox's own PDF viewer and is widely used on iOS. **Verify on the real iPad
 before Task 117 is marked done.**
 
+**2026-10-12:** works in desktop Chrome (1- and 7-page PDFs). The iPad check was deferred by
+the builder to the end-of-feature user test; it is on the Feature 16 go-live checklist.
+
 **Contingency:** every PDF view carries an "Open the file" link to the signed URL, which
 opens Safari's native viewer in a new tab. If pdf.js fails on the iPad, that link becomes the
 PDF view: it works, but leaves the app.

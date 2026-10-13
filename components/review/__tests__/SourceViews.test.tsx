@@ -3,7 +3,11 @@ import { describe, it, expect, vi } from 'vitest'
 import SourcePane from '../SourcePane'
 import RefusalCard from '../RefusalCard'
 import ExpandedSource, { ZOOM_MAX } from '../ExpandedSource'
+import { openPdf } from '../pdfjsClient'
 import type { RefusalDescription, ReviewEmail } from '@/lib/review/review-source'
+
+// pdf.js never loads in jsdom: the PDF view stays in its loading state.
+vi.mock('../pdfjsClient', () => ({ openPdf: vi.fn(() => new Promise(() => undefined)) }))
 
 const URL = 'https://example.supabase.co/storage/v1/object/sign/po-documents/a?token=t'
 const REFUSAL: RefusalDescription = {
@@ -58,12 +62,10 @@ describe('SourcePane', () => {
     expect(container.querySelector('script, b')).toBeNull()
   })
 
-  it('holds a PDF until Task 117, with a link to the file', () => {
+  it('hands a PDF to the pdf.js view', () => {
     renderPane({ status: 'ready', source: { kind: 'pdf', url: URL } })
-    expect(screen.getByText('PDF preview arrives with Task 117')).toBeInTheDocument()
-    const link = screen.getByRole('link', { name: /open the file/i })
-    expect(link).toHaveAttribute('href', URL)
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByText('Loading PDF…')).toBeInTheDocument()
+    expect(openPdf).toHaveBeenCalledWith(URL)
   })
 
   it('shows the refusal card for a refused row', () => {
