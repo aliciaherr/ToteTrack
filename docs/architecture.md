@@ -468,7 +468,7 @@ Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_fo
 
 The worker (`lib/ingest/worker.ts`, queue in `db/queries/extraction-queue.ts`, Task 115) turns `pending_extraction` rows into `pending_review` rows: it downloads the document, calls `extractPo`, runs `runChecks` and `matchCustomer`, and writes `extracted` + `check_results`.
 
-**Route ownership.** Task 116 owns `POST /api/ingest/extract`, authenticated by `INGEST_TRIGGER_SECRET`. The handler validates the secret, responds `202` at once, and does the batch in `after()` so the caller is never held open. When the batch reports `rowsMayRemain`, it fetches its own URL once (self-chain, A-11). It never chains on how many rows were claimed (MEDIUM-10). Task 104 owns the 06:00 cron and the manual trigger: each runs `runIngestion`, then pokes this route. The route sets `maxDuration = 120` (M-04 condition 3; raised from 60 by builder decision 2026-10-12, because the 30 s claim cutoff plus a 60 s model call did not fit in 60). A test keeps it between cutoff + model timeout and the 5-minute lease. The post-response work lives in `lib/ingest/extract-trigger.ts` (`drainAndChain`), which never throws: inside `after()` the framework would print a raw error, and a drizzle error carries document text. Auth is `lib/ingest/trigger-auth.ts` (`isAuthorisedTrigger`, `triggerAuthHeaders`), which Task 104 reuses; an unset secret throws (500), never opens the route. **Fallback if self-chaining proves unreliable (A-11):** an external 5-minute cron calls the same route. Nothing else changes.
+**Route ownership.** Task 116 owns `POST /api/ingest/extract`, authenticated by `INGEST_TRIGGER_SECRET`. The handler validates the secret, responds `202` at once, and does the batch in `after()` so the caller is never held open. When the batch reports `rowsMayRemain`, it fetches its own route once at `INGEST_APP_ORIGIN` (self-chain, A-11; never `request.url`, LOW-T116-1). It never chains on how many rows were claimed (MEDIUM-10). Task 104 owns the cron and the manual trigger: both reach `/api/ingest/run`, which runs `runIngestion` and then pokes this route (see "Ingestion triggers"). The route sets `maxDuration = 120` (M-04 condition 3; raised from 60 by builder decision 2026-10-12, because the 30 s claim cutoff plus a 60 s model call did not fit in 60). A test keeps it between cutoff + model timeout and the 5-minute lease. The post-response work lives in `lib/ingest/extract-trigger.ts` (`drainAndChain`), which never throws: inside `after()` the framework would print a raw error, and a drizzle error carries document text. Auth is `lib/ingest/trigger-auth.ts` (`isAuthorisedTrigger`, `triggerAuthHeaders`), which Task 104 reuses; an unset secret throws (500), never opens the route. **Fallback if self-chaining proves unreliable (A-11):** an external 5-minute cron calls the same route. Nothing else changes.
 
 **Claiming is one statement, one row at a time.** `UPDATE … SET status = 'extracting', attempt_count = attempt_count + 1, extraction_started_at = <now> WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING …`. Two concurrent invocations can never take the same row, and the attempt is counted **before** rendering starts (M-04 condition 1).
 
@@ -485,6 +485,22 @@ A config error (missing OpenRouter key or Storage credential) stops the batch. T
 **Render CPU is accepted (M-04 condition 4, builder 2026-10-12).** No `worker_thread`. A hostile page that renders past the deadline can at worst cost `MAX_EXTRACTION_ATTEMPTS` killed invocations before its row ends visible.
 
 **Logging.** Model, status, page count and durations only, never document content or `sourceText` (@security L-A, MEDIUM-07 precondition).
+
+### Ingestion triggers (Task 104, 2026-10-12)
+
+**One route, two callers.** `/api/ingest/run` runs one ingestion pass (`runIngestion` over `buildIngestRunDeps` in `lib/ingest/run-deps.ts`), then POSTs `/api/ingest/extract` once (`runAndKick` in `lib/ingest/run-trigger.ts`, which never throws). It answers `202` and does the work in `after()`, with `maxDuration = 300` (the Hobby ceiling under Fluid Compute).
+
+- **`GET`, the daily cron.** `vercel.json` schedules `0 11 * * *` UTC, and Vercel sends `Authorization: Bearer <CRON_SECRET>`. Vercel crons are UTC-only and, on Hobby, fire anywhere inside the hour, so the run lands between 06:00 and 06:59 Chicago time in summer (CDT) and between 05:00 and 05:59 in winter (CST). That is accepted for a safety net (builder 2026-10-12).
+- **`POST`, the manual trigger.** It authenticates with `INGEST_TRIGGER_SECRET`. The browser never holds that secret. Instead, `triggerIngestion` (`lib/actions/ingest.ts`) checks the session with `assertAuthenticated` and then POSTs `${INGEST_APP_ORIGIN}/api/ingest/run` from the server. The action does not run ingestion itself, so it needs no long `maxDuration` of its own.
+
+Each method accepts only its own secret, and both need `INGEST_TRIGGER_SECRET` to poke the worker. **Every secret-carrying internal call targets `INGEST_APP_ORIGIN`** (`lib/ingest/app-origin.ts`), never the request's `Host`, and none follows a redirect: anything but 202 is logged as refused (LOW-T104-1/-2). The worker is poked **even when the run fails**, because rows staged by earlier runs must not wait on a broken mailbox. A failed run writes no state, so `last_run_at` stays stale, and that stale timestamp is the "last checked" signal Task 105 shows.
+
+**No run lock (builder 2026-10-12).** Overlapping runs (cron plus a click, or a double-click) are safe for four reasons:
+- Staging is unique on `(uid_validity, uid)`, so a second run gets `{ duplicate: true }`.
+- Uploads are content-addressed and overwrite in place.
+- Both runs start from the same watermark and write a watermark that only passes UIDs they saw committed. The later write can at worst land lower, which just re-lists already-staged mail.
+
+The one cost is that a failing UID is counted once per overlapping run, so it reaches `GIVE_UP_MIN_ATTEMPTS` sooner; `GIVE_UP_MIN_AGE_MS` still holds. Task 105's button disables itself while a run is in flight.
 
 ### Email-body POs keep their text in `inbound_pos.body_text` (FB-42)
 

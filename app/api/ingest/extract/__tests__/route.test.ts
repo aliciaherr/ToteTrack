@@ -22,6 +22,7 @@ let consoleError: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.stubEnv('INGEST_TRIGGER_SECRET', SECRET)
+  vi.stubEnv('INGEST_APP_ORIGIN', 'http://localhost:3000')
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -67,6 +68,33 @@ describe('POST /api/ingest/extract', () => {
     expect(mockAfter).not.toHaveBeenCalled()
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining('ingestExtractRoute'),
+      { failure: expect.objectContaining({ error: 'IngestConfigError' }) },
+    )
+  })
+
+  // LOW-T116-1: the self-chain targets the configured origin, never the
+  // host the caller named.
+  it('chains to INGEST_APP_ORIGIN even when the request names another host', async () => {
+    const spoofed = new Request('http://attacker.example/api/ingest/extract', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${SECRET}` },
+    })
+
+    await POST(spoofed)
+    await mockAfter.mock.calls[0][0]()
+
+    expect(mockDrainAndChain).toHaveBeenCalledWith(URL, SECRET)
+  })
+
+  it('answers 500 and logs loudly when INGEST_APP_ORIGIN is unset', async () => {
+    vi.stubEnv('INGEST_APP_ORIGIN', '')
+
+    const response = await POST(post({ authorization: `Bearer ${SECRET}` }))
+
+    expect(response.status).toBe(500)
+    expect(mockAfter).not.toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining('INGEST_APP_ORIGIN'),
       { failure: expect.objectContaining({ error: 'IngestConfigError' }) },
     )
   })

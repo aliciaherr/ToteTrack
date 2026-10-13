@@ -3320,9 +3320,9 @@ deadline cannot interrupt one page mid-render, so the worker must guarantee a ho
 ends visible (CONSTRAINT-34): (1) increment `attempt_count` **before** rendering starts;
 (2) at `MAX_EXTRACTION_ATTEMPTS` the PO becomes a visible review row and is never retried;
 (3) set the function's `maxDuration` explicitly; (4) render in a `worker_thread`, **or** the
-builder records accepting the CPU cost. HIGH-01 still blocks Task 104 and any production deploy
-that runs ingestion.
-| 104 | Triggers — 06:00 `America/Chicago` cron + manual, shared secret (route only; the watermark moved to Task 99's `runIngestion`) | — |
+builder records accepting the CPU cost. HIGH-01 was closed by Task 99 (`@security` CLEAR); it no longer blocks Task 104
+(corrected 2026-10-12).
+| 104 | Triggers — daily cron (11:00 UTC) + manual, one route — **[x] done 2026-10-12**; `@security` CLEAR | — |
 | 105 | Badge + dropdown, live progress, last-checked time | @ui-totetrack |
 | 106 | Review modal — left pane (image / PDF / text, click-to-expand) | @ui-totetrack |
 | 107 | Review modal — right pane, quote highlighting, pickers | @ui-totetrack |
@@ -4223,3 +4223,85 @@ deployment protection blocks self-fetch on previews only; check at Task 104.
 
 **Depends on:** Task 115.
 **Status:** [x] Done (2026-10-12). Builder confirmed the row in Studio; `@security` CLEAR (LOW-T116-1, -2 open). Route answers 202 in ~20 ms; the work runs in `after()` via `lib/ingest/extract-trigger.ts` (`drainAndChain`), which never throws: a batch error is logged through `loggableFailure` and stops the chain. An unset secret makes `isAuthorisedTrigger` throw (→ 500), never open. Compare is `timingSafeEqual` over SHA-256 digests (length-safe). **Builder decision 2026-10-12: `maxDuration = 120`** (was 60): the 30 s claim cutoff plus a 60 s model call did not fit in 60. A test pins cutoff + timeout < maxDuration < lease. Local end-to-end run: a staged PDF reached `pending_review` with `extracted` and `customerMatch`; the logs carry no content. Suite 1858; `tsc`, `eslint` clean.
+
+---
+
+## Task 104: Triggers — daily cron + manual, through one route
+
+**Planned 2026-10-12** (`@create-plan`). Builder decisions: Vercel cron at `0 11 * * *` UTC
+(06:00–06:59 CDT, 05:00–05:59 CST; Hobby fires anywhere inside the hour; accepted as a safety
+net). **No run lock**: overlapping runs are safe (unique `(uid_validity, uid)`, idempotent
+content-addressed uploads, a lower watermark only re-lists already-staged UIDs). The one cost is
+a failing UID counted twice, which reaches the 3-run give-up sooner; the 1-hour floor still holds.
+Task 105's button disables itself while a run is in flight.
+
+**Shape:** the manual trigger does not run ingestion itself. It POSTs the same route the cron
+GETs, so there is one route, one `maxDuration` and one code path. "Last checked" is
+`ingest_state.last_run_at` (Task 105 reads it). A failed run leaves it stale, which is the PRD's
+"silence ≠ failure" signal.
+
+**Files:**
+- `lib/ingest/run-deps.ts` — create. `buildIngestRunDeps()`: production `IngestRunDeps`
+  (`createImapSession`, `readGmailImapConfig`, `stageEmailWithPos`, **`uploadPoDocument`** (closes
+  MEDIUM-06), `readIngestState` / `writeIngestState`, `stagedUidsAbove`, `recordFailures` /
+  `clearFailures` / `clearOtherValidities`, `now: () => new Date()`)
+- `lib/ingest/run-trigger.ts` — create. `runAndKick`; never throws (runs in `after()`, same
+  contract as `drainAndChain`)
+- `app/api/ingest/run/route.ts` — create. `GET` = Vercel cron (`CRON_SECRET`); `POST` = manual
+  trigger (`INGEST_TRIGGER_SECRET`). Both use `isAuthorisedTrigger`, answer 202 and run in
+  `after()`. `export const maxDuration = 300`. Pokes `new URL('/api/ingest/extract', request.url)`
+- `lib/actions/ingest.ts` — create. `'use server'` `triggerIngestion()`
+- `vercel.json` — create. `{"crons":[{"path":"/api/ingest/run","schedule":"0 11 * * *"}]}`
+- `.env.example` — add `CRON_SECRET` and `INGEST_APP_ORIGIN` (local `http://localhost:3000`)
+- `docs/architecture.md` — trigger flow, the no-lock rationale, the cron DST window
+
+**Functions to implement:**
+- `buildIngestRunDeps(): IngestRunDeps` — production wiring; a missing env var throws
+  `IngestConfigError` at build time
+- `runAndKick(extractUrl: string, secret: string, deps?: RunTriggerDeps): Promise<IngestRunSummary | null>`
+  — runs `runIngestion`, logs a UIDs-and-counts summary, then POSTs `extractUrl` once with
+  `triggerAuthHeaders`. Pokes **even when the run threw**: rows from earlier runs still need draining
+- `triggerIngestion(): Promise<{ error: string } | { accepted: true }>` — `assertAuthenticated()`,
+  then POST `${INGEST_APP_ORIGIN}/api/ingest/run` with `triggerAuthHeaders(INGEST_TRIGGER_SECRET)`
+
+**Acceptance criteria:**
+- [x] Wrong or missing secret → 401; unset secret → 500, logged; valid secret → 202, run in `after()`
+- [x] `GET` accepts only `CRON_SECRET`, `POST` only `INGEST_TRIGGER_SECRET`; neither secret opens the other method
+- [x] Given unread mail, when the route is called, then `inbound_emails` rows exist, `last_run_at`
+      advanced, and `/api/ingest/extract` received one POST
+- [x] Given `runIngestion` throws (e.g. IMAP auth failure), then it is logged via `loggableFailure`,
+      nothing throws out of `after()`, `last_run_at` is unchanged, and the worker is still poked
+- [x] Given no session, `triggerIngestion` returns the generic error and makes no fetch
+- [x] Given `INGEST_APP_ORIGIN` or `INGEST_TRIGGER_SECRET` unset, `triggerIngestion` fails loudly
+      (logged + error returned), never silently
+- [x] SEC-01: no secret logged, echoed or committed. CONSTRAINT-38: `run-deps.ts` imports
+      `uploadPoDocument` and never reads `SUPABASE_SECRET_KEY` (existing grep test)
+- [x] SEC-05: logs carry UIDs and counts, never message content
+- [x] A test pins `maxDuration` ≤ 300 (Hobby + Fluid Compute ceiling)
+- [x] `proxy.ts` never redirects `/api/ingest/run` (tested, as for the extract route)
+- [x] CQ-01/02: files < 300 lines, functions < 50; full suite green; `tsc` and `eslint` clean
+
+**Tests required:**
+- `route.test.ts` → 401 / 500 / 202 per method; no secret crossover; `after()` receives `runAndKick`
+- `run-trigger.test.ts` → success: one run, one poke; run throws: logged, still pokes, returns
+  `null`; poke throws: logged, no throw
+- `run-deps.test.ts` → wiring complete; missing env var → `IngestConfigError`
+- `ingest.test.ts` (action) → no session → no fetch; happy path → one POST with bearer header;
+  missing env var → loud error
+- Integration (local stack) → one synthetic message: route → `inbound_emails` → watermark advanced
+
+**Go-live checklist (builder, Vercel):**
+1. Env, Vercel only: `SUPABASE_SECRET_KEY` (Supabase → Settings → API Keys); `INGEST_TRIGGER_SECRET`
+   and `CRON_SECRET`, each a separate `openssl rand -hex 32` (settles LOW-T116-2);
+   `INGEST_APP_ORIGIN` = the production URL
+2. Fluid Compute on (`maxDuration` 120 / 300 requires it on Hobby)
+3. A-14: check the PDF renderer on the first preview deploy
+4. Check that preview deployment protection does not block the self-chain fetch
+5. Move the 4 sample POs from Gmail Spam to INBOX; one real-mail end-to-end check
+
+**Risks:** A-11 (self-fetch dropped; fallback is an external 5-minute cron). Cron window
+shifts an hour with DST (accepted). `triggerIngestion` has no button until Task 105.
+LOW-T116-1 (chain URL from `request.url`) remains optional.
+
+**Depends on:** Tasks 99, 114, 115, 116.
+**Status:** [x] Done (2026-10-12). One route, two callers: `GET` = Vercel cron (`CRON_SECRET`), `POST` = `triggerIngestion` (`INGEST_TRIGGER_SECRET`); `GET` also needs the worker secret (500 without it). `runAndKick` pokes the worker even when the run fails. MEDIUM-06 closed (`uploadPoDocument` wired). Suite 1889 passed; integration 25/25 incl. `run-deps.integration.test.ts` (real queries, fake mailbox); `tsc`, `eslint` clean. **Not done:** live run against the real inbox (go-live checklist); no button until Task 105. `@security` CLEAR (LOW-T104-1 to -3; MEDIUM-06 closed).

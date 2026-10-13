@@ -1,4 +1,5 @@
 import { after } from 'next/server'
+import { ingestRouteUrl } from '@/lib/ingest/app-origin'
 import { drainAndChain } from '@/lib/ingest/extract-trigger'
 import { isAuthorisedTrigger } from '@/lib/ingest/trigger-auth'
 import { loggableFailure } from '@/lib/loggable-failure'
@@ -24,6 +25,8 @@ import { loggableFailure } from '@/lib/loggable-failure'
  */
 export const maxDuration = 120
 
+const SELF_PATH = '/api/ingest/extract'
+
 /**
  * @returns 202 when accepted, 401 for a missing or wrong secret, 500 when the
  *   secret is not configured. The body never echoes the request.
@@ -43,7 +46,17 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const selfUrl = new URL(request.url).toString()
+  // The configured origin, never `request.url`: the secret must not follow a
+  // caller-chosen `Host` (LOW-T116-1, closed by Task 104).
+  let selfUrl: string
+  try {
+    selfUrl = ingestRouteUrl(SELF_PATH)
+  } catch (error) {
+    console.error('ingestExtractRoute: refusing every call until INGEST_APP_ORIGIN is set', {
+      failure: loggableFailure(error),
+    })
+    return Response.json({ error: 'Extraction trigger is not configured' }, { status: 500 })
+  }
   after(() => drainAndChain(selfUrl, secret))
   return Response.json({ accepted: true }, { status: 202 })
 }

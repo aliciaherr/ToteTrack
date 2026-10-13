@@ -100,6 +100,16 @@ describe('proxy (session refresh)', () => {
 
     expect(result).toBe(passThrough)
   })
+
+  // Task 104: the cron and manual trigger route is session-less too.
+  it('passes a session-less call to the ingestion run route straight through', async () => {
+    const passThrough = buildResponse()
+    mockNextResponseNext.mockReturnValueOnce(passThrough)
+
+    const result = await proxy(buildRequest('/api/ingest/run'))
+
+    expect(result).toBe(passThrough)
+  })
 })
 
 // Next compiles `config.matcher` into an anchored pattern and tests it against

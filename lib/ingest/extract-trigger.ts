@@ -12,6 +12,9 @@ import { drainExtractionBatch, type BatchSummary } from './worker'
  * `loggableFailure` instead.
  */
 
+/** The only answer the worker route gives an accepted call. */
+const ACCEPTED = 202
+
 /** Injected so tests reach no DB and no network. */
 export interface ExtractTriggerDeps {
   drain: () => Promise<BatchSummary>
@@ -39,8 +42,14 @@ async function drainLogged(deps: ExtractTriggerDeps): Promise<BatchSummary | nul
 /** One POST to the route itself. A failure is logged; the fallback cron (A-11) picks up the rest. */
 async function chainOnce(selfUrl: string, secret: string, deps: ExtractTriggerDeps): Promise<void> {
   try {
-    const response = await deps.fetch(selfUrl, { method: 'POST', headers: triggerAuthHeaders(secret) })
-    if (!response.ok) {
+    // A redirect (e.g. a protected preview's login page) is a refusal, never
+    // followed and never mistaken for success (LOW-T104-2).
+    const response = await deps.fetch(selfUrl, {
+      method: 'POST',
+      headers: triggerAuthHeaders(secret),
+      redirect: 'manual',
+    })
+    if (response.status !== ACCEPTED) {
       console.error('extractTrigger: self-chain refused', { status: response.status })
     }
   } catch (error) {

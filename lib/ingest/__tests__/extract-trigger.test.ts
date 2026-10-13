@@ -42,6 +42,7 @@ describe('drainAndChain — self-chain', () => {
     expect(deps.fetch).toHaveBeenCalledWith(SELF_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${SECRET}` },
+      redirect: 'manual',
     })
   })
 
@@ -80,6 +81,14 @@ describe('drainAndChain — failures are logged, never thrown', () => {
 
     expect(await drainAndChain(SELF_URL, SECRET, deps)).toBe(true)
     expect(consoleError).toHaveBeenCalledWith('extractTrigger: self-chain refused', { status: 401 })
+  })
+
+  // LOW-T104-2: a redirect or a stray 200 (a login page) is not an accepted chain.
+  it.each([307, 200])('logs a %i self-chain answer as refused, not as success', async (status) => {
+    const deps = makeDeps(summary({ rowsMayRemain: true }), new Response(null, { status }))
+
+    await drainAndChain(SELF_URL, SECRET, deps)
+    expect(consoleError).toHaveBeenCalledWith('extractTrigger: self-chain refused', { status })
   })
 
   it('logs a self-chain network failure without throwing, and never logs the secret', async () => {
