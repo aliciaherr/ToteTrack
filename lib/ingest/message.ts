@@ -1,5 +1,6 @@
 import { simpleParser, type Attachment, type ParsedMail } from 'mailparser'
 import { MimeParseError } from '@/lib/errors'
+import { loggableFailure } from '@/lib/loggable-failure'
 import { refusedMessage, unparseableMessage } from './limits'
 import {
   HEADER_CONTROL_CHARACTERS,
@@ -69,10 +70,16 @@ export function boundDate(date: Date | null): Date | null {
 }
 
 function toInboundAttachment(attachment: Attachment): InboundAttachment {
+  const mimeType = attachment.contentType.toLowerCase()
   return {
     filename: attachment.filename ?? null,
-    mimeType: attachment.contentType.toLowerCase(),
+    mimeType,
     bytes: attachment.content,
+    // An inline PDF (Apple Mail sends them so) is still a real attachment:
+    // only images displayed in the body count as embedded.
+    embedded:
+      attachment.related === true ||
+      (attachment.contentDisposition === 'inline' && mimeType.startsWith('image/')),
   }
 }
 
@@ -129,14 +136,15 @@ export function refusalFor(declared: DeclaredMessage, failure: IngestLimitFailur
  * which puts it at the top of the review queue: a genuinely malformed purchase
  * order has to be visible, not vanish into a log line (H-02).
  *
- * The cause is logged by UID only. `mailparser`'s message is **not** persisted
- * into the `failures` entry: it is an unbounded string derived from hostile
- * input and could quote a fragment of a real customer's email (L-12).
+ * The cause is logged by UID and error class only. `mailparser`'s message is
+ * neither logged nor persisted into the `failures` entry: it is an unbounded
+ * string derived from hostile input and could quote a fragment of a real
+ * customer's email (L-12, SEC-05).
  */
 export function unreadableMessage(declared: DeclaredMessage, cause: unknown): InboundMessage {
   console.error(
     'collectUnprocessed: a message could not be parsed, staging it for review and continuing the batch',
-    { uid: declared.uid, declaredSize: declared.declaredSize, cause }
+    { uid: declared.uid, declaredSize: declared.declaredSize, failure: loggableFailure(cause) }
   )
   return refusedMessage(declared, unparseableMessage())
 }

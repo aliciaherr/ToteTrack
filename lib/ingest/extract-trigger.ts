@@ -1,5 +1,5 @@
 import { loggableFailure } from '@/lib/loggable-failure'
-import { triggerAuthHeaders } from './trigger-auth'
+import { postTrigger } from './trigger-post'
 import { drainExtractionBatch, type BatchSummary } from './worker'
 
 /**
@@ -11,9 +11,6 @@ import { drainExtractionBatch, type BatchSummary } from './worker'
  * in its params (SEC-05, MEDIUM-04). Every failure is logged through
  * `loggableFailure` instead.
  */
-
-/** The only answer the worker route gives an accepted call. */
-const ACCEPTED = 202
 
 /** Injected so tests reach no DB and no network. */
 export interface ExtractTriggerDeps {
@@ -39,24 +36,6 @@ async function drainLogged(deps: ExtractTriggerDeps): Promise<BatchSummary | nul
   }
 }
 
-/** One POST to the route itself. A failure is logged; the fallback cron (A-11) picks up the rest. */
-async function chainOnce(selfUrl: string, secret: string, deps: ExtractTriggerDeps): Promise<void> {
-  try {
-    // A redirect (e.g. a protected preview's login page) is a refusal, never
-    // followed and never mistaken for success (LOW-T104-2).
-    const response = await deps.fetch(selfUrl, {
-      method: 'POST',
-      headers: triggerAuthHeaders(secret),
-      redirect: 'manual',
-    })
-    if (response.status !== ACCEPTED) {
-      console.error('extractTrigger: self-chain refused', { status: response.status })
-    }
-  } catch (error) {
-    console.error('extractTrigger: self-chain failed', { failure: loggableFailure(error) })
-  }
-}
-
 /**
  * Drains one batch, then calls the route once more if the worker reports
  * `rowsMayRemain`. It chains on that flag only, **never on how many rows were
@@ -75,6 +54,7 @@ export async function drainAndChain(
 ): Promise<boolean> {
   const summary = await drainLogged(deps)
   if (!summary?.rowsMayRemain) return false
-  await chainOnce(selfUrl, secret, deps)
+  // A failed chain is logged by `postTrigger`; the fallback cron (A-11) picks up the rest.
+  await postTrigger('extractTrigger: self-chain', selfUrl, secret, deps.fetch)
   return true
 }

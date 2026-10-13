@@ -76,12 +76,30 @@ export async function createImapSession(config: GmailImapConfig): Promise<ImapSe
       // (`types.ts`). `internalDate` is the server's arrival time, which the
       // give-up placeholder carries (CONSTRAINT-37).
       const query = { uid: true, size: true, envelope: true, internalDate: true }
+      // The listing is read to the end **before** anything is yielded.
+      // imapflow runs one command at a time and parks its reader while a
+      // `fetch()` consumer works on a row, so a `fetchSource` issued from
+      // inside a live `fetch()` loop waits on a FETCH that waits on it: a
+      // deadlock that hangs the run until the platform kills it. The listing
+      // is sizes and envelopes only, so buffering it costs no message bytes.
+      const listed: DeclaredMessage[] = []
       for await (const message of client.fetch(range, query, { uid: true })) {
-        yield toDeclaredMessage(message, config)
+        listed.push(toDeclaredMessage(message, config))
       }
+      yield* listed
     },
     async fetchSource(uid: number): Promise<Buffer> {
-      const message = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true })
+      let message: FetchMessageObject | false | undefined
+      try {
+        message = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true })
+      } catch (cause) {
+        // A failed download is the connection's fault, never the message's:
+        // `readOne` (gmail.ts) re-raises only `ImapConnectionError`, and would
+        // otherwise stage this and every later message as unparseable. Class
+        // name only — imapflow's message is not ours to vouch for (SEC-05).
+        const reason = cause instanceof Error ? cause.name : typeof cause
+        throw new ImapConnectionError(config.host, config.user, `UID ${uid} download failed (${reason})`, { cause })
+      }
       if (!message || !message.source) {
         throw new ImapConnectionError(config.host, config.user, `UID ${uid} returned no source bytes`)
       }

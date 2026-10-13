@@ -103,7 +103,7 @@ describe('runAndKick', () => {
     const deps = makeDeps(SUMMARY, new Response(null, { status: 401 }))
 
     await expect(runAndKick(EXTRACT_URL, SECRET, deps)).resolves.toBe(SUMMARY)
-    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('refused the poke'), { status: 401 })
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('poke refused'), { status: 401 })
   })
 
   // LOW-T104-2: a redirect or a stray 200 (a login page) is not an accepted poke.
@@ -111,7 +111,7 @@ describe('runAndKick', () => {
     const deps = makeDeps(SUMMARY, new Response(null, { status }))
 
     await runAndKick(EXTRACT_URL, SECRET, deps)
-    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('refused the poke'), { status })
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('poke refused'), { status })
   })
 
   it('logs a poke that threw and does not throw', async () => {

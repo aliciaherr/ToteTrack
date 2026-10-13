@@ -212,12 +212,14 @@ async function claimNext(deps: WorkerDeps): Promise<ClaimedPo | null> {
  *
  * The extraction config is read **before** claiming, so a missing key costs
  * no row an attempt. A config error met mid-row (a missing Storage
- * credential) releases that row and is rethrown.
+ * credential, or OpenRouter refusing the account) releases that row and is
+ * rethrown.
  *
  * @param deps Injected collaborators; production wiring by default.
  * @returns How many rows were claimed, where each ended, and whether more may wait.
- * @throws {ExtractionConfigError | StorageConfigError} when the deployment is
- *   misconfigured. {DatabaseError} when a claim fails.
+ * @throws {ExtractionConfigError | StorageConfigError | OpenRouterHttpError}
+ *   when the deployment is misconfigured or OpenRouter refuses the account
+ *   (401/402/403). {DatabaseError} when a claim fails.
  */
 export async function drainExtractionBatch(deps: WorkerDeps = defaultWorkerDeps): Promise<BatchSummary> {
   const config = deps.readConfig()

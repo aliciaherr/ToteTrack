@@ -48,7 +48,13 @@ describe('isBatchStoppingError', () => {
     expect(isBatchStoppingError(new StorageConfigError('NEXT_PUBLIC_SUPABASE_URL'))).toBe(true)
   })
 
+  it.each([401, 402, 403])('stops when OpenRouter refuses the account with %i', (status) => {
+    expect(isBatchStoppingError(new OpenRouterHttpError(status, 'm', 'refused'))).toBe(true)
+  })
+
   it('does not stop on a row-level failure', () => {
+    expect(isBatchStoppingError(new OpenRouterHttpError(500, 'm', 'upstream'))).toBe(false)
+    expect(isBatchStoppingError(new OpenRouterHttpError(429, 'm', 'rate limited'))).toBe(false)
     expect(isBatchStoppingError(new OpenRouterTimeoutError('m', 1000))).toBe(false)
     expect(isBatchStoppingError(new PdfTooManyPagesError(30, 10))).toBe(false)
   })

@@ -1,4 +1,7 @@
 import { ImapConnectionError, IngestConfigError } from '@/lib/errors'
+import { loggableFailure } from '@/lib/loggable-failure'
+import { requireEnv, type EnvLookup } from '@/lib/required-env'
+import { scrubSecret } from '@/lib/scrub-secret'
 import { assertUsableWatermark } from './imap-session'
 import { admitMessage, exceedsMessageCount } from './limits'
 import { MAX_MESSAGES_PER_RUN } from './limits.constants'
@@ -31,25 +34,8 @@ import type {
  * its bytes are downloaded; `limits.ts` owns that decision (H-01).
  */
 
-/** Stands in for the app password anywhere a message could otherwise echo it. */
-const REDACTED = '[redacted]'
-
-/**
- * Just the string lookups the config reader needs. `process.env` satisfies it,
- * and so does a plain object literal in a test — unlike `NodeJS.ProcessEnv`,
- * which requires `NODE_ENV` and so cannot be written out by hand.
- */
-type EnvLookup = Readonly<Record<string, string | undefined>>
-
-function requireEnv(env: EnvLookup, name: string): string {
-  const value = env[name]?.trim()
-  if (!value) {
-    throw new IngestConfigError(
-      name,
-      'is missing or empty. Set it in .env and in the Vercel environment; .env.example lists the expected shape.'
-    )
-  }
-  return value
+function requireImapEnv(env: EnvLookup, name: string): string {
+  return requireEnv(env, name, (variable, detail) => new IngestConfigError(variable, detail))
 }
 
 /**
@@ -84,18 +70,13 @@ function assertNotAdminMailbox(user: string, adminEmail: string | undefined): vo
  * a credential in source (SEC-01).
  */
 export function readGmailImapConfig(env: EnvLookup = process.env): GmailImapConfig {
-  const user = requireEnv(env, 'GMAIL_IMAP_USER')
+  const user = requireImapEnv(env, 'GMAIL_IMAP_USER')
   assertNotAdminMailbox(user, env.ADMIN_EMAIL)
   return {
-    host: requireEnv(env, 'GMAIL_IMAP_HOST'),
+    host: requireImapEnv(env, 'GMAIL_IMAP_HOST'),
     user,
-    appPassword: requireEnv(env, 'GMAIL_IMAP_APP_PASSWORD'),
+    appPassword: requireImapEnv(env, 'GMAIL_IMAP_APP_PASSWORD'),
   }
-}
-
-/** Removes the app password from text that is about to be thrown or logged. */
-function scrubSecret(text: string, secret: string): string {
-  return secret ? text.split(secret).join(REDACTED) : text
 }
 
 function describeCause(cause: unknown, config: GmailImapConfig): string {
@@ -135,7 +116,7 @@ export async function closeMailbox(session: ImapSession, config: GmailImapConfig
   } catch (cause) {
     console.error(
       `closeMailbox: IMAP logout from ${config.host} as ${config.user} failed`,
-      { cause }
+      { failure: loggableFailure(cause) }
     )
   }
 }

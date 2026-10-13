@@ -2,7 +2,7 @@ import { IngestConfigError } from '@/lib/errors'
 import { loggableFailure } from '@/lib/loggable-failure'
 import { runIngestion, type IngestRunSummary } from './run'
 import { buildIngestRunDeps } from './run-deps'
-import { triggerAuthHeaders } from './trigger-auth'
+import { postTrigger } from './trigger-post'
 
 /**
  * What `/api/ingest/run` does after it has answered 202 (Task 104): one
@@ -12,9 +12,6 @@ import { triggerAuthHeaders } from './trigger-auth'
  * printed raw by the framework (SEC-05, MEDIUM-04). Every failure is logged
  * through `loggableFailure` instead.
  */
-
-/** The only answer the worker route gives an accepted call. */
-const ACCEPTED = 202
 
 /** Injected so tests reach no mailbox, DB or network. */
 export interface RunTriggerDeps {
@@ -43,24 +40,6 @@ async function runLogged(deps: RunTriggerDeps): Promise<IngestRunSummary | null>
   }
 }
 
-/** One POST to the worker route. A failure is logged; the next trigger retries. */
-async function kickWorker(extractUrl: string, secret: string, deps: RunTriggerDeps): Promise<void> {
-  try {
-    // A redirect (e.g. a protected preview's login page) is a refusal, never
-    // followed and never mistaken for success (LOW-T104-2).
-    const response = await deps.fetch(extractUrl, {
-      method: 'POST',
-      headers: triggerAuthHeaders(secret),
-      redirect: 'manual',
-    })
-    if (response.status !== ACCEPTED) {
-      console.error('runTrigger: extraction worker refused the poke', { status: response.status })
-    }
-  } catch (error) {
-    console.error('runTrigger: extraction worker poke failed', { failure: loggableFailure(error) })
-  }
-}
-
 /**
  * Runs one ingestion pass, then pokes the extraction worker once.
  *
@@ -78,6 +57,7 @@ export async function runAndKick(
   deps: RunTriggerDeps = defaultRunTriggerDeps,
 ): Promise<IngestRunSummary | null> {
   const summary = await runLogged(deps)
-  await kickWorker(extractUrl, secret, deps)
+  // A failed poke is logged by `postTrigger`; the next trigger retries.
+  await postTrigger('runTrigger: extraction worker poke', extractUrl, secret, deps.fetch)
   return summary
 }

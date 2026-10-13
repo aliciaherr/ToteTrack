@@ -19,7 +19,7 @@ export interface ExtractionConfig {
 }
 
 /** Lookup shape for env reads — `process.env` or a plain object in tests. */
-export type EnvLookup = Readonly<Record<string, string | undefined>>
+export type { EnvLookup } from '@/lib/required-env'
 
 /** One image as the model receives it: a base64 data URL. */
 export type ImageDataUrl = `data:image/${string};base64,${string}`

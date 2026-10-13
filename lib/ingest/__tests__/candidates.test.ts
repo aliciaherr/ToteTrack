@@ -10,7 +10,11 @@ const SOME_BYTES = Buffer.from('fake document bytes')
 const BODY_PO_TEXT = 'Please supply 40 totes against PO 10042, delivery 14 October.'
 
 function attachment(mimeType: string, bytes: Buffer = SOME_BYTES, filename: string | null = 'po-10042.bin'): InboundAttachment {
-  return { filename, mimeType, bytes }
+  return { filename, mimeType, bytes, embedded: false }
+}
+
+function embeddedImage(mimeType = 'image/png', bytes: Buffer = Buffer.from('fake logo bytes')): InboundAttachment {
+  return { filename: 'logo.png', mimeType, bytes, embedded: true }
 }
 
 function message(overrides: Partial<InboundMessage> = {}): InboundMessage {
@@ -132,6 +136,28 @@ Dana Fixture`
 
     expect(candidate.sourceKind).toBe('pdf')
     expect(candidate.bodyText).toBeNull()
+  })
+
+  it('reads the body too when the only image is embedded, so a logo cannot hide a body PO', () => {
+    const selection = selectCandidates(message({ bodyText: BODY_PO_TEXT, attachments: [embeddedImage()] }))
+
+    expect(selection.candidates.map((candidate) => candidate.sourceKind)).toEqual(['image', 'email_body'])
+    expect(selection.candidates[1].bodyText).toContain('PO 10042')
+  })
+
+  it('stages an embedded image alone when there is no body text, never dropping it', () => {
+    const selection = selectCandidates(message({ attachments: [embeddedImage('image/jpeg')] }))
+
+    expect(selection.candidates.map((candidate) => candidate.sourceKind)).toEqual(['image'])
+    expect(selection.rejections).toEqual([])
+  })
+
+  it('skips the body when a real attachment is present, embedded logo or not', () => {
+    const selection = selectCandidates(
+      message({ bodyText: BODY_PO_TEXT, attachments: [attachment('application/pdf'), embeddedImage()] })
+    )
+
+    expect(selection.candidates.map((candidate) => candidate.sourceKind)).toEqual(['pdf', 'image'])
   })
 
   it('still refuses an oversized accepted attachment by size', () => {

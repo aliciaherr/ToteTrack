@@ -2,8 +2,9 @@
 
 import { IngestConfigError } from '@/lib/errors'
 import { ingestRouteUrl } from '@/lib/ingest/app-origin'
-import { triggerAuthHeaders } from '@/lib/ingest/trigger-auth'
+import { postTrigger } from '@/lib/ingest/trigger-post'
 import { loggableFailure } from '@/lib/loggable-failure'
+import { requireEnv } from '@/lib/required-env'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
 /**
@@ -17,17 +18,6 @@ const RUN_ROUTE_PATH = '/api/ingest/run'
 /** How long to wait for the route's 202. It answers in milliseconds. */
 const TRIGGER_RESPONSE_TIMEOUT_MS = 10_000
 
-function triggerSecret(): string {
-  const secret = process.env.INGEST_TRIGGER_SECRET?.trim()
-  if (!secret) {
-    throw new IngestConfigError(
-      'INGEST_TRIGGER_SECRET',
-      'is missing or empty. Set it in .env and in the Vercel environment; .env.example lists the expected shape.',
-    )
-  }
-  return secret
-}
-
 /**
  * Starts an ingestion run for the signed-in user.
  *
@@ -39,18 +29,11 @@ export async function triggerIngestion(): Promise<{ error: string } | { accepted
     const denied = await assertAuthenticated()
     if (denied) return denied
 
-    const response = await fetch(ingestRouteUrl(RUN_ROUTE_PATH), {
-      method: 'POST',
-      headers: triggerAuthHeaders(triggerSecret()),
-      // A redirect is a refusal, never followed (LOW-T104-2).
-      redirect: 'manual',
-      signal: AbortSignal.timeout(TRIGGER_RESPONSE_TIMEOUT_MS),
-    })
-    if (response.status !== 202) {
-      console.error('triggerIngestion: the run route refused the trigger', { status: response.status })
-      return { error: GENERIC_FAILURE_MESSAGE }
-    }
-    return { accepted: true }
+    const url = ingestRouteUrl(RUN_ROUTE_PATH)
+    const secret = requireEnv(process.env, 'INGEST_TRIGGER_SECRET', (variable, detail) => new IngestConfigError(variable, detail))
+    // A refusal or a network failure is logged by `postTrigger`.
+    const accepted = await postTrigger('triggerIngestion: run route', url, secret, fetch, TRIGGER_RESPONSE_TIMEOUT_MS)
+    return accepted ? { accepted: true } : { error: GENERIC_FAILURE_MESSAGE }
   } catch (error) {
     console.error('triggerIngestion: could not start an ingestion run', {
       failure: loggableFailure(error),

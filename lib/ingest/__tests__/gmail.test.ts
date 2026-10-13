@@ -177,6 +177,44 @@ describe('parseMessage', () => {
     expect(attachment.bytes.equals(FAKE_PDF_BYTES)).toBe(true)
   })
 
+  it('marks a body-embedded image as embedded and a normal attachment as not', async () => {
+    const related = [
+      'From: Acme Orders <orders@invalid.test>',
+      'Subject: PO in the body',
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/mixed; boundary="outer"',
+      '',
+      '--outer',
+      'Content-Type: multipart/related; boundary="inner"',
+      '',
+      '--inner',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      '<p>Please supply 40 totes.</p><img src="cid:logo@invalid.test">',
+      '--inner',
+      'Content-Type: image/png; name="logo.png"',
+      'Content-ID: <logo@invalid.test>',
+      'Content-Disposition: inline; filename="logo.png"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      Buffer.from('fake logo bytes').toString('base64'),
+      '--inner--',
+      '--outer',
+      'Content-Type: application/pdf; name="po-10042.pdf"',
+      'Content-Disposition: attachment; filename="po-10042.pdf"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      FAKE_PDF_BYTES.toString('base64'),
+      '--outer--',
+      '',
+    ].join('\r\n')
+
+    const message = await parseMessage(Buffer.from(related), 12)
+
+    const byType = Object.fromEntries(message.attachments.map((part) => [part.mimeType, part.embedded]))
+    expect(byType).toEqual({ 'image/png': true, 'application/pdf': false })
+  })
+
   // H-02 / M-07: a missing header once threw and lost the batch. The UID is
   // the marker now, so the message is simply staged with no label.
   it('parses a message with no Message-ID normally, keeping its attachment', async () => {
@@ -313,9 +351,10 @@ describe('closeMailbox', () => {
     await expect(closeMailbox(session, FAKE_CONFIG)).resolves.toBeUndefined()
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining('IMAP logout from imap.invalid.test'),
-      expect.objectContaining({ cause: expect.any(Error) })
+      { failure: expect.objectContaining({ error: 'Error' }) }
     )
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain(FAKE_CONFIG.appPassword)
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain('socket already gone')
   })
 })
 
@@ -532,6 +571,9 @@ describe('collectUnprocessed', () => {
       expect(messages[1]).toMatchObject({ uid: 2, rejection: null })
       expect(messages[1].attachments).toHaveLength(1)
       expect(JSON.stringify(consoleError.mock.calls)).toContain('could not be parsed')
+      // SEC-05: the parser's message can quote the email; only its class is logged.
+      const [, logged] = consoleError.mock.calls.find(([text]) => String(text).includes('could not be parsed')) ?? []
+      expect(logged).toEqual({ uid: 1, declaredSize: expect.any(Number), failure: expect.objectContaining({ error: 'MimeParseError' }) })
     })
 
     // A dead socket is not one message's fault. Swallowing it would stage

@@ -5,6 +5,7 @@ import { uploadPoDocument } from '@/lib/storage/po-documents'
 import { readGmailImapConfig } from './gmail'
 import { createImapSession } from './imap-session'
 import type { IngestRunDeps } from './run'
+import type { EnvLookup } from '@/lib/required-env'
 
 /**
  * Production wiring for `runIngestion` (Feature 16, Task 104).
@@ -12,8 +13,6 @@ import type { IngestRunDeps } from './run'
  * Documents go through `uploadPoDocument` (closes MEDIUM-06), whose module is
  * the only one allowed the Supabase secret key (CONSTRAINT-38).
  */
-
-type EnvLookup = Readonly<Record<string, string | undefined>>
 
 /**
  * Builds the real mailbox, database, bucket and clock collaborators.

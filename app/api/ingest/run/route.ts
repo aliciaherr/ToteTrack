@@ -50,7 +50,7 @@ function accept(request: Request, callerSecret: TriggerSecretName): Response {
   const secret = process.env[callerSecret]
   let authorised: boolean
   try {
-    authorised = isAuthorisedTrigger(request, secret)
+    authorised = isAuthorisedTrigger(request, secret, callerSecret)
   } catch (error) {
     return notConfigured(callerSecret, error)
   }

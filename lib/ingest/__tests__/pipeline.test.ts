@@ -23,7 +23,7 @@ const OTHER_PDF_BYTES = Buffer.from('%PDF-1.4\na second fake purchase order\n%%E
 const BODY_PO_TEXT = 'Please supply 40 totes against PO 10042, delivery 14 October.'
 
 function attachment(mimeType: string, bytes: Buffer, filename: string | null): InboundAttachment {
-  return { filename, mimeType, bytes }
+  return { filename, mimeType, bytes, embedded: false }
 }
 
 const UID_VALIDITY = 7

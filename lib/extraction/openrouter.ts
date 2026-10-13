@@ -9,12 +9,12 @@ import {
   OpenRouterHttpError,
   OpenRouterTimeoutError,
 } from './errors'
+import { scrubSecret } from '@/lib/scrub-secret'
 import { extractionJsonSchema } from './schema'
 import type { ExtractionConfig, ExtractionRequest } from './types'
 
 /** Longest `error.code` carried into our error; codes are short identifiers. */
 const MAX_CODE_CHARS = 64
-const REDACTED = '[REDACTED]'
 
 /** The strict schema minus `$schema`, which strict structured output rejects. */
 function responseSchema(): Record<string, unknown> {
@@ -47,11 +47,6 @@ function buildBody(request: ExtractionRequest, config: ExtractionConfig): string
     // stops routing to providers that would ignore the strict schema.
     provider: { zdr: true, require_parameters: true },
   })
-}
-
-/** Removes the API key from text that is about to be thrown. */
-function scrubSecret(text: string, secret: string): string {
-  return secret ? text.split(secret).join(REDACTED) : text
 }
 
 /**

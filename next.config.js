@@ -15,6 +15,12 @@ const nextConfig = {
   // a native canvas binary. Bundling either breaks it, so both are required at
   // runtime from node_modules instead (A-14; verify on the first preview deploy).
   serverExternalPackages: ['pdfjs-dist', '@napi-rs/canvas'],
+  // The renderer reads pdfjs's fonts, CMaps, colour profiles and wasm decoders
+  // by path at runtime (render-pdf.ts), which file tracing cannot see. Ship
+  // them with the only route that renders.
+  outputFileTracingIncludes: {
+    '/api/ingest/extract': ['./node_modules/pdfjs-dist/{standard_fonts,cmaps,iccs,wasm}/**/*'],
+  },
 }
 
 module.exports = nextConfig

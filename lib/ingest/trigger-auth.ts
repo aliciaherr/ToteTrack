@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { IngestConfigError } from '@/lib/errors'
+import { MISSING_ENV_DETAIL } from '@/lib/required-env'
 
 /**
  * Shared-secret auth for the session-less ingestion routes (Task 116; Task
@@ -25,18 +26,19 @@ function digest(value: string): Buffer {
  * open, and it must not look like a wrong caller either.
  *
  * @param request The incoming request; only its `Authorization` header is read.
- * @param secret `INGEST_TRIGGER_SECRET` as read from the environment.
+ * @param secret The expected secret as read from the environment.
+ * @param variable The variable `secret` came from, named in the error when it
+ *   is unset (`CRON_SECRET` for the cron caller).
  * @returns `true` only for an exact `Bearer <secret>` match.
  * @throws {IngestConfigError} when `secret` is unset or blank.
  */
-export function isAuthorisedTrigger(request: Request, secret: string | undefined): boolean {
+export function isAuthorisedTrigger(
+  request: Request,
+  secret: string | undefined,
+  variable = 'INGEST_TRIGGER_SECRET',
+): boolean {
   const expected = secret?.trim()
-  if (!expected) {
-    throw new IngestConfigError(
-      'INGEST_TRIGGER_SECRET',
-      'is missing or empty. Set it in .env and in the Vercel environment; .env.example lists the expected shape.',
-    )
-  }
+  if (!expected) throw new IngestConfigError(variable, MISSING_ENV_DETAIL)
   const header = request.headers.get('authorization') ?? ''
   if (!header.startsWith(BEARER_PREFIX)) return false
   const presented = header.slice(BEARER_PREFIX.length)

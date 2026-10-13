@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
 import {
@@ -47,8 +46,14 @@ import {
 /**
  * pdfjs-dist's install directory. Fonts, CMaps, colour profiles and image
  * decoders ship inside the package and are read from disk, never fetched.
+ *
+ * Built from the working directory, never `require.resolve`: Turbopack
+ * rewrites `createRequire(import.meta.url).resolve(...)` into a numeric module
+ * id, which failed `next build` for every route importing this file. On
+ * Vercel the cwd is the function root, and `next.config.js`
+ * (`outputFileTracingIncludes`) ships these data directories there.
  */
-const PDFJS_ROOT = path.dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'))
+const PDFJS_ROOT = path.join(process.cwd(), 'node_modules', 'pdfjs-dist')
 
 /**
  * A pdfjs data directory. In Node pdfjs reads these with `fs.readFile`, so they

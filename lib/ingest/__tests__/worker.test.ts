@@ -6,6 +6,7 @@ import { DatabaseError } from '@/lib/errors'
 import {
   ExtractionConfigError,
   ExtractionResponseError,
+  OpenRouterHttpError,
   OpenRouterTimeoutError,
   PdfTooManyPagesError,
 } from '@/lib/extraction/errors'
@@ -193,5 +194,18 @@ describe('drainExtractionBatch — configuration errors stop the batch', () => {
     expect(deps.completeExtraction).toHaveBeenCalledTimes(1)
     expect(vi.mocked(deps.releaseForRetry).mock.calls.map(([id]) => id)).toEqual(['two'])
     expect(deps.claimBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops the batch when OpenRouter refuses the account, instead of failing every row', async () => {
+    const rows = [claimed({ id: 'one' }), claimed({ id: 'two' })]
+    const deps = makeDeps(rows, {
+      extractPo: vi.fn().mockRejectedValue(new OpenRouterHttpError(402, CONFIG.model, 'Payment Required')),
+    })
+
+    await expect(drainExtractionBatch(deps)).rejects.toBeInstanceOf(OpenRouterHttpError)
+
+    expect(deps.failExtraction).not.toHaveBeenCalled()
+    expect(vi.mocked(deps.releaseForRetry).mock.calls.map(([id]) => id)).toEqual(['one'])
+    expect(deps.claimBatch).toHaveBeenCalledTimes(1)
   })
 })

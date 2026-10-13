@@ -44,6 +44,12 @@ describe('isAuthorisedTrigger', () => {
     expect(message).toContain('INGEST_TRIGGER_SECRET')
     expect(message).not.toContain(SECRET)
   })
+
+  it('names the variable the caller says the secret came from', () => {
+    expect(() => isAuthorisedTrigger(requestWith(), undefined, 'CRON_SECRET')).toThrow(
+      expect.objectContaining({ variable: 'CRON_SECRET' }),
+    )
+  })
 })
 
 describe('triggerAuthHeaders', () => {

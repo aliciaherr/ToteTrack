@@ -84,6 +84,7 @@ export interface PoCandidate {
 interface UsableAttachment {
   mimeType: AcceptedMimeType
   bytes: Buffer
+  embedded: boolean
 }
 
 function isAcceptedMimeType(mimeType: string): mimeType is AcceptedMimeType {
@@ -147,7 +148,7 @@ function triageAttachment(
   if (exceedsAttachmentCap(attachment.bytes.length)) {
     return { refusal: attachmentTooLarge(index, attachment.bytes.length) }
   }
-  return { usable: { mimeType, bytes: attachment.bytes } }
+  return { usable: { mimeType, bytes: attachment.bytes, embedded: attachment.embedded } }
 }
 
 /**
@@ -196,31 +197,32 @@ function attachmentCandidate(attachment: UsableAttachment): PoCandidate {
   }
 }
 
+function bodyCandidate(body: string): PoCandidate {
+  return { sourceKind: BODY_SOURCE_KIND, bytes: null, mimeType: null, hashInput: body, bodyText: body }
+}
+
 /**
- * The PO candidates in one message: every accepted attachment, or — when
- * there are none — the normalised body text. One email therefore yields
- * 0..n candidates.
+ * The PO candidates in one message: every accepted attachment, plus the
+ * normalised body text unless a real (not embedded) attachment is present.
+ * One email therefore yields 0..n candidates.
+ *
+ * An embedded image (a signature logo, a pasted screenshot) is a candidate
+ * but never suppresses the body: a logo beside a PO typed in the body must not
+ * leave the body unread (builder decision 2026-10-12). Nothing is dropped.
  *
  * @param message A parsed message from `fetchUnprocessedMail`.
- * @returns The candidates in attachment order, plus every refusal. A message
- *   with no candidate and no other refusal returns exactly one `no_po_found`
- *   refusal, so the caller always has at least one row to write.
+ * @returns The candidates in attachment order, then the body, plus every
+ *   refusal. A message with no candidate and no other refusal returns exactly
+ *   one `no_po_found` refusal, so the caller always has at least one row to write.
  */
 export function selectCandidates(message: InboundMessage): CandidateSelection {
   const rejections: IngestLimitFailure[] = []
   const attachments = withinCountCap(usableAttachments(message, rejections), rejections)
-  if (attachments.length > 0) {
-    return { candidates: attachments.map(attachmentCandidate), rejections }
-  }
-  const body = normalizeBodyForHash(message.bodyText)
-  if (body) {
-    return {
-      candidates: [
-        { sourceKind: BODY_SOURCE_KIND, bytes: null, mimeType: null, hashInput: body, bodyText: body },
-      ],
-      rejections,
-    }
-  }
+  const candidates = attachments.map(attachmentCandidate)
+  const hasRealAttachment = attachments.some((attachment) => !attachment.embedded)
+  const body = hasRealAttachment ? '' : normalizeBodyForHash(message.bodyText)
+  if (body) candidates.push(bodyCandidate(body))
+  if (candidates.length > 0) return { candidates, rejections }
   return { candidates: [], rejections: rejections.length > 0 ? rejections : [noPoFound()] }
 }
 

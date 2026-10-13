@@ -1,6 +1,7 @@
 import {
   ExtractionConfigError,
   ExtractionResponseError,
+  OpenRouterHttpError,
   PdfPageTooLargeError,
   PdfTooManyPagesError,
   TextInputTooLongError,
@@ -62,6 +63,14 @@ const PERMANENT_ERRORS = [
 const BATCH_STOPPING_ERRORS = [ExtractionConfigError, StorageConfigError] as const
 
 /**
+ * OpenRouter statuses that describe the account, not the document: 401 a
+ * rejected key, 402 no credits left, 403 a key not allowed to call. Every row
+ * would get the same answer, so retrying row by row would spend each row's
+ * attempts and park the whole queue at `extraction_failed`.
+ */
+const ACCOUNT_FAILURE_STATUSES: ReadonlySet<number> = new Set([401, 402, 403])
+
+/**
  * Whether a retry could not help: the document is too long, too large, or
  * unreadable, or the model's answer did not fit the schema. Anything else
  * (HTTP, timeout, render timeout, storage, DB) is transient.
@@ -75,11 +84,13 @@ export function isPermanentExtractionError(error: unknown): boolean {
 
 /**
  * Whether the failure is the deployment's, not the row's: a missing
- * OpenRouter key or Storage credential.
+ * OpenRouter key or Storage credential, or an OpenRouter account that refuses
+ * every call (bad key, no credits).
  *
  * @param error Anything thrown while extracting one row.
  * @returns `true` when the whole batch must stop.
  */
 export function isBatchStoppingError(error: unknown): boolean {
+  if (error instanceof OpenRouterHttpError) return ACCOUNT_FAILURE_STATUSES.has(error.status)
   return BATCH_STOPPING_ERRORS.some((errorClass) => error instanceof errorClass)
 }

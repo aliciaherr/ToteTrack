@@ -424,6 +424,7 @@ The asymmetry is in who can recover. A field read wrong is **visible** — the s
 | Extraction call fails or returns nothing usable | Queue, flagged for manual entry |
 | Attachment refused on size (`refuse`) or deferred on budget (`defer`) | Queue (`refuse`) or left in the mailbox for the next run (`defer`) — never marked handled and dropped |
 | No PO found in the message at all | Queue as `no_po_found`, not discarded — spam is reviewed and dismissed by a human, not by a guess |
+| Body PO beside an embedded image (signature logo, pasted screenshot) | Both are candidates. The body is read unless a real (non-embedded) attachment is present, so a logo never hides a body PO (builder decision 2026-10-12) |
 | Database or storage failure mid-write | Loud failure with the message id, and the message is not marked handled |
 
 **"Ignore" is never a terminal state.** Where the code today has a path that drops a message — an unlisted MIME type, an empty candidate set — that path must write a review row instead. This is what makes the UID watermark safe: advancing past a message is only acceptable because the message is already durably visible.
@@ -478,7 +479,7 @@ The worker loops: claim, process, claim again. It stops at `INGEST_BATCH_SIZE` r
 
 A permanent failure goes straight to `extraction_failed`. The permanent errors are: text too long, too many pages, page too large, unusable model response, missing input. `PdfRenderError` is transient by builder decision: it also wraps environment glitches.
 
-A config error (missing OpenRouter key or Storage credential) stops the batch. The OpenRouter key is read before the first claim.
+A config error (missing OpenRouter key or Storage credential) stops the batch, and so does OpenRouter refusing the account (401 bad key, 402 no credits, 403 forbidden): every row would get the same answer, so failing them row by row would park the whole queue at `extraction_failed`. The OpenRouter key is read before the first claim. **Claims use a `MATERIALIZED` CTE (CONSTRAINT-40).**
 
 **Lease.** A row left at `extracting` by a killed invocation is reclaimable once `extraction_started_at` is older than `EXTRACTION_LEASE_MS`, which exceeds `maxDuration`. A row whose `attempt_count` has reached `MAX_EXTRACTION_ATTEMPTS` is never rendered again. It moves to `extraction_failed` (M-04 condition 2), and the review queue lists `extraction_failed` alongside `pending_review`, with the document and empty fields (PRD).
 

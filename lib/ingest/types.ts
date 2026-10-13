@@ -108,6 +108,14 @@ export interface InboundAttachment {
    */
   mimeType: string
   bytes: Buffer
+  /**
+   * Shown inside the message body rather than attached: a `multipart/related`
+   * part (an HTML signature logo, a pasted screenshot) or an inline image.
+   * Still a candidate like any attachment, but it does not stop the body
+   * from being read too (`candidates.ts`): a logo must not hide a PO typed
+   * in the body.
+   */
+  embedded: boolean
 }
 
 /**
