@@ -42,6 +42,8 @@
 
 ## Open security Lows (details in `docs/security-report.md`)
 
+- LOW-T117-1: failed PDF fetch logs the signed URL to the browser console.
+- LOW-T117-2: pdf.js scratch canvases unbounded in the browser (`canvasMaxAreaInBytes`); fix with Task 108 or before go-live.
 - LOW-T106-1: review overlay sends an email body of any size to the browser; cap it before go-live or with Task 108.
 - LOW-T104-3: Vercel config; covered by the go-live checklist.
 - LOW-T116-2: no minimum secret length; settled by the 64-hex go-live secrets.
