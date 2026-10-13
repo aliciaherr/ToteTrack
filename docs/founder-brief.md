@@ -1014,3 +1014,19 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - At Task 104, confirm Vercel's Fluid Compute is on for the project. Without it, Hobby caps functions at 60 s and the deploy fails with a clear error.
 
 **What this closes off:** Nothing. It is one number in the route file, and a test keeps it inside safe bounds.
+
+## Task 104: The Inbox Is Checked Once a Day, and the Button Uses the Same Path
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → "Ingestion triggers".
+**Tasks:** Task 104. Task 105 adds the button.
+
+**Decided:** A Vercel cron checks Gmail once a day at 11:00 UTC. The manual "check now" button goes through the same route, not a separate one. There is no lock: if the daily run and a click overlap, nothing is duplicated.
+
+**Means for your product:** New POs are waiting each morning. They arrive at about 06:xx in summer and 05:xx in winter, because Vercel schedules in UTC and fires anywhere within the hour. The button replies instantly and the work continues in the background. If the mailbox check fails, POs already picked up are still read.
+
+**Check before approving:**
+- Add `CRON_SECRET` and `INGEST_APP_ORIGIN` (the prod URL) in Vercel only, alongside `SUPABASE_SECRET_KEY` and `INGEST_TRIGGER_SECRET`.
+- Fluid Compute must be on: the route runs for up to 300 s.
+
+**What this closes off:** Automatic checks more often than daily while on Hobby, whose crons run at most once a day. Faster checks need the button or a paid plan.
