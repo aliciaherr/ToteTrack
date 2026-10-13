@@ -35,6 +35,27 @@ describe('matchCustomer', () => {
     expect(match.candidates).toHaveLength(2)
   })
 
+  it('withholds the pre-fill when the ship-to matches a different customer (Brenntag rule)', async () => {
+    findMock.mockResolvedValue([
+      row({ customerId: 'parent', nameScore: 1, exactName: true }),
+      row({ customerId: 'branch', nameScore: 0.4, addressScore: 0.9 }),
+    ])
+    const match = await matchCustomer(makePo())
+    expect(match.prefillCustomerId).toBeNull()
+    expect(match.prefillWithheld).toBe('ship_to_matches_another')
+    expect(match.candidates.map((candidate) => candidate.customerId).sort()).toEqual(['branch', 'parent'])
+  })
+
+  it('still pre-fills an exact name whose own address matches, even if another address matches too', async () => {
+    findMock.mockResolvedValue([
+      row({ customerId: 'parent', nameScore: 1, exactName: true, addressScore: 0.9 }),
+      row({ customerId: 'branch', nameScore: 0.4, addressScore: 0.9 }),
+    ])
+    const match = await matchCustomer(makePo())
+    expect(match.prefillCustomerId).toBe('parent')
+    expect(match.prefillWithheld).toBeUndefined()
+  })
+
   it('ranks fuzzy matches without pre-filling', async () => {
     findMock.mockResolvedValue([row({ customerId: 'low', nameScore: 0.4 }), row({ customerId: 'high', nameScore: 0.8 })])
     const match = await matchCustomer(makePo())
@@ -121,6 +142,21 @@ describe('customerMatchFailures', () => {
     const [failure] = customerMatchFailures({ prefillCustomerId: null, candidates: [] })
     expect(failure.check).toBe('no_customer_match')
     expect(failure.field).toBe('customerName')
+  })
+
+  it('says the name and the ship-to disagree when the pre-fill was withheld', () => {
+    const failures = customerMatchFailures({
+      prefillCustomerId: null,
+      candidates: [candidate, { ...candidate, customerId: 'c-2', addressMatched: true }],
+      prefillWithheld: 'ship_to_matches_another',
+    })
+    expect(failures).toEqual([
+      {
+        check: 'ambiguous_customer',
+        field: 'customerName',
+        detail: 'The name matches one customer exactly, but the ship-to address matches a different customer',
+      },
+    ])
   })
 
   it('flags ambiguous_customer with a count, and no customer text, when nothing is pre-filled', () => {

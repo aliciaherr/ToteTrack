@@ -1252,3 +1252,85 @@ embedded PDF). A-15 is the assumption this rests on.
 **Depends on:** Task 106.
 **Specialist:** @ui-totetrack
 **Status:** [x] Done (2026-10-12). PDFs drawn page by page with pdf.js (legacy build, app-served worker, lazy chunk); 5-page cap with notice; "Couldn't display this PDF" fallback; tap to full screen with zoom. Verified in desktop Chrome on a 1-page and a 7-page PDF. **iPad check deferred** to the go-live checklist. Spec's `isEvalSupported: false` dropped: pdf.js 6 removed the option.
+
+---
+
+## Task 107: Load the review fields: map the extraction to order-form values
+
+**Planned 2026-10-12** (`@create-plan`). Builder decisions: Task 107 split into data (this
+task) and UI (Task 118); the right pane reuses the order form's value shape
+(`OrderFormValues`) so Task 108 saves through `createOrder`; the Brenntag rule (below).
+
+**Files:**
+- `lib/review/review-fields.ts` — create. Pure: no DB, no storage.
+- `lib/review/review-fields.wording.ts` — create. Plain-language flag text per `CheckName`, a
+  `Record<CheckName, …>` so a new check fails `tsc` (same pattern as `REFUSAL_WORDING`).
+- `lib/review/errors.ts` — modify if a new failure mode needs a named class (EH-05).
+- `db/queries/review-source.ts` — modify. `getReviewSourceRow` also returns `extracted` and
+  `check_results`; new `getCustomersForReview(ids: string[])` returns those customers, **inactive
+  included**, as `CustomerSelectOption` plus `status` (the matcher lists inactive customers;
+  `getActiveCustomersForSelect` does not).
+- `lib/actions/review.ts` — modify. Add `getReviewFields`.
+- `lib/matching/match-customer.ts` — modify. The Brenntag rule.
+
+**Functions to implement:**
+- `reviewFieldsOf(row: ReviewSourceRow, customers: ReviewCustomer[]): ReviewFields` — `ReviewFields` is
+  `{ values: OrderFormValues; flags: FieldFlag[]; quotes: FieldQuote[]; poNumberOptions: LabelledOption[];
+  deliveryDateOptions: LabelledOption[]; customerChoices: CustomerChoice[]; totals: ReviewTotals }`.
+  `FieldFlag` = `{ field: keyof OrderFormValues | 'general'; check: CheckName; message: string }`;
+  `FieldQuote` = `{ field; quote: string; status: QuoteStatus }`; `CustomerChoice` = `{ customerId;
+  companyName; status; addressMatched }`; `ReviewTotals` = `{ stated: number | null; computed: number;
+  otherLines: { quote: string; amount: number | null }[] }`.
+- `getReviewFields(poId: string): Promise<{ fields: ReviewFields } | { error: string }>` — session
+  check, UUID check, row read, candidate customers read, `reviewFieldsOf`. Same shape and error
+  handling as `getReviewSource`.
+
+**Acceptance criteria:**
+- [x] **PO number** is pre-filled only when exactly one non-empty candidate exists. Otherwise
+      every non-empty candidate is a `poNumberOptions` entry with its label, none pre-selected.
+- [x] **Delivery date** is pre-filled only when exactly one `role: 'delivery'` date exists and no
+      `ambiguous_date` failure points at it. Otherwise the delivery (then other) dates are
+      `deliveryDateOptions` with labels, none pre-selected. Blank, never today, when there is none.
+- [x] **Customer** is pre-filled only from `customerMatch.prefillCustomerId`, and only if that
+      customer still exists. A candidate that no longer exists is dropped from `customerChoices`
+      and adds a "matched customer no longer exists" flag. Choices keep the matcher's rank.
+- [x] **Quantities and unit prices** come from `toOrderQuantities`. A `conflicts` type gets a blank
+      unit price and a flag; a quantity over `MAX_LINE_QUANTITY` or ≤ 0, or a unit price over
+      `MAX_UNIT_PRICE` or < 0, is left blank (0 / null) and flagged (L-D). Unit prices are emitted
+      as strings, as `QtyGrid` expects.
+- [x] **Delivery address** is the ship-to text as a typed address (`delivery_address_id: null`).
+      None on the PO → blank plus the `missing_ship_to` flag.
+- [x] `customer_collects`, `backhaul` and `notes` keep `EMPTY_FORM_VALUES` defaults (never extracted).
+- [x] **Every `check_results.failures` entry** becomes a `FieldFlag` on the field it concerns
+      (`field` path mapped to a form key, else `general`), with wording from the `Record`.
+      `ingest_limit` entries are left to the refusal card (Task 106).
+- [x] **Quotes**: one `FieldQuote` per `check_results.quotes` entry, text from `extracted`, capped
+      at `MAX_QUOTE_CHARS` with "…", plain string only.
+- [x] **Totals**: `computed` = `toOrderQuantities(...).price`; `stated` from `statedTotal`;
+      `otherLines` = the `kind: 'other'` lines.
+- [x] **No usable extraction** (`extracted` null: failed, refused, or not yet read) → every value
+      empty, no options, flags from `check_results` only. The pane works as a manual-entry screen.
+- [x] **Stored `extracted` fails `extractedPoSchema.safeParse`** → treated as no extraction plus a
+      `general` flag "This PO's reading is unreadable; enter it by hand". Logged with the PO id
+      only. Never a throw to the UI.
+- [x] **Brenntag rule:** `matchCustomer` does not pre-fill a single exact-name match when a
+      **different** candidate has `addressMatched` and the exact-name customer does not. Both stay
+      ranked; `customerMatchFailures` emits `ambiguous_customer` with a detail saying the name and
+      the ship-to point at different customers. Unit and integration tests updated. Rows already
+      matched keep their stored result.
+- [x] `getReviewFields` logs no customer text (SEC-05); a DB failure returns `{ error }` and logs
+      with the PO id; the server-action manifest lists only the three review actions (SEC-08).
+- [x] CQ-01/02, no magic numbers, `tsc` and `eslint` clean, full suite green.
+
+**Tests required:**
+- `reviewFieldsOf` → full happy path; one vs several PO numbers; one vs several vs ambiguous
+  delivery dates; prefill vs deleted customer; price conflict; out-of-bounds quantity; missing
+  ship-to; null extraction; schema-invalid extraction; quote cap; every `CheckName` has wording.
+- `matchCustomer` → Brenntag case does not pre-fill; exact match that also matches the address
+  still pre-fills.
+- `getReviewFields` → unauthenticated, bad UUID, DB error.
+- `getCustomersForReview` (integration) → inactive customer returned with its addresses.
+
+**Depends on:** Task 106.
+**Specialist:** @db
+**Status:** [x] Done (2026-10-12). `reviewFieldsOf` (types, check-results reader, values, wording in separate modules), `getCustomersForReview`, `getReviewFields` (returns `{ fields, customers }`: customers = every active one plus inactive candidates, for Task 118's picker), Brenntag rule via `prefillWithheld`. Unit 2078, integration 30/30, tsc, eslint, next build clean. The rule lives in `matchCustomer` above the query, so the matcher's integration test needed no change.

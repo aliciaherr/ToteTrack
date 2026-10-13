@@ -35,6 +35,8 @@
 
 ## Operations
 
+- **pdfjs build warning (Task 117):** `next build` warns "Package pdfjs-dist can't be external" for the worker URL in `components/review/pdfjsClient.ts` (the server pass matches `serverExternalPackages`). Harmless at runtime (the worker is only created in the browser; verified in Chrome). Check the first Vercel preview renders a PDF in Review; if the warning matters, give the client a non-external path.
+
 - **Vercel `DATABASE_URL`** is flagged "needs attention" (not marked Sensitive). Save the value
   first, then re-add it as Sensitive.
 - **Delete `docs/customers-export.csv`** (real customer data, gitignored) once it is no longer needed.

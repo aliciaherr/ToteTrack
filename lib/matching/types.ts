@@ -30,8 +30,16 @@ export interface CustomerMatch {
    * Set only when exactly one customer's normalised name equals the PO's.
    * A fuzzy, name-in-address or address-only match never pre-fills: a wrong customer that gets
    * rubber-stamped is the worst outcome this feature can produce (prd.md).
+   * Also withheld when the ship-to points at a different customer (see
+   * `prefillWithheld`).
    */
   prefillCustomerId: string | null
   /** Best first, at most `MAX_CUSTOMER_CANDIDATES`. */
   candidates: CustomerCandidate[]
+  /**
+   * Why a single exact-name match was not pre-filled (Task 107, the Brenntag
+   * rule): another customer's saved address matched the ship-to and the
+   * exact-name customer's did not. Optional and additive; absent otherwise.
+   */
+  prefillWithheld?: 'ship_to_matches_another'
 }

@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { DatabaseError } from '@/lib/errors'
+import type { ReviewCustomer } from '@/lib/review/review-fields.types'
+import { parseAddresses, type RawCustomerSelectRow } from './customers.select'
 import { PENDING_REVIEW_ORDER_CLAUSE, REVIEW_QUEUE_STATUS_FILTER, type InboundPoSourceKind } from './inbound-pos'
 
 /**
@@ -19,6 +21,8 @@ export interface ReviewSourceRow {
   body_text: string | null
   /** `unknown`: its shape is owned by `lib/ingest/`; `lib/review/` narrows it. */
   check_results: unknown
+  /** The model's reading as stored; `unknown` until `lib/review/` re-validates it (L-D). */
+  extracted: unknown
   from_address: string | null
   subject: string | null
   /** ISO timestamp, or `null` when the email carried no date. */
@@ -67,7 +71,7 @@ export async function getReviewSourceRow(poId: string): Promise<ReviewSourceRow 
   try {
     rows = (await db.execute(sql`
       SELECT
-        p.id, p.source_kind, p.document_path, p.body_text, p.check_results,
+        p.id, p.source_kind, p.document_path, p.body_text, p.check_results, p.extracted,
         e.from_address, e.subject, e.received_at, e.message_id
       FROM inbound_pos p
       JOIN inbound_emails e ON e.id = p.inbound_email_id
@@ -80,4 +84,38 @@ export async function getReviewSourceRow(poId: string): Promise<ReviewSourceRow 
   }
   const row = rows[0]
   return row ? { ...row, received_at: toIsoOrNull(row.received_at) } : null
+}
+
+/**
+ * The customers a PO's stored match names (Task 107), **inactive included**:
+ * the matcher lists dormant customers, which `getActiveCustomersForSelect`
+ * leaves out. Each carries its saved addresses, most recently used first.
+ *
+ * @param ids Customer ids from `check_results.customerMatch`. Ids with no
+ *   customer (deleted since matching) are simply absent from the result.
+ * @returns The customers, or `[]` without querying when `ids` is empty.
+ * @throws {DatabaseError} when the query fails. Only the id count is logged.
+ */
+export async function getCustomersForReview(ids: string[]): Promise<ReviewCustomer[]> {
+  if (ids.length === 0) return []
+  try {
+    const rows = (await db.execute(sql`
+      SELECT
+        c.id, c.company_name, c.status,
+        COALESCE((
+          SELECT json_agg(
+            json_build_object('id', a.id, 'address', a.address)
+            ORDER BY a.last_used_at DESC NULLS LAST, a.created_at DESC
+          )
+          FROM customer_addresses a
+          WHERE a.customer_id = c.id
+        ), '[]'::json) AS addresses
+      FROM customers c
+      WHERE c.id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+    `)) as unknown as (RawCustomerSelectRow & { status: ReviewCustomer['status'] })[]
+    return rows.map((row) => ({ ...row, addresses: parseAddresses(row.addresses) }))
+  } catch (cause) {
+    console.error('getCustomersForReview: query failed', { operation: 'getCustomersForReview', idCount: ids.length })
+    throw new DatabaseError('getCustomersForReview', `Failed to load ${ids.length} customer(s) for review`, { cause })
+  }
 }

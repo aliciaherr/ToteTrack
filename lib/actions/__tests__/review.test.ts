@@ -5,11 +5,16 @@ const mockCreateSignedUrl = vi.hoisted(() => vi.fn())
 const mockStorageFrom = vi.hoisted(() => vi.fn())
 const mockListIds = vi.hoisted(() => vi.fn())
 const mockGetRow = vi.hoisted(() => vi.fn())
+const mockGetReviewCustomers = vi.hoisted(() => vi.fn())
+const mockGetActiveCustomers = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db/queries/review-source', () => ({
   listReviewQueueIds: mockListIds,
   getReviewSourceRow: mockGetRow,
+  getCustomersForReview: mockGetReviewCustomers,
 }))
+
+vi.mock('@/db/queries/customers.select', () => ({ getActiveCustomersForSelect: mockGetActiveCustomers }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () => ({
@@ -20,7 +25,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 import * as reviewActions from '../review'
-import { getReviewQueue, getReviewSource } from '../review'
+import { getReviewFields, getReviewQueue, getReviewSource } from '../review'
 
 const PO_ID = '22222222-2222-2222-2222-222222222222'
 const AUTH_OK = { data: { user: { id: 'user-1' } }, error: null }
@@ -34,6 +39,7 @@ function row(overrides: Record<string, unknown> = {}) {
     document_path: 'inbound/a.pdf',
     body_text: null,
     check_results: null,
+    extracted: null,
     from_address: 'buyer@example.com',
     subject: 'PO 4471',
     received_at: null,
@@ -55,8 +61,8 @@ afterEach(() => {
 })
 
 describe('module surface (SEC-08)', () => {
-  it('exports only the two actions', () => {
-    expect(Object.keys(reviewActions).sort()).toEqual(['getReviewQueue', 'getReviewSource'])
+  it('exports only the three actions', () => {
+    expect(Object.keys(reviewActions).sort()).toEqual(['getReviewFields', 'getReviewQueue', 'getReviewSource'])
   })
 })
 
@@ -137,5 +143,63 @@ describe('getReviewSource', () => {
   it('returns the generic error when the read throws', async () => {
     mockGetRow.mockRejectedValue(new Error('down'))
     expect(await getReviewSource(PO_ID)).toEqual({ error: GENERIC_FAILURE_MESSAGE })
+  })
+})
+
+describe('getReviewFields', () => {
+  const ACTIVE = '11111111-1111-1111-1111-111111111111'
+  const DORMANT = '33333333-3333-3333-3333-333333333333'
+  const match = {
+    prefillCustomerId: null,
+    candidates: [
+      { customerId: DORMANT, addressMatched: true },
+      { customerId: 'not-a-uuid', addressMatched: false },
+    ],
+  }
+
+  beforeEach(() => {
+    mockGetActiveCustomers.mockResolvedValue([{ id: ACTIVE, company_name: 'Active Co', addresses: [] }])
+    mockGetReviewCustomers.mockResolvedValue([{ id: DORMANT, company_name: 'Dormant Co', status: 'inactive', addresses: [] }])
+  })
+
+  it('returns the fields, and the picker list with inactive candidates appended', async () => {
+    mockGetRow.mockResolvedValue(row({ check_results: { failures: [], quotes: [], customerMatch: match } }))
+
+    const result = await getReviewFields(PO_ID)
+    expect(mockGetReviewCustomers).toHaveBeenCalledWith([DORMANT])
+    expect(result).toMatchObject({
+      fields: { customerChoices: [{ customerId: DORMANT, status: 'inactive', addressMatched: true }] },
+      customers: [
+        { id: ACTIVE, status: 'active' },
+        { id: DORMANT, status: 'inactive' },
+      ],
+    })
+  })
+
+  it('refuses without a session, before any query (SEC-04)', async () => {
+    mockGetUser.mockResolvedValue(NO_SESSION)
+    expect(await getReviewFields(PO_ID)).toHaveProperty('error')
+    expect(mockGetRow).not.toHaveBeenCalled()
+  })
+
+  it('refuses a non-UUID id before any query (SEC-02)', async () => {
+    expect(await getReviewFields('../etc')).toEqual({ error: 'Invalid PO id.' })
+    expect(mockGetRow).not.toHaveBeenCalled()
+  })
+
+  it('says so when the PO is not found', async () => {
+    mockGetRow.mockResolvedValue(null)
+    expect(await getReviewFields(PO_ID)).toEqual({ error: 'This PO is no longer in the review queue.' })
+  })
+
+  it('returns the generic error when a customer read fails, logging only the id (SEC-05)', async () => {
+    mockGetRow.mockResolvedValue(row())
+    mockGetActiveCustomers.mockRejectedValue(new Error('down'))
+
+    expect(await getReviewFields(PO_ID)).toEqual({ error: GENERIC_FAILURE_MESSAGE })
+    expect(console.error).toHaveBeenCalledWith('getReviewFields: could not load the PO fields', {
+      poId: PO_ID,
+      failure: expect.anything(),
+    })
   })
 })

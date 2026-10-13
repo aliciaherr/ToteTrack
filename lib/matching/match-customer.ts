@@ -31,7 +31,9 @@ function toCandidate(row: CandidateRow): CustomerCandidate {
  * Pre-fills only when exactly one customer's normalised name equals the PO's
  * (builder decision, 2026-10-12). Two customers sharing that name, a fuzzy
  * match, the name found only inside a saved address, or a ship-to match alone
- * all leave the choice to the salesperson.
+ * all leave the choice to the salesperson. So does an exact name whose ship-to
+ * matches a *different* customer's saved address and not its own: a branch
+ * ordering under its parent's name (the Brenntag rule, builder 2026-10-12).
  *
  * @param extracted A validated extraction from `extractPo`.
  * @returns Candidates best first, capped at `MAX_CUSTOMER_CANDIDATES`, and the
@@ -46,15 +48,27 @@ export async function matchCustomer(extracted: ExtractedPo): Promise<CustomerMat
 
   const rows = await findCustomerCandidates(name, shipTo)
   const exact = rows.filter((row) => row.exactName)
-  const candidates = rows
+  const ranked = rows
     .map(toCandidate)
     .sort((a, b) => b.score - a.score || a.customerId.localeCompare(b.customerId))
-    .slice(0, MAX_CUSTOMER_CANDIDATES)
+  const candidates = ranked.slice(0, MAX_CUSTOMER_CANDIDATES)
+  if (exact.length !== 1) return { prefillCustomerId: null, candidates }
 
-  return {
-    prefillCustomerId: exact.length === 1 ? exact[0].customerId : null,
-    candidates,
+  const exactId = exact[0].customerId
+  if (shipToPointsElsewhere(exactId, ranked)) {
+    return { prefillCustomerId: null, candidates, prefillWithheld: 'ship_to_matches_another' }
   }
+  return { prefillCustomerId: exactId, candidates }
+}
+
+/**
+ * The Brenntag rule: the ship-to matched another customer's saved address and
+ * not the exact-name customer's. Checked over every candidate, before the cap.
+ */
+function shipToPointsElsewhere(exactId: string, ranked: CustomerCandidate[]): boolean {
+  const exactMatchesAddress = ranked.some((candidate) => candidate.customerId === exactId && candidate.addressMatched)
+  if (exactMatchesAddress) return false
+  return ranked.some((candidate) => candidate.customerId !== exactId && candidate.addressMatched)
 }
 
 /**
@@ -70,6 +84,13 @@ export function customerMatchFailures(match: CustomerMatch): CheckFailure[] {
   if (match.prefillCustomerId !== null) return []
   if (match.candidates.length === 0) {
     return [{ check: 'no_customer_match', field: 'customerName', detail: 'No existing customer matched the name or ship-to address' }]
+  }
+  if (match.prefillWithheld === 'ship_to_matches_another') {
+    return [{
+      check: 'ambiguous_customer',
+      field: 'customerName',
+      detail: 'The name matches one customer exactly, but the ship-to address matches a different customer',
+    }]
   }
   return [{
     check: 'ambiguous_customer',

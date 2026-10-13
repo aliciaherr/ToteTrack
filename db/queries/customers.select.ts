@@ -15,11 +15,11 @@ export interface CustomerSelectOption {
 
 /** Raw row shape before `addresses` normalization — the driver parses json
  * columns to values, but a mocked/edge driver may hand back a string. */
-interface RawCustomerSelectRow extends Omit<CustomerSelectOption, 'addresses'> {
+export interface RawCustomerSelectRow extends Omit<CustomerSelectOption, 'addresses'> {
   addresses: CustomerAddressOption[] | string | null
 }
 
-function parseAddresses(raw: RawCustomerSelectRow['addresses']): CustomerAddressOption[] {
+export function parseAddresses(raw: RawCustomerSelectRow['addresses']): CustomerAddressOption[] {
   if (raw == null) return []
   return typeof raw === 'string' ? (JSON.parse(raw) as CustomerAddressOption[]) : raw
 }

@@ -1045,3 +1045,17 @@ One mechanical detail survives: the AI is sent images, so a PDF gets turned into
 - On the real iPad, open a PDF PO in Review. This is on the go-live checklist.
 
 **What this closes off:** Nothing hard to undo. If pdf.js fails on the iPad, "Open the file" becomes the PDF view.
+
+## Task 107: The Review Screen Pre-fills Only What It Is Sure Of
+
+**Date:** 2026-10-12
+**Architecture reference:** `docs/architecture.md` → "Review overlay fields".
+**Tasks:** Task 107. Task 118 draws it; Task 108 saves it.
+
+**Decided:** Each PO's reading is turned into the same values the New Order form uses. A value is filled in only when the document leaves no doubt. Anything uncertain is left blank with a flag, or offered as labelled one-tap choices with none picked. A new customer rule also applies: when a PO's name matches one customer exactly but its ship-to address matches a different customer, no customer is filled in, and both are offered.
+
+**Means for your product:** On a clean PO the salesperson only checks and confirms. On a messy one they see exactly which fields need them, and why. The delivery date is never today by default, and a branch's order is never silently filed under its parent. A PO that couldn't be read at all opens as an empty form to type in by hand.
+
+**Check before approving:** Nothing to set up. Task 118 is when you'll first see it.
+
+**What this closes off:** Nothing hard to undo. The rule for what counts as "certain" lives in one file (`lib/review/review-fields.values.ts`).

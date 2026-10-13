@@ -80,4 +80,30 @@ describe.skipIf(!process.env.DATABASE_URL)('review-source (local Postgres)', () 
   it('returns null for an id with no PO', async () => {
     expect(await queries.getReviewSourceRow('00000000-0000-0000-0000-000000000000')).toBeNull()
   })
+
+  it('returns matched customers by id, inactive included, with their saved addresses', async () => {
+    const [active] = (await db.execute(sql`
+      INSERT INTO customers (company_name, status) VALUES ('Qwvz Review Active', 'active') RETURNING id
+    `)) as unknown as { id: string }[]
+    const [dormant] = (await db.execute(sql`
+      INSERT INTO customers (company_name, status) VALUES ('Qwvz Review Dormant', 'inactive') RETURNING id
+    `)) as unknown as { id: string }[]
+    try {
+      await db.execute(sql`INSERT INTO customer_addresses (customer_id, address) VALUES (${dormant.id}, '9 Test Rd, Testville')`)
+      const missing = '00000000-0000-0000-0000-000000000000'
+      const rows = await queries.getCustomersForReview([active.id, dormant.id, missing])
+      const byId = new Map(rows.map((customer) => [customer.id, customer]))
+
+      expect(rows).toHaveLength(2)
+      expect(byId.get(dormant.id)).toMatchObject({
+        company_name: 'Qwvz Review Dormant',
+        status: 'inactive',
+        addresses: [{ id: expect.any(String), address: '9 Test Rd, Testville' }],
+      })
+      expect(byId.get(active.id)).toMatchObject({ status: 'active', addresses: [] })
+      expect(await queries.getCustomersForReview([])).toEqual([])
+    } finally {
+      await db.execute(sql`DELETE FROM customers WHERE id IN (${active.id}, ${dormant.id})`)
+    }
+  })
 })
