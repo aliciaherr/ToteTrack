@@ -32,6 +32,12 @@
 
 ## Code
 
+- **Task 122 unverified on the 4 real POs (`@code-review` 2026-10-14, uncertain):** Task 101's eval
+  saw "$7,800.00330" in a real PO's text layer under the old `join('')`. If those cells were one
+  pdf.js item (not two), the removed cents allowance turns that quote into a false
+  `quote_not_found`. The one local real PDF has no run-on either way, so it can't tell. Check on
+  the go-live live run; if it shows, restore the allowance for the touching-item case only.
+
 - **`useFocusTrap` / `useEscapeClose` live in `components/calendar/productionCardDialogHooks.ts`**
   but the review overlay now imports them too (Task 106). Move them to a shared hooks file.
 

@@ -8,7 +8,7 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** **Feature 16 core done (94–123, 110).** Next: `@code-review` on Tasks 122–123, then the go-live checklist below. 111–113 wait for real use.
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** **Feature 16 core done (94–123, 110).** Tasks 122–123 reviewed (PASS). Next: the go-live checklist below. 111–113 wait for real use.
 - **Feature 16 runs nothing in prod** until the go-live checklist below is done.
 
 ---
@@ -209,7 +209,7 @@
 - [ ] Move the 4 sample POs from Gmail Spam to the inbox.
 - [ ] Check the review overlay draws PDFs on the real iPad (A-15; deferred from Task 117). If it fails, "Open the file" becomes the PDF view.
 - [x] Before the live run: Tasks 122 and 123 (check false alarms) are done (dev work).
-- [ ] One live end-to-end run on real mail.
+- [ ] One live end-to-end run on real mail. On the 4 sample POs, no `quote_not_found` on a genuine quote (backlog: Task 122 unverified).
 
 ---
 
