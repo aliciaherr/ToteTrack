@@ -202,8 +202,8 @@
 
 ## Feature 16 go-live checklist (builder, manual)
 
-- [ ] Vercel, **Production only:** `SUPABASE_SECRET_KEY`; `INGEST_TRIGGER_SECRET` and `CRON_SECRET` as two different `openssl rand -hex 32` values; `INGEST_APP_ORIGIN` = the prod URL (leave it unset on Preview).
-- [ ] Turn Fluid Compute on (`maxDuration` 120 / 300 need it on Hobby).
+- [x] Vercel, **Production only:** `SUPABASE_SECRET_KEY`; `INGEST_TRIGGER_SECRET` and `CRON_SECRET` as two different `openssl rand -hex 32` values; `INGEST_APP_ORIGIN` = the prod URL (leave it unset on Preview). Also `GMAIL_IMAP_USER` / `GMAIL_IMAP_APP_PASSWORD` (own prod app password) / `GMAIL_IMAP_HOST` and `OPENROUTER_API_KEY` (own prod key, credit-limited). Done 2026-10-14.
+- [x] Turn Fluid Compute on (`maxDuration` 120 / 300 need it on Hobby). Confirmed enabled 2026-10-14.
 - [ ] Check the first deploy renders a PDF (A-14).
 - [ ] Check preview deployment protection does not block the internal calls.
 - [ ] Move the 4 sample POs from Gmail Spam to the inbox.

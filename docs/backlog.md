@@ -30,6 +30,11 @@
 - **`@security` on Task 114 (HIGH-02R):** the plan recorded a re-run as owed, and the report
   that would show it was overwritten by later audits. Confirm it was covered, or run it.
 
+- **Local dev reads the prod inbox (builder 2026-10-14):** prod and local `.env` use the same
+  Gmail ingestion inbox (separate app passwords). Once real POs arrive, a local ingestion run
+  pulls customer documents onto the dev machine and spends OpenRouter credit. Before the next
+  local ingestion test: point local `.env` at a separate test inbox, or don't run ingestion locally.
+
 ## Code
 
 - **Task 122 unverified on the 4 real POs (`@code-review` 2026-10-14, uncertain):** Task 101's eval
