@@ -5,7 +5,7 @@ import { Loader2, Maximize2, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ReviewSource } from '@/lib/review/review-source'
 import type { SourceState } from './useReviewQueue'
-import ExpandedSource, { type ExpandableSource } from './ExpandedSource'
+import ExpandedSource, { TRUNCATED_BODY_NOTE, type ExpandableSource } from './ExpandedSource'
 import PdfPages from './PdfPages'
 import RefusalCard from './RefusalCard'
 
@@ -46,8 +46,11 @@ function ImageView({ url, onExpand, onLoadError }: { url: string; onExpand: () =
   )
 }
 
-/** Email text as plain text: React escapes it, so HTML shows as literal characters. */
-function TextView({ text, onExpand }: { text: string; onExpand: () => void }) {
+/**
+ * Email text as plain text: React escapes it, so HTML shows as literal characters.
+ * A capped body says so above the text (LOW-T106-1).
+ */
+function TextView({ text, truncated, onExpand }: { text: string; truncated: boolean; onExpand: () => void }) {
   return (
     <div className="space-y-2 p-4">
       <div className="flex justify-end">
@@ -56,6 +59,7 @@ function TextView({ text, onExpand }: { text: string; onExpand: () => void }) {
           Expand
         </Button>
       </div>
+      {truncated && <p className="text-sm text-secondary">{TRUNCATED_BODY_NOTE}</p>}
       <pre className="whitespace-pre-wrap break-words font-sans text-sm text-foreground">{text}</pre>
     </div>
   )
@@ -66,7 +70,7 @@ function ReadyView({ source, onExpand, onLoadError }: { source: ReviewSource; on
     case 'image':
       return <ImageView url={source.url} onExpand={onExpand} onLoadError={onLoadError} />
     case 'text':
-      return <TextView text={source.text} onExpand={onExpand} />
+      return <TextView text={source.text} truncated={source.truncated} onExpand={onExpand} />
     case 'pdf':
       return <PdfPages key={source.url} url={source.url} />
     case 'refused':

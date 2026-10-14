@@ -14,6 +14,10 @@
 
 ## Verifications owed
 
+- **Flaky integration run (2026-10-13):** `lib/ingest/__tests__/run-deps.integration.test.ts` failed once
+  while another integration run was likely using the same local DB; two reruns passed 39/39. If it
+  recurs alone, investigate shared-row interference.
+
 - **Task 106 in a browser:** stage a few POs locally (image, body text, a refusal, a PDF), open
   "Review", and check the layout, zoom, Esc and focus on the iPad width.
 
@@ -45,7 +49,6 @@
 ## Open security Lows (details in `docs/security-report.md`)
 
 - LOW-T108-1.
-- LOW-T106-1: review overlay sends an email body of any size to the browser; cap it before go-live or with Task 108.
 - LOW-T104-3: Vercel config; covered by the go-live checklist.
 - LOW-T116-2: no minimum secret length; settled by the 64-hex go-live secrets.
 - LOW-T115-1, LOW-T115-2: accepted.

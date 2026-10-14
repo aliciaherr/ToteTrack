@@ -33,8 +33,8 @@ export interface ReviewSourceRow {
 }
 
 /**
- * Every PO awaiting review, ids only, in review order: failed checks, then
- * never-skipped before skipped, then oldest first.
+ * Every PO awaiting review, ids only, in review order: never-skipped before
+ * skipped, then failed checks, then oldest skip, then oldest first.
  *
  * @returns The ids, or `[]` when the queue is empty.
  * @throws {DatabaseError} when the query fails.

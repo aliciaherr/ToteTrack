@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import SourcePane from '../SourcePane'
 import RefusalCard from '../RefusalCard'
-import ExpandedSource, { ZOOM_MAX } from '../ExpandedSource'
+import ExpandedSource, { TRUNCATED_BODY_NOTE, ZOOM_MAX } from '../ExpandedSource'
 import { openPdf } from '../pdfjsClient'
 import type { RefusalDescription, ReviewEmail } from '@/lib/review/review-source'
 
@@ -56,10 +56,24 @@ describe('SourcePane', () => {
   it('shows email HTML as literal text, never as markup', () => {
     const html = '<script>alert(1)</script><b>300 totes</b>'
     const { container } = render(
-      <SourcePane state={{ status: 'ready', source: { kind: 'text', text: html } }} onRetry={vi.fn()} onLoadError={vi.fn()} />,
+      <SourcePane state={{ status: 'ready', source: { kind: 'text', text: html, truncated: false } }} onRetry={vi.fn()} onLoadError={vi.fn()} />,
     )
     expect(screen.getByText(html)).toBeInTheDocument()
     expect(container.querySelector('script, b')).toBeNull()
+  })
+
+  it('says a capped email body is only its start, in the pane and expanded (LOW-T106-1)', () => {
+    renderPane({ status: 'ready', source: { kind: 'text', text: 'PO 4471', truncated: true } })
+    expect(screen.getByText(TRUNCATED_BODY_NOTE)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /expand/i }))
+    expect(screen.getAllByText(TRUNCATED_BODY_NOTE)).toHaveLength(2)
+  })
+
+  it('shows no truncation note for a whole email body', () => {
+    renderPane({ status: 'ready', source: { kind: 'text', text: 'PO 4471', truncated: false } })
+    expect(screen.getByText('PO 4471')).toBeInTheDocument()
+    expect(screen.queryByText(TRUNCATED_BODY_NOTE)).toBeNull()
   })
 
   it('hands a PDF to the pdf.js view', () => {
@@ -114,7 +128,7 @@ describe('ExpandedSource', () => {
 
   it('closes on the close button and on Esc', () => {
     const onClose = vi.fn()
-    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471' }} onClose={onClose} />)
+    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471', truncated: false }} onClose={onClose} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Close expanded view' }))
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -124,7 +138,7 @@ describe('ExpandedSource', () => {
   it('keeps Esc from reaching handlers underneath', () => {
     const underneath = vi.fn()
     window.addEventListener('keydown', underneath)
-    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471' }} onClose={vi.fn()} />)
+    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471', truncated: false }} onClose={vi.fn()} />)
 
     fireEvent.keyDown(window, { key: 'Escape' })
     window.removeEventListener('keydown', underneath)

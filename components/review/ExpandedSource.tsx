@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react'
 import { X, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-/** The two kinds of source that can be expanded. */
-export type ExpandableSource = { kind: 'image'; url: string } | { kind: 'text'; text: string }
+/** The two kinds of source that can be expanded. `truncated`: only the body's start was sent (LOW-T106-1). */
+export type ExpandableSource = { kind: 'image'; url: string } | { kind: 'text'; text: string; truncated: boolean }
+
+/** Shown under a capped email body, here and in the source pane (LOW-T106-1). */
+export const TRUNCATED_BODY_NOTE = 'Only the start is shown; open it in Gmail for the rest.'
 
 interface ExpandedSourceProps {
   source: ExpandableSource
@@ -85,12 +88,15 @@ export default function ExpandedSource({ source, onClose }: ExpandedSourceProps)
           // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed Storage URL; next/image would need the host allow-listed and would cache it.
           <img src={source.url} alt="PO image, enlarged" style={{ width: `${zoom * 100}%` }} className="max-w-none mx-auto" />
         ) : (
-          <pre
-            style={{ fontSize: `${zoom}rem` }}
-            className="whitespace-pre-wrap break-words font-sans text-white bg-transparent"
-          >
-            {source.text}
-          </pre>
+          <>
+            {source.truncated && <p className="mb-2 text-sm text-white">{TRUNCATED_BODY_NOTE}</p>}
+            <pre
+              style={{ fontSize: `${zoom}rem` }}
+              className="whitespace-pre-wrap break-words font-sans text-white bg-transparent"
+            >
+              {source.text}
+            </pre>
+          </>
         )}
       </div>
     </div>

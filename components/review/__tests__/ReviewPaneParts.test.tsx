@@ -78,6 +78,18 @@ describe('ToCheckSection', () => {
     expect(arithmetic).toHaveTextContent('Freight$100')
   })
 
+  it('adds the inactive-customer line last, only for an inactive selection', () => {
+    const { rerender } = render(
+      <ToCheckSection flags={[]} missingLines={[]} totals={fields.totals} liveTotal="0.00" inactiveCustomer="Beta Labs" />,
+    )
+    expect(screen.getByRole('heading', { name: 'To check (1)' })).toBeInTheDocument()
+    expect(screen.getByRole('listitem')).toHaveTextContent('Beta Labs is inactive: approving reactivates it')
+
+    rerender(<ToCheckSection flags={[]} missingLines={[]} totals={fields.totals} liveTotal="0.00" inactiveCustomer={null} />)
+    expect(screen.queryByText(/is inactive/)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nothing to check' })).toBeInTheDocument()
+  })
+
   it('says so when there is nothing to check', () => {
     render(<ToCheckSection flags={[]} missingLines={[]} totals={fields.totals} liveTotal="0.00" />)
     expect(screen.getByRole('heading', { name: 'Nothing to check' })).toBeInTheDocument()

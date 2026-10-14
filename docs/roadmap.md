@@ -8,7 +8,7 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Next task: 120.**
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Next task: 121.**
 - **Feature 16 runs nothing in prod** until the go-live checklist below is done.
 
 ---
@@ -185,7 +185,7 @@
 - [~] 118 — Build the review overlay's right pane — superseded by 119 after the first browser check (too wordy)
 - [x] 119 — Rework the review pane — one "To check" section, a clean form, green/red fields
 - [x] 108 — Approve, Skip and Delete on the server — one transaction; inactive customer reactivated; duplicates blocked
-- [ ] 120 — Approve / Skip / Delete buttons and moving through the queue — "You are all caught up"
+- [x] 120 — Approve / Skip / Delete buttons and moving through the queue — "You are all caught up"
 - [~] 109 — Auto-advance and "You are all caught up" — folded into 120 (2026-10-13), so the queue never dead-ends
 - [ ] 121 — View the source PO document from the order
 - [ ] 110 — Architecture + `document-extraction.md` updates · *not specced yet*

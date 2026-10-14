@@ -12,6 +12,8 @@ interface ToCheckSectionProps {
   totals: ReviewTotals
   /** The form's live Σ(qty × unit price), as the order form computes it. */
   liveTotal: string
+  /** The selected customer's name when it is inactive, else null (Task 120). */
+  inactiveCustomer?: string | null
 }
 
 function Line({ isFailure, children }: { isFailure: boolean; children: React.ReactNode }) {
@@ -50,11 +52,12 @@ function MismatchDetail({ totals, liveTotal }: Pick<ToCheckSectionProps, 'totals
  * The top of the review pane (Task 119): every issue on the PO in one list,
  * failed checks first, then the required fields the reading left empty. A
  * total mismatch carries its arithmetic. The form below carries no text of
- * its own. Flag messages are our wording; money-line text is document text,
- * rendered as text (L-D).
+ * its own. An inactive selected customer is listed last: approving
+ * reactivates it (Task 120). Flag messages are our wording; money-line text
+ * and customer names are rendered as text (L-D).
  */
-export default function ToCheckSection({ flags, missingLines, totals, liveTotal }: ToCheckSectionProps) {
-  const count = flags.length + missingLines.length
+export default function ToCheckSection({ flags, missingLines, totals, liveTotal, inactiveCustomer = null }: ToCheckSectionProps) {
+  const count = flags.length + missingLines.length + (inactiveCustomer ? 1 : 0)
   return (
     <section aria-labelledby="review-to-check" className="rounded-md border border-border bg-card p-3">
       <h3 id="review-to-check" className="mb-2 text-sm font-semibold text-foreground">
@@ -75,6 +78,7 @@ export default function ToCheckSection({ flags, missingLines, totals, liveTotal 
               {line}
             </Line>
           ))}
+          {inactiveCustomer && <Line isFailure={false}>{`${inactiveCustomer} is inactive: approving reactivates it`}</Line>}
         </ul>
       )}
     </section>

@@ -21,7 +21,7 @@ function QueueMessage({ queue, onRetry }: { queue: ReviewQueueState['queue']; on
       </p>
     )
   }
-  if (queue.status === 'empty') return <p className="p-6 text-sm text-secondary">Nothing to review.</p>
+  if (queue.status === 'empty') return <p className="p-6 text-sm text-secondary">You are all caught up.</p>
   return (
     <div role="alert" className="space-y-3 p-6">
       <p className="text-sm text-destructive">Couldn&apos;t load the review queue.</p>
@@ -53,13 +53,15 @@ function Header({ position, onClose }: { position: string | null; onClose: () =>
  * The review screen (Task 106): a full-screen overlay over the current page,
  * opened from "Review" in the menu. Not a route, so a refresh closes it.
  * Left pane is the PO's source; the right pane is its pre-filled order form
- * (Tasks 118, 119). Side by side from iPad landscape width up, stacked below it.
+ * (Tasks 118, 119), with Approve, Skip and Delete at its foot (Task 120); each
+ * decision reloads the queue and shows its new first PO, so the header always
+ * reads "1 of N". Side by side from iPad landscape width up, stacked below it.
  * Esc and the close button leave the page underneath untouched; `AppShell`
  * mounts this only while open and returns focus to the menu button.
  */
 export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const { queue, source, fields, retry, retryFields, markSourceFailed } = useReviewQueue()
+  const { queue, source, fields, retry, retryFields, markSourceFailed, advance } = useReviewQueue()
   useEscapeClose(true, onClose, false)
   useFocusTrap(true, panelRef)
 
@@ -75,12 +77,15 @@ export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
     >
       <Header position={position} onClose={onClose} />
       {queue.status === 'ready' ? (
-        <div className="flex-1 min-h-0 grid gap-4 overflow-y-auto p-4 lg:grid-cols-2 lg:overflow-hidden">
-          <section aria-label="PO document" className="rounded-lg bg-card shadow-sm lg:min-h-0 lg:overflow-auto">
+        // Each pane scrolls on its own, never the page: halves stacked below
+        // iPad landscape width, side by side above it. The right pane pins
+        // its decision buttons below its own scroll area.
+        <div className="flex-1 min-h-0 grid grid-rows-2 gap-4 overflow-hidden p-4 lg:grid-cols-2 lg:grid-rows-1">
+          <section aria-label="PO document" className="min-h-0 overflow-auto rounded-lg bg-card shadow-sm">
             <SourcePane state={source} onRetry={retry} onLoadError={markSourceFailed} />
           </section>
-          <section aria-label="PO details" className="rounded-lg bg-card shadow-sm lg:min-h-0 lg:overflow-auto">
-            <ReviewFieldsPane key={queue.ids[0]} state={fields} onRetry={retryFields} />
+          <section aria-label="PO details" className="min-h-0 overflow-hidden rounded-lg bg-card shadow-sm">
+            <ReviewFieldsPane key={queue.ids[0]} poId={queue.ids[0]} state={fields} onRetry={retryFields} onDecided={advance} />
           </section>
         </div>
       ) : (

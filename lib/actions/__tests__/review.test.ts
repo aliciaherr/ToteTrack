@@ -24,6 +24,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
+import { MAX_TEXT_INPUT_CHARS } from '@/lib/extraction/extraction.constants'
 import * as reviewActions from '../review'
 import { getReviewFields, getReviewQueue, getReviewSource } from '../review'
 
@@ -97,8 +98,17 @@ describe('getReviewSource', () => {
   it('returns the text of an email-body PO without signing anything', async () => {
     mockGetRow.mockResolvedValue(row({ source_kind: 'email_body', document_path: null, body_text: 'PO 4471' }))
 
-    expect(await getReviewSource(PO_ID)).toEqual({ source: { kind: 'text', text: 'PO 4471' } })
+    expect(await getReviewSource(PO_ID)).toEqual({ source: { kind: 'text', text: 'PO 4471', truncated: false } })
     expect(mockCreateSignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('returns only the start of an over-cap email body, flagged truncated (LOW-T106-1)', async () => {
+    const body = 'x'.repeat(MAX_TEXT_INPUT_CHARS + 1)
+    mockGetRow.mockResolvedValue(row({ source_kind: 'email_body', document_path: null, body_text: body }))
+
+    expect(await getReviewSource(PO_ID)).toEqual({
+      source: { kind: 'text', text: 'x'.repeat(MAX_TEXT_INPUT_CHARS), truncated: true },
+    })
   })
 
   it('returns the refusal of a refused row', async () => {

@@ -4,12 +4,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const mockGetQueue = vi.hoisted(() => vi.fn())
 const mockGetSource = vi.hoisted(() => vi.fn())
 const mockGetFields = vi.hoisted(() => vi.fn())
+const mockSkip = vi.hoisted(() => vi.fn())
+const mockToast = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/actions/review', () => ({
   getReviewQueue: mockGetQueue,
   getReviewSource: mockGetSource,
   getReviewFields: mockGetFields,
 }))
+
+vi.mock('@/lib/actions/review-decisions', () => ({
+  approveReviewPo: vi.fn(),
+  skipReviewPo: mockSkip,
+  discardReviewPo: vi.fn(),
+}))
+vi.mock('@/lib/hooks/useToast', () => ({ useToast: () => ({ toast: mockToast }) }))
 
 import ReviewOverlay from '../ReviewOverlay'
 import { CUSTOMERS, reviewFields } from './reviewFields.fixture'
@@ -58,8 +67,42 @@ describe('ReviewOverlay', () => {
   it('says so when the queue is empty', async () => {
     mockGetQueue.mockResolvedValue({ ids: [] })
     render(<ReviewOverlay onClose={vi.fn()} />)
-    expect(await screen.findByText('Nothing to review.')).toBeInTheDocument()
+    expect(await screen.findByText('You are all caught up.')).toBeInTheDocument()
     expect(mockGetSource).not.toHaveBeenCalled()
+  })
+
+  it('loads the next PO after a decision, with the position from the reloaded queue', async () => {
+    mockSkip.mockResolvedValue({ success: true })
+    render(<ReviewOverlay onClose={vi.fn()} />)
+    expect(await screen.findByLabelText('PO Number')).toHaveValue('PO-4471')
+
+    mockGetQueue.mockResolvedValue({ ids: [SECOND, FIRST] })
+    mockGetSource.mockResolvedValue({ source: { kind: 'text', text: 'PO 5000' } })
+    const next = reviewFields()
+    mockGetFields.mockResolvedValue({ fields: { ...next, values: { ...next.values, po_number: 'PO-5000' } }, customers: CUSTOMERS })
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+
+    expect(await screen.findByText('PO 5000')).toBeInTheDocument()
+    expect(await screen.findByLabelText('PO Number')).toHaveValue('PO-5000')
+    expect(mockSkip).toHaveBeenCalledWith(FIRST)
+    expect(mockGetSource).toHaveBeenLastCalledWith(SECOND)
+    expect(mockGetFields).toHaveBeenLastCalledWith(SECOND)
+    expect(screen.getByText('1 of 2')).toBeInTheDocument()
+    expect(mockToast).toHaveBeenCalledWith('Skipped.', 'success')
+  })
+
+  it('says "You are all caught up" once the last PO is decided', async () => {
+    mockSkip.mockResolvedValue({ success: true })
+    mockGetQueue.mockResolvedValue({ ids: [FIRST] })
+    render(<ReviewOverlay onClose={vi.fn()} />)
+    expect(await screen.findByText('1 of 1')).toBeInTheDocument()
+    await screen.findByLabelText('PO Number')
+
+    mockGetQueue.mockResolvedValue({ ids: [] })
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+
+    expect(await screen.findByText('You are all caught up.')).toBeInTheDocument()
+    expect(screen.queryByText('1 of 1')).not.toBeInTheDocument()
   })
 
   it('offers a retry when the queue fails to load', async () => {

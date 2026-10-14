@@ -105,18 +105,20 @@ const HAS_CHECK_FAILURES: SQL = sql`
   END
 `
 
-// Review-queue ordering, in the three stages the feature spec names.
-// 1. Failed checks first — where a reviewer's attention is worth most.
-// 2. Then `skipped_at` ASC NULLS FIRST: never-skipped rows ahead of skipped
-//    ones, and among skipped rows the longest-ago skip first, so a deferred PO
-//    cannot be deferred forever.
-// 3. Then `created_at` ASC — oldest first, so the queue drains in arrival
-//    order and nothing starves at the bottom.
+// Review-queue ordering (Task 120 amendment, 2026-10-13).
+// 1. `skipped_at` ASC NULLS FIRST: every unskipped row first, then skipped
+//    rows in the order they were skipped, so Skip rotates through the whole
+//    queue. Failures-first used to outrank a skip, so skipping a problem PO
+//    brought it (or another problem PO) straight back and a clean row behind
+//    them was never reached.
+// 2. Then failed checks first among the unskipped (they tie on NULL) — where
+//    a reviewer's attention is worth most.
+// 3. Then `created_at` ASC — oldest first, so nothing starves at the bottom.
 /** The review-queue `ORDER BY`, on alias `p`. Shared with `review-source.ts` (Task 106). */
 export const PENDING_REVIEW_ORDER_CLAUSE: SQL = sql`
   ORDER BY
-    CASE WHEN ${HAS_CHECK_FAILURES} THEN 0 ELSE 1 END ASC,
     p.skipped_at ASC NULLS FIRST,
+    CASE WHEN ${HAS_CHECK_FAILURES} THEN 0 ELSE 1 END ASC,
     p.created_at ASC
 `
 
@@ -169,8 +171,8 @@ export function buildPoByContentHashQuery(hash: string): SQL {
 /**
  * Loads every PO awaiting human review (`pending_review` and
  * `extraction_failed`), ordered so the reviewer meets the
- * rows that need them most first: failed checks, then never-skipped before
- * skipped, then oldest first. Unbounded — the queue is drained, not paginated.
+ * rows that need them most first: never-skipped before skipped, then failed
+ * checks, then oldest skip, then oldest first. Unbounded — the queue is drained, not paginated.
  *
  * @returns The pending rows in review order, or `[]` when the queue is empty.
  * @throws {DatabaseError} when the underlying SQL query fails.

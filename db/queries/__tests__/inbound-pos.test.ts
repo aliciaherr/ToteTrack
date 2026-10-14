@@ -35,23 +35,23 @@ describe('buildPoByContentHashQuery', () => {
 })
 
 describe('listPendingReview', () => {
-  it('sorts check-failures ahead of clean rows, and skipped rows last', async () => {
+  it('rotates skipped rows in skip order, failures first only among the unskipped (Task 120)', async () => {
     mockExecute.mockResolvedValueOnce([])
     await listPendingReview()
     const { sql: compiled } = compileCall(0)
 
     const orderBy = compiled.slice(compiled.search(/ORDER BY/i))
-    const failureBucket = orderBy.search(/CASE WHEN\s+CASE/i)
     const skippedTerm = orderBy.search(/p\.skipped_at ASC NULLS FIRST/i)
+    const failureBucket = orderBy.search(/CASE WHEN\s+CASE/i)
     const createdTerm = orderBy.search(/p\.created_at ASC/i)
 
     // All three sort terms present...
+    expect(skippedTerm, 'skipped_at term missing from ORDER BY').toBeGreaterThan(-1)
     expect(failureBucket, 'check-failure bucket missing from ORDER BY').toBeGreaterThan(-1)
-    expect(skippedTerm, 'skipped_at NULLS FIRST missing from ORDER BY').toBeGreaterThan(-1)
     expect(createdTerm, 'created_at tiebreak missing from ORDER BY').toBeGreaterThan(-1)
-    // ...and in the specified precedence: failures, then skipped, then age.
-    expect(failureBucket).toBeLessThan(skippedTerm)
-    expect(skippedTerm).toBeLessThan(createdTerm)
+    // ...and in the specified precedence: skip order, then failures, then age.
+    expect(skippedTerm).toBeLessThan(failureBucket)
+    expect(failureBucket).toBeLessThan(createdTerm)
   })
 
   it('treats a failures array as a failure and never raises on another shape', async () => {

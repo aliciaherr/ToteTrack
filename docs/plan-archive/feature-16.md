@@ -1540,3 +1540,73 @@ document hash repeats an earlier one shows a "To check" line.
 **Depends on:** Task 119.
 **Specialist:** @db
 **Status:** [x] Done (2026-10-13). `approveReviewPo` / `skipReviewPo` / `discardReviewPo` (`lib/actions/review-decisions.ts`) over `db/queries/review-decisions.ts`; approve is one transaction (lock, order with `document_url`, reactivate, mark approved); `createOrder` pieces moved to `orders.create.ts`; `duplicate_document` flag. Fixed `isUniqueViolation` to read drizzle's `.cause` (duplicate PO numbers showed the generic error in prod). Unit 2146, integration 38/38, tsc, eslint, next build clean.
+
+---
+
+## Task 120: Add Approve, Skip and Delete to the review pane and move through the queue
+
+**Planned 2026-10-13** (`@create-plan`). Supersedes Task 109 (auto-advance and "all caught
+up"), folded in so the queue never dead-ends after one PO.
+
+**Amended 2026-10-13 (`@dev`, builder decisions):**
+- **Skipped POs go last.** The queue order was "check failures first, whatever `skipped_at` says",
+  so skipping a problem PO brought a problem PO straight back. New order: `skipped_at` ASC NULLS
+  FIRST (unskipped first, then skipped rows in skip order, so Skip rotates through the whole
+  queue), then failures first, then oldest (`PENDING_REVIEW_ORDER_CLAUSE`,
+  `db/queries/inbound-pos.ts`). A first cut kept failures ahead of skip order among skipped rows;
+  the builder's browser check caught Skip cycling two problem POs and never reaching the third.
+- **LOW-T106-1 folded in.** `getReviewSource` caps an email body at `MAX_TEXT_INPUT_CHARS` and
+  returns `truncated: true`; `SourcePane` says "Only the start is shown; open it in Gmail for the
+  rest". The stored row is untouched.
+
+**Files:**
+- `components/review/ReviewActions.tsx` — create. Approve (primary), Skip, Delete at the foot
+  of the right pane; busy state; the action's error message.
+- `components/review/DeleteReviewDialog.tsx` — create. In-app confirm: "Delete this PO? It
+  won't become an order." (no browser `confirm()`).
+- `components/review/useReviewDecisions.ts` — create. Runs the three actions; on success asks
+  the queue to load the next PO; toasts "Order created." / "Skipped." / "Deleted.".
+- `components/review/reviewApproval.ts` — create. Client checks before Approve.
+- `components/review/useReviewQueue.ts` — modify. `advance()` reloads the queue and loads its
+  first PO; tracks the position.
+- `components/review/ReviewOverlay.tsx` — modify. Header "1 of N" from the reloaded queue;
+  empty queue → "You are all caught up."
+- `components/review/ReviewFieldsPane.tsx`, `ToCheckSection.tsx` — modify. Mount the actions;
+  the inactive-customer line.
+- `components/shell/AppShell.tsx` — modify. Refresh the ingest status when Review closes.
+
+**Functions to implement:**
+- `approvalProblems(values: OrderFormValues): string[]` — what blocks Approve: no PO number,
+  no customer, no address unless the customer collects, no quantity, a quantity without a unit
+  price (reusing `totalQuantity` / `firstUnitPriceCouplingError`).
+
+**Acceptance criteria:**
+- [x] Approve with problems shows them in one alert above the buttons and sends nothing.
+- [x] Approve sends `formValuesToCreateInput(values)` to `approveReviewPo`; on success the
+      next PO loads and "Order created." is toasted.
+- [x] Skip and Delete call their actions; Delete only after the in-app confirm; each then loads
+      the next PO.
+- [x] An `{ error }` result shows inline above the buttons and keeps the edits; "already
+      handled" reloads the queue instead. A transport failure shows the generic message (EH-01).
+- [x] Buttons are disabled while an action runs, so one tap = one action.
+- [x] The header shows the position ("1 of 5"); when the queue empties, "You are all caught up."
+- [x] With an inactive customer selected, "To check" adds "<name> is inactive: approving
+      reactivates it".
+- [x] Closing Review refreshes the menu badge.
+- [x] 44 px targets, light tokens only, components < 200 lines (CQ-02); `tsc`, `eslint`, full
+      suite and `next build` green.
+- [x] Skipping a problem PO puts it behind every PO not yet skipped.
+- [x] An email body over the cap returns only its start, flagged `truncated`, and the pane says so (LOW-T106-1).
+- [x] Builder walks the four local rows through Approve, Skip and Delete in a browser.
+
+**Tests required:**
+- `approvalProblems` → each missing field reported; a complete form passes.
+- `ReviewActions` → problems block Approve; success advances; error kept inline; buttons
+  disabled while busy.
+- `DeleteReviewDialog` → cancel does nothing; confirm deletes.
+- `ReviewOverlay` → advances after an action; "You are all caught up" when empty; position.
+- `ToCheckSection` → inactive-customer line only for an inactive selection.
+
+**Depends on:** Task 108.
+**Specialist:** @ui-totetrack
+**Status:** [x] Done (2026-10-14). Approve / Skip / Delete at the foot of the review pane (pinned; panes scroll on their own), in-app Delete confirm, client approval checks, queue advance with "1 of N" and "You are all caught up.", inactive-customer line, badge refresh on close. Amendments: skipped POs rotate last (`skipped_at ASC NULLS FIRST`), email body capped (LOW-T106-1 closed). Builder walked the local rows in a browser. Unit 2179, integration 40/40, tsc, eslint, next build clean.

@@ -52,6 +52,13 @@ vi.mock('@/lib/actions/review', () => ({
   getReviewSource: vi.fn(async () => ({ source: { kind: 'text', text: 'PO 4471' } })),
 }))
 
+// The overlay's decision buttons import their server actions; the shell tests never tap them.
+vi.mock('@/lib/actions/review-decisions', () => ({
+  approveReviewPo: vi.fn(),
+  skipReviewPo: vi.fn(),
+  discardReviewPo: vi.fn(),
+}))
+
 // NavDrawer's SignOutRow calls useToast, which throws outside a
 // <ToastProvider>; the shell tests don't exercise toasts, so stub the hook.
 vi.mock('@/lib/hooks/useToast', () => ({
@@ -145,5 +152,21 @@ describe('AppShell', () => {
     expect(screen.queryByRole('dialog', { name: 'Review' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /open navigation/i })).toHaveFocus()
     expect(screen.getByText('child')).toBeInTheDocument()
+  })
+
+  it('re-reads the status when Review closes, so the badge counts the decisions taken', async () => {
+    vi.mocked(getIngestStatus).mockResolvedValue({ toReview: 2, beingRead: 0, lastRunAt: null, failingCount: 0 })
+    render(<AppShell><div>child</div></AppShell>)
+    expect(await screen.findByTestId('pending-badge')).toHaveTextContent('2')
+    fireEvent.click(screen.getByRole('button', { name: /open navigation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }))
+    await screen.findByText('PO 4471')
+
+    vi.mocked(getIngestStatus).mockResolvedValue({ toReview: 0, beingRead: 0, lastRunAt: null, failingCount: 0 })
+    const callsBeforeClose = vi.mocked(getIngestStatus).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Close review' }))
+
+    await waitFor(() => expect(vi.mocked(getIngestStatus).mock.calls.length).toBe(callsBeforeClose + 1))
+    await waitFor(() => expect(screen.queryByTestId('pending-badge')).not.toBeInTheDocument())
   })
 })

@@ -1,11 +1,24 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
+
+// The decision buttons call server actions and toast; the pane tests only check they are mounted.
+vi.mock('@/lib/actions/review-decisions', () => ({
+  approveReviewPo: vi.fn(),
+  skipReviewPo: vi.fn(),
+  discardReviewPo: vi.fn(),
+}))
+vi.mock('@/lib/hooks/useToast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
+
 import ReviewFieldsPane from '../ReviewFieldsPane'
 import { ACME, CUSTOMERS, reviewFields } from './reviewFields.fixture'
 import type { ReviewFields } from '@/lib/review/review-fields.types'
 
+const PO_ID = '11111111-1111-1111-1111-111111111111'
+
 function renderReady(fields: ReviewFields = reviewFields()) {
-  return render(<ReviewFieldsPane state={{ status: 'ready', fields, customers: CUSTOMERS }} onRetry={vi.fn()} />)
+  return render(
+    <ReviewFieldsPane poId={PO_ID} state={{ status: 'ready', fields, customers: CUSTOMERS }} onRetry={vi.fn()} onDecided={vi.fn()} />,
+  )
 }
 
 const addressSelect = () => screen.getByRole('combobox', { name: 'Delivery Address' })
@@ -80,19 +93,32 @@ describe('ReviewFieldsPane', () => {
     expect(screen.getByRole('heading', { name: 'Nothing to check' })).toBeInTheDocument()
   })
 
-  it('has no Approve, Skip or Delete', () => {
+  it('puts Approve, Skip and Delete at the foot of the pane', () => {
     renderReady()
-    expect(screen.queryByRole('button', { name: /approve|skip|delete/i })).not.toBeInTheDocument()
+    for (const name of ['Approve', 'Skip', 'Delete']) expect(screen.getByRole('button', { name })).toBeInTheDocument()
+  })
+
+  it('lists an inactive selected customer under "To check" until another is chosen', () => {
+    renderReady()
+    const line = 'Beta Labs is inactive: approving reactivates it'
+    expect(screen.queryByText(line)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Beta Labs/ }))
+    expect(screen.getByText(line)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'To check (5)' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Acme Chemicals/ }))
+    expect(screen.queryByText(line)).not.toBeInTheDocument()
   })
 
   it('shows a loading state', () => {
-    render(<ReviewFieldsPane state={{ status: 'loading' }} onRetry={vi.fn()} />)
+    render(<ReviewFieldsPane poId={PO_ID} state={{ status: 'loading' }} onRetry={vi.fn()} onDecided={vi.fn()} />)
     expect(screen.getByText("Loading this PO's values…")).toBeInTheDocument()
   })
 
   it('shows the load error with a retry, never a blank pane (EH-01)', () => {
     const onRetry = vi.fn()
-    render(<ReviewFieldsPane state={{ status: 'error' }} onRetry={onRetry} />)
+    render(<ReviewFieldsPane poId={PO_ID} state={{ status: 'error' }} onRetry={onRetry} onDecided={vi.fn()} />)
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load this PO's values")
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
     expect(onRetry).toHaveBeenCalledOnce()

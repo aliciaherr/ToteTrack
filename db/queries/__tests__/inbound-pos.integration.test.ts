@@ -139,4 +139,50 @@ describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () =>
     expect(after.toReview - before.toReview).toBe(2)
     expect(after.beingRead - before.beingRead).toBe(2)
   })
+
+  it('sorts a skipped check-failure row behind an unskipped clean row (Task 120)', async () => {
+    const emailId = await stage(5, [
+      { source_kind: 'pdf', document_path: `inbound/${'7'.repeat(64)}.pdf`, body_text: null, content_hash: '7'.repeat(64), status: 'pending_review' },
+      { source_kind: 'pdf', document_path: `inbound/${'8'.repeat(64)}.pdf`, body_text: null, content_hash: '8'.repeat(64), status: 'pending_review' },
+    ])
+    const [failed, clean] = (await db.execute(sql`
+      SELECT id FROM inbound_pos WHERE inbound_email_id = ${emailId} ORDER BY content_hash
+    `)) as unknown as { id: string }[]
+    // The failure row is also the older one, so only the skip can put it last.
+    await db.execute(sql`
+      UPDATE inbound_pos
+      SET check_results = ${JSON.stringify({ failures: [{ check: 'ingest_limit', reason: 'no_po_found', part: 'message' }] })}::jsonb,
+          skipped_at = now(), created_at = '2000-01-01T00:00:00Z'
+      WHERE id = ${failed.id}
+    `)
+
+    const ids = (await pos.listPendingReview()).map((item) => item.id)
+
+    expect(ids.indexOf(clean.id)).toBeGreaterThan(-1)
+    expect(ids.indexOf(failed.id)).toBeGreaterThan(ids.indexOf(clean.id))
+  })
+
+  it('puts a check-failure row skipped later behind a clean row skipped earlier (Task 120)', async () => {
+    const emailId = await stage(6, [
+      { source_kind: 'pdf', document_path: `inbound/${'5'.repeat(64)}.pdf`, body_text: null, content_hash: '5'.repeat(64), status: 'pending_review' },
+      { source_kind: 'pdf', document_path: `inbound/${'6'.repeat(64)}.pdf`, body_text: null, content_hash: '6'.repeat(64), status: 'pending_review' },
+    ])
+    const [failed, clean] = (await db.execute(sql`
+      SELECT id FROM inbound_pos WHERE inbound_email_id = ${emailId} ORDER BY content_hash
+    `)) as unknown as { id: string }[]
+    // Both skipped; the clean row first. Failures-first must not pull the
+    // later-skipped failure row ahead, or Skip never reaches the clean row.
+    await db.execute(sql`UPDATE inbound_pos SET skipped_at = now() - interval '1 minute' WHERE id = ${clean.id}`)
+    await db.execute(sql`
+      UPDATE inbound_pos
+      SET check_results = ${JSON.stringify({ failures: [{ check: 'ingest_limit', reason: 'no_po_found', part: 'message' }] })}::jsonb,
+          skipped_at = now()
+      WHERE id = ${failed.id}
+    `)
+
+    const ids = (await pos.listPendingReview()).map((item) => item.id)
+
+    expect(ids.indexOf(clean.id)).toBeGreaterThan(-1)
+    expect(ids.indexOf(failed.id)).toBeGreaterThan(ids.indexOf(clean.id))
+  })
 })

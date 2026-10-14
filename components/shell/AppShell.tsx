@@ -32,8 +32,12 @@ import { useIngestStatus } from './useIngestStatus'
  * their first row enough to clear the pill horizontally (~80px from the
  * viewport edge).
  */
-/** The review overlay's open state, and the menu button focus returns to on close. */
-function useReviewOverlayState(closeDrawer: () => void) {
+/**
+ * The review overlay's open state, and the menu button focus returns to on
+ * close. Closing also runs `onClosed` (the status re-read), so the badge counts
+ * the decisions just taken (Task 120).
+ */
+function useReviewOverlayState(closeDrawer: () => void, onClosed: () => void) {
   const [isOpen, setIsOpen] = useState(false)
   const wasOpenRef = useRef(false)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
@@ -41,7 +45,10 @@ function useReviewOverlayState(closeDrawer: () => void) {
     closeDrawer()
     setIsOpen(true)
   }, [closeDrawer])
-  const close = useCallback(() => setIsOpen(false), [])
+  const close = useCallback(() => {
+    setIsOpen(false)
+    onClosed()
+  }, [onClosed])
 
   useEffect(() => {
     if (wasOpenRef.current && !isOpen) menuButtonRef.current?.focus()
@@ -60,7 +67,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     void refresh()
   }, [refresh])
   const closeDrawer = useCallback(() => setIsDrawerOpen(false), [])
-  const { isReviewOpen, openReview, closeReview, menuButtonRef } = useReviewOverlayState(closeDrawer)
+  const refreshStatus = useCallback(() => void refresh(), [refresh])
+  const { isReviewOpen, openReview, closeReview, menuButtonRef } = useReviewOverlayState(closeDrawer, refreshStatus)
 
   // A failed read hides the badge: a stale number would look trustworthy.
   const status = ingest.hasLoadError ? null : ingest.status

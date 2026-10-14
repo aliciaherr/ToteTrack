@@ -1,4 +1,5 @@
 import type { ReviewSourceRow } from '@/db/queries/review-source'
+import { MAX_TEXT_INPUT_CHARS } from '@/lib/extraction/extraction.constants'
 import { MAX_ATTACHMENTS_PER_EMAIL, MAX_ATTACHMENT_BYTES } from '@/lib/ingest/limits.constants'
 import type { IngestLimitFailure, IngestLimitReason } from '@/lib/ingest/types'
 import { ReviewSourceShapeError, UnknownRefusalReasonError } from './errors'
@@ -29,12 +30,19 @@ export interface ReviewEmail {
 
 export type ReviewSource =
   | { kind: 'pdf' | 'image'; url: string }
-  | { kind: 'text'; text: string }
+  /**
+   * `truncated`: the stored body is longer than `MAX_TEXT_INPUT_CHARS`, so
+   * `text` is only its start (LOW-T106-1). The stored row is never cut.
+   */
+  | { kind: 'text'; text: string; truncated: boolean }
   | { kind: 'refused'; refusal: RefusalDescription; email: ReviewEmail }
 
 const BYTES_PER_MEGABYTE = 1024 * 1024
 const MAX_ATTACHMENT_MEGABYTES = Math.round(MAX_ATTACHMENT_BYTES / BYTES_PER_MEGABYTE)
 const OPEN_IN_GMAIL = 'Open it in Gmail to see the PO.'
+// UTF-16 high-surrogate range: a code unit here starts a two-unit character.
+const HIGH_SURROGATE_MIN = 0xd800
+const HIGH_SURROGATE_MAX = 0xdbff
 
 /** Title and next step for every `IngestLimitReason`. A `Record`, so a new reason fails the type check. */
 const REFUSAL_WORDING: Record<IngestLimitReason, Pick<RefusalDescription, 'title' | 'nextStep'>> = {
@@ -102,13 +110,27 @@ export function gmailSearchUrl(messageId: string | null): string | null {
 }
 
 /**
+ * An email body capped for the browser (LOW-T106-1): a stranger controls its
+ * size. Same cap as extraction's (`MAX_TEXT_INPUT_CHARS`, M-05).
+ * A cut that would split a surrogate pair drops its lone high half.
+ *
+ * @returns The whole text with `truncated: false`, or its start with `truncated: true`.
+ */
+export function capBodyText(text: string): { text: string; truncated: boolean } {
+  if (text.length <= MAX_TEXT_INPUT_CHARS) return { text, truncated: false }
+  const lastKept = text.charCodeAt(MAX_TEXT_INPUT_CHARS - 1)
+  const end = lastKept >= HIGH_SURROGATE_MIN && lastKept <= HIGH_SURROGATE_MAX ? MAX_TEXT_INPUT_CHARS - 1 : MAX_TEXT_INPUT_CHARS
+  return { text: text.slice(0, end), truncated: true }
+}
+
+/**
  * The source of a row with no stored file: its email text, or its refusal.
  *
  * @throws {ReviewSourceShapeError} when the row has neither.
  * @throws {UnknownRefusalReasonError} for a refusal with no wording.
  */
 export function bodySourceOf(row: ReviewSourceRow): Exclude<ReviewSource, { kind: 'pdf' | 'image' }> {
-  if (row.body_text !== null) return { kind: 'text', text: row.body_text }
+  if (row.body_text !== null) return { kind: 'text', ...capBodyText(row.body_text) }
   const failure = refusalOf(row.check_results)
   if (!failure) throw new ReviewSourceShapeError(row.id, 'has no file, no body text and no refusal')
   return {

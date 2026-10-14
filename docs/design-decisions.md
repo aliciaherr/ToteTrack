@@ -168,6 +168,11 @@ coloured by the checks that ran.
 
 ---
 
+### Review overlay scrolling (Task 120, 2026-10-13)
+- Each pane scrolls on its own; the overlay and page never scroll. Side by side from iPad
+  landscape width up, stacked halves below it.
+- Approve / Skip / Delete are pinned below the right pane's scroll area, always visible.
+
 ## What to Avoid
 - No persistent visible sidebar (replaced with hamburger — see deviations table)
 - No rounded pill nav (mockup uses rectangular items with left-border active state)

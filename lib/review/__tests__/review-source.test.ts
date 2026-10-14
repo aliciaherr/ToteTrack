@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { ReviewSourceRow } from '@/db/queries/review-source'
 import type { IngestLimitFailure, IngestLimitReason } from '@/lib/ingest/types'
-import { bodySourceOf, describeRefusal, gmailSearchUrl, refusalOf } from '../review-source'
+import { MAX_TEXT_INPUT_CHARS } from '@/lib/extraction/extraction.constants'
+import { bodySourceOf, capBodyText, describeRefusal, gmailSearchUrl, refusalOf } from '../review-source'
 import { ReviewSourceShapeError, UnknownRefusalReasonError } from '../errors'
 
 const PO_ID = '22222222-2222-2222-2222-222222222222'
@@ -90,9 +91,37 @@ describe('gmailSearchUrl', () => {
   })
 })
 
+describe('capBodyText', () => {
+  it('returns a body exactly at the cap whole', () => {
+    const text = 'x'.repeat(MAX_TEXT_INPUT_CHARS)
+    expect(capBodyText(text)).toEqual({ text, truncated: false })
+  })
+
+  it('returns only the start of a body over the cap', () => {
+    const capped = capBodyText('x'.repeat(MAX_TEXT_INPUT_CHARS + 1))
+    expect(capped).toEqual({ text: 'x'.repeat(MAX_TEXT_INPUT_CHARS), truncated: true })
+  })
+
+  it('never cuts a two-unit character in half at the cap', () => {
+    const text = `${'x'.repeat(MAX_TEXT_INPUT_CHARS - 1)}\u{1F4E6}tail`
+    const capped = capBodyText(text)
+    expect(capped.truncated).toBe(true)
+    expect(capped.text).toBe('x'.repeat(MAX_TEXT_INPUT_CHARS - 1))
+  })
+})
+
 describe('bodySourceOf', () => {
   it('returns the body text for an email-body PO', () => {
-    expect(bodySourceOf(row({ body_text: '<b>300 totes</b>' }))).toEqual({ kind: 'text', text: '<b>300 totes</b>' })
+    expect(bodySourceOf(row({ body_text: '<b>300 totes</b>' }))).toEqual({ kind: 'text', text: '<b>300 totes</b>', truncated: false })
+  })
+
+  it('caps a body over MAX_TEXT_INPUT_CHARS and flags it truncated (LOW-T106-1)', () => {
+    const body = 'x'.repeat(MAX_TEXT_INPUT_CHARS + 5)
+    expect(bodySourceOf(row({ body_text: body }))).toEqual({
+      kind: 'text',
+      text: 'x'.repeat(MAX_TEXT_INPUT_CHARS),
+      truncated: true,
+    })
   })
 
   it('returns the refusal card data for a refused row', () => {
