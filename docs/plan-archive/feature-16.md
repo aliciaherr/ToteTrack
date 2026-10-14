@@ -1728,3 +1728,37 @@ two dates raises `date_order_mismatch`; written dates with a 2-digit year fail
 
 **Depends on:** None.
 **Status:** [x] Done (2026-10-14). `datePair` judges each date against the quote date it was read from; order proof from every date in every quote (this also catches a day-first date that is not first in its quote, which the old code missed). Written dates accept 2-digit years, never the day reused as the year. New check `quantity_missing` ("No quantity found: enter it"). New tests fail on the old code. 2374 tests passing.
+
+## Task 110: Bring the architecture docs up to date and remove `document-extraction.md`
+
+**Planned 2026-10-14** (`@create-plan`). **Infra task:** docs only, no user-visible change, so
+no PRD entry. Builder decision 2026-10-14: dissolve `document-extraction.md` and delete it (its
+own "Lifespan" line says so).
+
+**Files:**
+- `docs/architecture.md` — modify.
+- `docs/data-model.md` — modify.
+- `docs/document-extraction.md` — delete.
+
+**Acceptance criteria:**
+- [x] `architecture.md`: the claim query shown as CONSTRAINT-40 requires (MATERIALIZED CTE, not
+      `WHERE id IN (… SKIP LOCKED)`); no mention of the deleted `countPendingReview` /
+      `listPendingReview`; `db/queries/*` no longer called "read-only" (inbound has inserts).
+- [x] `architecture.md` no-run-lock section lists the overlap costs: duplicate-flag misses and
+      double-counted UID failures.
+- [x] `architecture.md` records the review-fix batch: worker writes fenced to their claim
+      (`LostClaimError`, `lost` outcome); a UID failing on a live IMAP connection is a counted
+      failed UID, not a run abort; IMAP timeouts 30/15/60 s; `toOrderQuantities` in
+      `lib/extraction/quantities.ts`; checks `value_not_in_quote`, `date_order_mismatch`,
+      `quantity_missing`, and the space-joined PDF text layer (Task 122).
+- [x] `data-model.md`: Feature 16 tables, enums, the 0020 functions and the 0021 CHECK.
+- [x] Anything in `document-extraction.md` still true is in the docs above, with a link to
+      `architecture-playbooks/playbooks/document-extraction.md`; the file is deleted and no doc
+      links to it (`grep`).
+- [x] Every claim checked against the code, not the backlog wording.
+
+**Tests required:** none (docs only). Check: `grep -rn "document-extraction.md" docs/` shows
+only the playbook link.
+
+**Depends on:** Tasks 122, 123.
+**Status:** [x] Done (2026-10-14). `architecture.md`: claim shown as the MATERIALIZED CTE, stale `countPendingReview`/`listPendingReview` and "read-only" queries fixed; new sections for the claim fence, IMAP connection-vs-message failures and the check suite (incl. Tasks 122/123, `toOrderQuantities`); no-run-lock costs listed. `data-model.md`: Feature 16 enums, 4 tables, 0020 functions, 0021 CHECK, relationships. `docs/document-extraction.md` was **gitignored**, not tracked: nothing in it was unique (business facts already in `assumptions.md`), so it was deleted along with its `.gitignore` entry; copy kept in the session scratchpad.

@@ -1,6 +1,6 @@
 # Data Model: ToteTrack
 
-**Date:** 2026-08-10 (documents migrations through `0015_pickups`; `0014` and `0015` were hand-run against prod on 2026-08-10. Previously reconciled through `0011_backfill_production_date` on 2026-07-27, and against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
+**Date:** 2026-10-14 (documents migrations through `0021_worker_foundations`; Feature 16 tables added by Task 110. 2026-08-10: through `0015_pickups`; `0014` and `0015` were hand-run against prod on 2026-08-10. Previously reconciled through `0011_backfill_production_date` on 2026-07-27, and against the live Supabase DB through `0008_po_multi_combo` on 2026-04-25)
 **Status:** Approved — reflects production schema
 
 ---
@@ -20,6 +20,9 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `support_category` | `bug` \| `feature_request` \| `question` \| `other` |
 | `support_priority` | `low` \| `standard` \| `high` \| `critical` |
 | `ticket_status` | `open` \| `in_progress` \| `resolved` \| `closed` |
+| `inbound_email_classification` | `po_found` \| `no_po_found` \| `failed` |
+| `inbound_po_source_kind` | `image` \| `pdf` \| `email_body` |
+| `inbound_po_status` | `pending_extraction` \| `extracting` \| `pending_review` \| `approved` \| `discarded` \| `extraction_failed` |
 
 ---
 
@@ -77,7 +80,7 @@ All enums implemented as Drizzle `pgEnum`. Never use raw strings in place of the
 | `delivery_address` | text | nullable | Required when customer_collects = false (app-level) |
 | `requested_delivery_date` | date | nullable | Made optional in migration 0006 |
 | `backhaul` | boolean | NOT NULL, default false | Pins to top of Pending Orders widget |
-| `document_url` | text | nullable | Supabase Storage path (not a URL) |
+| `document_url` | text | nullable | Supabase Storage path (not a URL); set on approve from review, an `inbound/` path, signed on view (Tasks 108, 121) |
 | `notes` | text | nullable | |
 | `invoice_id` | uuid | FK → invoices.id, onDelete: set null | null = not yet invoiced |
 | `created_at` | timestamptz | NOT NULL, defaultNow() | |
@@ -222,6 +225,95 @@ Collections of empty totes from a customer (Feature 15, migration `0015`). A **s
 
 ---
 
+### Feature 16 — email PO ingestion (migrations 0016–0021)
+
+The four ingestion tables. RLS on all four copies the 0002 single-user pattern
+(CONSTRAINT-05). Prod: 0016–0021 applied by hand in the Supabase SQL editor.
+Design and the rules behind each column: `architecture.md`, "Email PO Ingestion".
+
+### `inbound_emails`
+
+One row per mailbox message read: the **processed marker** (CONSTRAINT-33).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK, defaultRandom() | |
+| `uid_validity` | bigint | NOT NULL | IMAP UIDVALIDITY (0017) |
+| `uid` | bigint | NOT NULL | IMAP UID; UNIQUE (`uid_validity`, `uid`) is the marker |
+| `message_id` | text | nullable, not unique | A label only; no code branches on it |
+| `classification` | inbound_email_classification | NOT NULL | |
+| `from_address`, `subject` | text | nullable | Sender-written headers; NULL on a give-up placeholder |
+| `received_at` | timestamptz | nullable | IMAP INTERNALDATE on a placeholder |
+| `processed_at`, `created_at`, `updated_at` | timestamptz | NOT NULL, defaultNow() | |
+
+**Indexes:** `classification`, `received_at`
+
+### `inbound_pos`
+
+Staged PO candidates: the review queue. One email gives 0..n rows.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | uuid | PK, defaultRandom() | |
+| `inbound_email_id` | uuid | NOT NULL, FK → inbound_emails.id, onDelete: cascade | |
+| `source_kind` | inbound_po_source_kind | NOT NULL | |
+| `document_path` | text | nullable | `inbound/[content-hash].[ext]` in `po-documents`; NULL for `email_body` |
+| `content_hash` | text | NOT NULL, indexed, **not unique** | A duplicate is flagged, never rejected |
+| `duplicate_of_id` | uuid | nullable, FK → inbound_pos.id, onDelete: set null | The earliest row with the same hash |
+| `status` | inbound_po_status | NOT NULL, default 'pending_extraction' | |
+| `attempt_count` | integer | NOT NULL, default 0 | Counted at claim, before rendering |
+| `body_text` | text | nullable (0021) | Full normalised body of an `email_body` PO |
+| `extraction_started_at` | timestamptz | nullable (0021) | Worker lease; on a released row, the release time |
+| `extracted` | jsonb | nullable | The model's reading, as returned |
+| `check_results` | jsonb | nullable | `failures` array, quote statuses, customer match |
+| `confirmed` | jsonb | nullable | What the human approved; with `extracted`, the correction signal |
+| `order_id` | uuid | nullable, FK → orders.id, onDelete: set null | Set on approve |
+| `skipped_at` | timestamptz | nullable | Skip only stamps this; the row stays in the queue |
+| `created_at`, `updated_at` | timestamptz | NOT NULL, defaultNow() | |
+
+**CHECK `inbound_pos_body_text_email_body_only` (0021):** `body_text IS NULL OR source_kind = 'email_body'`.
+It is in the migration only, not yet in `db/schema/inbound.ts` (backlog).
+
+**Indexes:** `inbound_email_id`, `content_hash`, `status`, `duplicate_of_id`, `order_id`
+
+### `ingest_mailbox_state`
+
+The UID watermark, one row per mailbox (0017).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `mailbox` | text | PK | |
+| `uid_validity` | bigint | NOT NULL | The UIDVALIDITY `last_uid` belongs to |
+| `last_uid` | bigint | NOT NULL | Every listed UID at or below it is committed; 0 before any |
+| `last_run_at` | timestamptz | nullable | Last successful run: the menu's "last checked" |
+
+### `ingest_uid_failures`
+
+Failing runs per UID, for the give-up rule (0019, CONSTRAINT-37). Deleted when the UID commits or gives up.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `uid_validity`, `uid` | bigint | PK (both) | |
+| `attempts` | integer | NOT NULL | Failing runs so far |
+| `first_failed_at`, `last_failed_at` | timestamptz | NOT NULL | |
+
+### Matcher functions (0020)
+
+`pg_trgm` is installed in the `extensions` schema. Two SQL functions, `IMMUTABLE`,
+`search_path = ''`, EXECUTE revoked from PUBLIC, anon and authenticated (the app
+calls them as `postgres`):
+
+- `public.normalise_company_name(text)`: lowercase, `&` → "and", punctuation
+  dropped, leading "the" and trailing company suffixes (inc, llc, ltd, co, corp,
+  company, nf, …) stripped.
+- `public.normalise_address(text)`: lowercase, punctuation dropped, street words
+  abbreviated (street → st, road → rd, avenue → ave, suite → ste, …).
+
+Both sides of every customer comparison pass through them (`db/queries/customer-match.ts`).
+No trigram index: ~100 customers.
+
+---
+
 ## Relationship Diagram
 
 ```
@@ -232,6 +324,9 @@ orders (N) >──────── invoices (1)    [invoice_id nullable]
 leads (N) >────────  customers (1)   [converted_customer_id nullable]
 leads (1) ──────────< lead_notes (N)
 support_tickets (1) ─< support_attachments (N)
+inbound_emails (1) ──< inbound_pos (N)     [cascade]
+inbound_pos (N) >──── orders (1)           [order_id nullable, set null]
+inbound_pos (N) >──── inbound_pos (1)      [duplicate_of_id nullable, set null]
 ```
 
 ---

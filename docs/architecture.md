@@ -98,7 +98,7 @@
 
 - **Server Components** (in `app/(app)/[screen]/page.tsx`): fetch data server-side, pass as props to client components. Faster first paint; no client-side loading states for initial render.
 - **Server Actions** (in `lib/actions/[domain].ts`): handle all create/update/delete operations. Called from client components via event handlers. Type-safe. No HTTP boilerplate.
-- **Queries** (in `db/queries/[domain].ts`): read-only DB functions, called from server components or server actions.
+- **Queries** (in `db/queries/[domain].ts`): DB functions, called from server components, server actions and the Feature 16 ingest routes. Most only read; Feature 16's staging (`inbound-emails.ts`), claim and worker writes (`extraction-queue.ts`) and review decisions (`review-decisions.ts`) write, each in one statement or one transaction.
 
 **59 total operations** (recounted 2026-08-10 against source) = **29 + 30**:
 
@@ -422,6 +422,10 @@ A UID whose staging fails halts the watermark, and the next run retries it. That
 
 **Time-based selection was rejected.** IMAP's `SINCE` search is **date-granular — whole days, not timestamps** — so "since the last run" degrades to "since today" and re-fetches the day's mail on every run. Worse, late or out-of-order delivery below a time watermark is never seen again: a silently missed PO. UID is the same idea expressed in the unit the server actually guarantees.
 
+### IMAP failures: the connection versus one message (2026-10-14 review fix)
+
+`ImapConnectionError` means the connection is gone: the run aborts and writes no state. `UidFetchError` means one message would not download **while the connection stayed usable**: the run carries on, and that UID is a counted failed UID under the give-up rule, so a message the server never hands over cannot pin ingestion (CONSTRAINT-34/37). The imapflow client has explicit timeouts (connect 30 s, greeting 15 s, socket 60 s; `limits.constants.ts`) and an `error` listener, so a stalled or dropped connection fails loud instead of hanging the run.
+
 ### No silent skips — every email produces a visible outcome
 
 **A wrong reading is acceptable. A missed ingestion with no notification is not.** This is the governing rule for the whole feature, and it ranks above extraction accuracy, cost and tidiness of the queue.
@@ -461,7 +465,9 @@ Every extracted value carries a source quote, and the PRD requires that quote to
 | Digital PDF | its embedded text layer (`pdfjs-dist` `getTextContent`, from the same parse that renders the pages, under the same bounds) | — |
 | Image, scanned PDF | nothing available | `unverifiable` |
 
-Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_found` is a check failure**: it means the value was likely invented, and it becomes an entry in the `check_results.failures` array (Task 95 contract). `unverifiable` is recorded but does not rank a row up, so photos do not flood the top of the queue. The text layer is **never sent to the model and never used to fill a field**. CONSTRAINT-35 (amended) permits it for verification only. Matching normalises case, whitespace and punctuation spacing. Exact tolerance (table-column reordering in the text layer) is settled by Task 101 against the 4 real POs.
+Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_found` is a check failure**: it means the value was likely invented, and it becomes an entry in the `check_results.failures` array (Task 95 contract). `unverifiable` is recorded but does not rank a row up, so photos do not flood the top of the queue. The text layer is **never sent to the model and never used to fill a field**. CONSTRAINT-35 (amended) permits it for verification only. Matching normalises case, whitespace and punctuation spacing, and accepts a table row's cells in any order on one page (Task 101).
+
+**Numbers must be whole on the page.** A quote's number must not sit inside a longer one ("1067" is not in "10672", "7,800" not in "7,800.18"). `render-pdf.ts` joins pdfjs text items with a space, so a table-cell edge is a number edge; joined with nothing, "330" and "23.64" read as "33023.64" and genuine quotes failed (Task 122). Word matching erases whitespace, so a word pdfjs splits across items still matches. Known limit: two touching runs in the same font and size are one pdfjs item, which no separator can split.
 
 ---
 
@@ -474,6 +480,17 @@ Each quote resolves to `verified` / `not_found` / `unverifiable`. **Only `not_fo
 - **Spend bounds:** email text is capped at 20k chars, output at 4k tokens, and a truncated response is rejected rather than parsed.
 - **Errors** live in `lib/extraction/errors.ts`, not `lib/errors.ts` (merging would break the 300-line cap).
 - **Vercel is unverified** for the native canvas binary. See A-14: `serverExternalPackages` + Node ≥ 22.13 are deploy prerequisites for Task 103/104.
+- **Why this shape** (privacy posture, validation approach, what the library owns versus the app): `architecture-playbooks/playbooks/document-extraction.md` (separate repo). The temporary `docs/document-extraction.md` was folded in here and deleted (Task 110).
+
+### The check suite — `lib/checks/` (Tasks 101, 123; 2026-10-14 review fixes)
+
+`runChecks` is pure: extraction plus source text in, `failures` and quote statuses out. A failure **ranks** a PO and becomes a flag on its form field; it never blocks or accepts one. Besides quotes, arithmetic, dates and field gates (Task 101):
+
+- **`value_not_in_quote`:** each PO number, the stated total and each date must appear in **its own** quote. Quote verification proves the quote is on the page; this proves the value was read from it (PO `10627` quoting "PO 10672" passes the first and fails here). Works without a text layer, so images are covered. Written dates accept 2-digit years, never the day reused as the year (Task 123).
+- **`date_order_mismatch`:** POs are US-only and month-first (CONSTRAINT-41). A document whose dates prove day-first, prove both orders, or hold a date valid in neither is flagged, as is a value that is not its quote read in the proven order. A quote may print two dates (order + ship, a range): every one is evidence of the order, and each value is judged against the date it was read from (Task 123).
+- **`quantity_missing`** is apart from **`quantity_out_of_bounds`**: "no quantity" and "a bad quantity" get different wording. Both leave the field blank (Task 123).
+
+**`toOrderQuantities`** (`lib/extraction/quantities.ts`) is the one mapping from extracted lines to the order's six quantity/unit-price slots, used by the review pane: quantities sum per tote type, a type at two prices is a conflict (never averaged), unknown types are counted, `other` lines never contribute.
 
 ---
 
@@ -483,7 +500,7 @@ The worker (`lib/ingest/worker.ts`, queue in `db/queries/extraction-queue.ts`, T
 
 **Route ownership.** Task 116 owns `POST /api/ingest/extract`, authenticated by `INGEST_TRIGGER_SECRET`. The handler validates the secret, responds `202` at once, and does the batch in `after()` so the caller is never held open. When the batch reports `rowsMayRemain`, it fetches its own route once at `INGEST_APP_ORIGIN` (self-chain, A-11; never `request.url`, LOW-T116-1). It never chains on how many rows were claimed (MEDIUM-10). Task 104 owns the cron and the manual trigger: both reach `/api/ingest/run`, which runs `runIngestion` and then pokes this route (see "Ingestion triggers"). The route sets `maxDuration = 120` (M-04 condition 3; raised from 60 by builder decision 2026-10-12, because the 30 s claim cutoff plus a 60 s model call did not fit in 60). A test keeps it between cutoff + model timeout and the 5-minute lease. The post-response work lives in `lib/ingest/extract-trigger.ts` (`drainAndChain`), which never throws: inside `after()` the framework would print a raw error, and a drizzle error carries document text. Auth is `lib/ingest/trigger-auth.ts` (`isAuthorisedTrigger`, `triggerAuthHeaders`), which Task 104 reuses; an unset secret throws (500), never opens the route. **Fallback if self-chaining proves unreliable (A-11):** an external 5-minute cron calls the same route. Nothing else changes.
 
-**Claiming is one statement, one row at a time.** `UPDATE … SET status = 'extracting', attempt_count = attempt_count + 1, extraction_started_at = <now> WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING …`. Two concurrent invocations can never take the same row, and the attempt is counted **before** rendering starts (M-04 condition 1).
+**Claiming is one statement, one row at a time.** `WITH claimable AS MATERIALIZED (SELECT id … ORDER BY created_at LIMIT n FOR UPDATE SKIP LOCKED) UPDATE inbound_pos SET status = 'extracting', attempt_count = attempt_count + 1, extraction_started_at = <now> FROM claimable WHERE id = claimable.id RETURNING …` (`buildClaimBatchQuery`). **Never `WHERE id IN (SELECT … LIMIT)`**: on a small table the planner re-runs that subquery per row, the LIMIT is not honoured and one claim takes every waiting row (CONSTRAINT-40). Two concurrent invocations can never take the same row, and the attempt is counted **before** rendering starts (M-04 condition 1).
 
 The worker loops: claim, process, claim again. It stops at `INGEST_BATCH_SIZE` rows, or once `EXTRACTION_CLAIM_CUTOFF_MS` (30 s) has passed. Claiming one row at a time means a killed invocation spends only the in-flight row's attempt, not its batch-mates' (MEDIUM-09).
 
@@ -494,6 +511,8 @@ A permanent failure goes straight to `extraction_failed`. The permanent errors a
 A config error (missing OpenRouter key or Storage credential) stops the batch, and so does OpenRouter refusing the account (401 bad key, 402 no credits, 403 forbidden): every row would get the same answer, so failing them row by row would park the whole queue at `extraction_failed`. The OpenRouter key is read before the first claim. **Claims use a `MATERIALIZED` CTE (CONSTRAINT-40).**
 
 **Lease.** A row left at `extracting` by a killed invocation is reclaimable once `extraction_started_at` is older than `EXTRACTION_LEASE_MS`, which exceeds `maxDuration`. A row whose `attempt_count` has reached `MAX_EXTRACTION_ATTEMPTS` is never rendered again. It moves to `extraction_failed` (M-04 condition 2), and the review queue lists `extraction_failed` alongside `pending_review`, with the document and empty fields (PRD).
+
+**Writes are fenced to the claim (2026-10-14 review fix).** Every worker write after the claim matches `id` **and** the claim's own `extraction_started_at` (`ClaimFence`) while the row is still `extracting`. A worker whose lease expired and was reclaimed by another matches no row and gets `LostClaimError`: it writes nothing and the row's outcome is `lost`. Writing anyway could pull an approved row back into the queue and create a duplicate order.
 
 **Render CPU is accepted (M-04 condition 4, builder 2026-10-12).** No `worker_thread`. A hostile page that renders past the deadline can at worst cost `MAX_EXTRACTION_ATTEMPTS` killed invocations before its row ends visible.
 
@@ -513,17 +532,21 @@ Each method accepts only its own secret, and both need `INGEST_TRIGGER_SECRET` t
 - Uploads are content-addressed and overwrite in place.
 - Both runs start from the same watermark and write a watermark that only passes UIDs they saw committed. The later write can at worst land lower, which just re-lists already-staged mail.
 
-The one cost is that a failing UID is counted once per overlapping run, so it reaches `GIVE_UP_MIN_ATTEMPTS` sooner; `GIVE_UP_MIN_AGE_MS` still holds. Task 105's button disables itself while a run is in flight.
+The costs, accepted:
+- **Double-counted UID failures.** A failing UID is counted once per overlapping run, so it reaches `GIVE_UP_MIN_ATTEMPTS` sooner; `GIVE_UP_MIN_AGE_MS` still holds.
+- **Missed duplicate flags.** The content-hash lookup runs inside each staging transaction, so two runs staging the same document from two different messages at the same moment cannot see each other's row, and neither is flagged `duplicate_of_id`. Both reach review; the save-time PO-number check is the backstop.
+
+Task 105's button disables itself while a run is in flight.
 
 ### Review-queue status in the menu (Task 105, 2026-10-12)
 
-**The count is every ingested PO without a decision**: every status except `approved` and `discarded` (`countUndecided` in `db/queries/inbound-pos.ts`). Skipping only stamps `skipped_at`, so a skipped PO stays counted, and rows still with the worker (`pending_extraction`, `extracting`) count as "being read". Only approve or discard lowers the number, so nothing ingested can go quiet before a human decides on it (builder decision). `countPendingReview` is unchanged: it is the review-queue count Task 106 uses.
+**The count is every ingested PO without a decision**: every status except `approved` and `discarded` (`countUndecided` in `db/queries/inbound-pos.ts`). Skipping only stamps `skipped_at`, so a skipped PO stays counted, and rows still with the worker (`pending_extraction`, `extracting`) count as "being read". Only approve or discard lowers the number, so nothing ingested can go quiet before a human decides on it (builder decision). The review queue itself is `REVIEW_QUEUE_STATUS_FILTER` (`pending_review` + `extraction_failed`), one constant behind the badge's "to review" count, the queue reads and the decision writes.
 
 **It lives in the menu button, not a page header** (deviation from `prd.md`, builder 2026-10-12): every page header already has buttons at the top right, so a header pill would collide with them. `getIngestStatus` (`lib/actions/ingest.ts`) returns counts and one timestamp only (SEC-05). The badge refreshes on page load, on drawer open and after a check, not live while the cron runs.
 
 ### Review overlay source (Task 106, 2026-10-12)
 
-`lib/actions/review.ts` exports only `getReviewQueue`, `getReviewSource` and `getReviewFields` (Task 107). The queue order comes from `listReviewQueueIds` (`db/queries/review-source.ts`), which imports `REVIEW_QUEUE_STATUS_FILTER` and `PENDING_REVIEW_ORDER_CLAUSE` from `inbound-pos.ts`, so it cannot drift from `listPendingReview`. PDF and image rows get a 1-hour signed URL from the **session** client: migration 0003 lets any signed-in user read `po-documents`, so the secret key stays confined (CONSTRAINT-38). Email-body rows return their text, which React renders as text, never HTML. Refused rows (`email_body` with NULL `body_text` and an `ingest_limit` failure) return plain-language wording from `lib/review/review-source.ts`. That wording is a `Record` over `IngestLimitReason`, so a new reason fails the type check, and an unknown one at runtime throws `UnknownRefusalReasonError`. Only the PO id is logged.
+`lib/actions/review.ts` exports only `getReviewQueue`, `getReviewSource` and `getReviewFields` (Task 107). The queue order comes from `listReviewQueueIds` (`db/queries/review-source.ts`), which imports `REVIEW_QUEUE_STATUS_FILTER` and `PENDING_REVIEW_ORDER_CLAUSE` from `inbound-pos.ts`, so the queue order, the count and the decision writes cannot drift apart. PDF and image rows get a 1-hour signed URL from the **session** client: migration 0003 lets any signed-in user read `po-documents`, so the secret key stays confined (CONSTRAINT-38). Email-body rows return their text, which React renders as text, never HTML. Refused rows (`email_body` with NULL `body_text` and an `ingest_limit` failure) return plain-language wording from `lib/review/review-source.ts`. That wording is a `Record` over `IngestLimitReason`, so a new reason fails the type check, and an unknown one at runtime throws `UnknownRefusalReasonError`. Only the PO id is logged.
 
 ### Review overlay fields (Task 107, 2026-10-12)
 

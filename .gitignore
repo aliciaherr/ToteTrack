@@ -14,11 +14,6 @@ docs/session-handoff.md
 docs/framework-issues.md
 docs/security-report.md
 docs/qa-report.md
-# Planning artifact for the PO extraction feature. Deliberately untracked: it
-# dissolves into data-model.md / plan.md / assumptions.md once the feature ships
-# and is then deleted. The durable half lives in the architecture-playbooks repo.
-docs/document-extraction.md
-
 # Claude Code local settings
 .claude/settings.local.json
 

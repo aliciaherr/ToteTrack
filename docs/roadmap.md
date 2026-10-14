@@ -8,7 +8,7 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** Go-live blocker fixes done (122, 123). Next: Task 110 (docs).
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** **Feature 16 core done (94–123, 110).** Next: `@code-review` on Tasks 122–123, then the go-live checklist below. 111–113 wait for real use.
 - **Feature 16 runs nothing in prod** until the go-live checklist below is done.
 
 ---
@@ -190,7 +190,7 @@
 - [x] 121 — View the source PO document from the order
 - [x] 122 — Stop PDF table cells running together in the quote check (go-live blocker)
 - [x] 123 — Fix the date false alarms; a missing quantity gets its own flag (go-live blocker)
-- [ ] 110 — Bring the architecture docs up to date and remove `document-extraction.md`
+- [x] 110 — Bring the architecture docs up to date and remove `document-extraction.md`
 
 ### After the core is in real use — re-evaluate before starting
 
