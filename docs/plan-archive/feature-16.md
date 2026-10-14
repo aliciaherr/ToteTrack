@@ -1610,3 +1610,38 @@ up"), folded in so the queue never dead-ends after one PO.
 **Depends on:** Task 108.
 **Specialist:** @ui-totetrack
 **Status:** [x] Done (2026-10-14). Approve / Skip / Delete at the foot of the review pane (pinned; panes scroll on their own), in-app Delete confirm, client approval checks, queue advance with "1 of N" and "You are all caught up.", inactive-customer line, badge refresh on close. Amendments: skipped POs rotate last (`skipped_at ASC NULLS FIRST`), email body capped (LOW-T106-1 closed). Builder walked the local rows in a browser. Unit 2179, integration 40/40, tsc, eslint, next build clean.
+
+---
+
+## Task 121: View the source PO document from the order
+
+**Planned 2026-10-13** (`@create-plan`). Approve links the stored document to the order
+(Task 108); this makes it viewable.
+
+**Files:**
+- `lib/actions/order-document.ts` — create (`'use server'`). Signs the order's document.
+- `components/orders/OrderDetailParts.tsx` — modify. `PODocumentSlot` gets "View PO document".
+
+**Functions to implement:**
+- `getOrderDocumentUrl(orderId: string): Promise<{ url: string } | { error: string }>` — reads
+  the order's `document_url`; signs it for 1 hour from `po-documents` with the **session**
+  client (CONSTRAINT-38) only when it is a path under `inbound/`; otherwise an error.
+
+**Acceptance criteria:**
+- [x] An order approved from a PDF or image shows "View PO document", which opens the signed
+      link in a new tab (`rel="noopener noreferrer"`).
+- [x] An order with no document keeps today's text; an email-body order says "Created from an
+      email: no file".
+- [x] A `document_url` that is not an `inbound/` path is never signed or linked (SEC-02).
+- [x] Auth first (SEC-04); `orderId` refused unless a UUID; only the order id logged (SEC-05);
+      signing failure → generic message, logged with context (EH-01/02).
+- [x] `tsc`, `eslint`, full suite green; checked in a browser by the builder.
+
+**Tests required:**
+- `getOrderDocumentUrl` → signed URL for an `inbound/` path; refuses a non-`inbound/` value, a
+  bad id and no session; signing failure → error.
+- `PODocumentSlot` → link shown only with a document; email-body text.
+
+**Depends on:** Task 108.
+**Specialist:** @ui-totetrack
+**Status:** [x] Done (2026-10-14). `getOrderDocumentUrl` (`lib/actions/order-document.ts`) signs an `inbound/` path for 1 hour with the session client (shared `lib/storage/po-document-url.ts`, path guard `po-document-path.ts`); order detail gains `source_kind`. Slot moved to its own `components/orders/PODocumentSlot.tsx` (it now loads data), pre-signed on open so iPad Safari opens it. Builder opened a PDF/image order's document in a browser. Unit 2223, integration 45/45, tsc, eslint clean.

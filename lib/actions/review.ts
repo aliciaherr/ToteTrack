@@ -2,13 +2,12 @@
 
 import { getActiveCustomersForSelect } from '@/db/queries/customers.select'
 import { getCustomersForReview, getReviewSourceRow, listReviewQueueIds, type ReviewSourceRow } from '@/db/queries/review-source'
-import { PO_DOCUMENTS_BUCKET } from '@/lib/ingest/ingest.constants'
 import { loggableFailure } from '@/lib/loggable-failure'
 import { storedCheckResultsOf } from '@/lib/review/review-fields.check-results'
 import { reviewFieldsOf } from '@/lib/review/review-fields'
 import type { ReviewCustomer, ReviewFields } from '@/lib/review/review-fields.types'
 import { bodySourceOf, type ReviewSource } from '@/lib/review/review-source'
-import { createClient } from '@/lib/supabase/server'
+import { signPoDocument } from '@/lib/storage/po-document-url'
 import { isUuid } from '@/lib/validators/uuid'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
@@ -18,9 +17,6 @@ import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
  * signed-in user read it (migration 0003), so no secret key is needed here
  * (CONSTRAINT-38). Only a PO id is ever logged (SEC-05).
  */
-
-/** How long a signed document URL works: 1 hour, as for support attachments. */
-const SIGNED_URL_EXPIRY_SECONDS = 60 * 60
 
 const NOT_FOUND_MESSAGE = 'This PO is no longer in the review queue.'
 const INVALID_ID_MESSAGE = 'Invalid PO id.'
@@ -43,18 +39,13 @@ export async function getReviewQueue(): Promise<{ ids: string[] } | { error: str
 
 /** A 1-hour signed URL for a stored PO document, or `null` when Storage refuses. */
 async function signDocument(row: ReviewSourceRow & { document_path: string }): Promise<string | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase.storage
-    .from(PO_DOCUMENTS_BUCKET)
-    .createSignedUrl(row.document_path, SIGNED_URL_EXPIRY_SECONDS)
-  if (error || !data?.signedUrl) {
-    console.error('getReviewSource: signing the document failed', {
-      poId: row.id,
-      storageError: error?.name ?? null,
-    })
-    return null
-  }
-  return data.signedUrl
+  const signed = await signPoDocument(row.document_path)
+  if ('url' in signed) return signed.url
+  console.error('getReviewSource: signing the document failed', {
+    poId: row.id,
+    storageError: signed.storageError,
+  })
+  return null
 }
 
 /**

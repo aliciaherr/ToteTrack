@@ -9,6 +9,9 @@ vi.mock('@/db', () => ({ db: {} }))
 vi.mock('@/lib/actions/orders', () => ({
   updateOrderStatus: vi.fn(),
 }))
+vi.mock('@/lib/actions/order-document', () => ({
+  getOrderDocumentUrl: vi.fn(),
+}))
 vi.mock('@/lib/hooks/useToast', () => ({
   useToast: () => ({ toast: vi.fn() }),
 }))
@@ -75,6 +78,7 @@ const baseDetail: OrderDetailType = {
   requested_delivery_date: '2026-05-10',
   backhaul: true,
   document_url: null,
+  source_kind: null,
   notes: 'Deliver before noon.',
 }
 

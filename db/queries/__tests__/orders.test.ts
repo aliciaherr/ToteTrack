@@ -6,7 +6,7 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { getOrders, getOrderDetail } from '../orders'
+import { getOrders, getOrderDetail, getOrderDocumentPath } from '../orders'
 import { DatabaseError, OrderNotFoundError } from '@/lib/errors'
 
 const dialect = new PgDialect()
@@ -152,6 +152,7 @@ const sampleOrderDetail = {
   backhaul: true,
   document_url: null,
   notes: 'Deliver before noon.',
+  source_kind: null,
 }
 
 describe('getOrderDetail', () => {
@@ -162,6 +163,17 @@ describe('getOrderDetail', () => {
     const call = compileCall(0)
     expect(call.params).toContain(sampleOrderDetail.id)
     expect(call.sql).toMatch(/company_name/i)
+  })
+
+  it('reads source_kind from the approved inbound PO linked to the order (Task 121)', async () => {
+    const fromReview = { ...sampleOrderDetail, document_url: 'inbound/a.pdf', source_kind: 'pdf' as const }
+    mockExecute.mockResolvedValueOnce([fromReview])
+    expect(await getOrderDetail(sampleOrderDetail.id)).toEqual(fromReview)
+    const call = compileCall(0)
+    expect(call.sql).toMatch(/SELECT ip\.source_kind\s+FROM inbound_pos ip/)
+    expect(call.sql).toMatch(/ip\.order_id = o\.id AND ip\.status = 'approved'/)
+    expect(call.sql).toMatch(/LIMIT 1\s+\) AS source_kind/)
+    expect(call.params).toEqual([sampleOrderDetail.id])
   })
 
   it('throws OrderNotFoundError when no row matches the id', async () => {
@@ -194,5 +206,41 @@ describe('getOrderDetail', () => {
       operation: 'getOrderDetail',
       cause: driverError,
     })
+  })
+})
+
+describe('getOrderDocumentPath', () => {
+  const ORDER_ID = sampleOrderDetail.id
+
+  it('returns the stored key, binding the id as a parameter', async () => {
+    mockExecute.mockResolvedValueOnce([{ document_url: 'inbound/a.pdf' }])
+    expect(await getOrderDocumentPath(ORDER_ID)).toBe('inbound/a.pdf')
+    const call = compileCall(0)
+    expect(call.sql).toMatch(/SELECT document_url FROM orders WHERE id = \$1/)
+    expect(call.params).toEqual([ORDER_ID])
+  })
+
+  it('returns null for an unknown order and for an order with no document', async () => {
+    mockExecute.mockResolvedValueOnce([])
+    expect(await getOrderDocumentPath(ORDER_ID)).toBeNull()
+    mockExecute.mockResolvedValueOnce([{ document_url: null }])
+    expect(await getOrderDocumentPath(ORDER_ID)).toBeNull()
+  })
+
+  it('throws DatabaseError when the query fails, logging only the id and a parameter-free failure', async () => {
+    const driverError = new Error('connection terminated')
+    mockExecute.mockRejectedValueOnce(driverError)
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(getOrderDocumentPath(ORDER_ID)).rejects.toMatchObject({
+      operation: 'getOrderDocumentPath',
+      cause: driverError,
+    })
+    expect(consoleSpy).toHaveBeenCalledWith('getOrderDocumentPath: query failed', {
+      operation: 'getOrderDocumentPath',
+      orderId: ORDER_ID,
+      failure: expect.objectContaining({ error: 'Error' }),
+    })
+    consoleSpy.mockRestore()
   })
 })

@@ -6,28 +6,6 @@ import BackhaulTag from '@/components/shared/BackhaulTag'
 import { formatCurrency } from '@/lib/format-currency'
 import type { OrderDetail as OrderDetailType } from '@/db/queries/orders'
 
-// Tasks 19 and 33 (PO upload + Claude vision extraction) were both cut from
-// v1 scope. This slot only surfaces whether a document was loaded directly
-// into Supabase (manual admin path); there is no in-app upload flow.
-export function PODocumentSlot({ detail }: { detail: OrderDetailType }) {
-  const hasDocument = Boolean(detail.document_url)
-  return (
-    <section
-      aria-label="PO document"
-      className="rounded-lg border border-border bg-card p-4 space-y-2"
-    >
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        PO Document
-      </div>
-      <p className="text-sm text-foreground">
-        {hasDocument
-          ? 'Document on file (uploaded outside the app).'
-          : 'No document on file. In-app upload is not available in v1.'}
-      </p>
-    </section>
-  )
-}
-
 export function QuantitiesBlock({ detail }: { detail: OrderDetailType }) {
   const unitPrices: UnitPriceValues = {
     unit_price_275_recon: detail.unit_price_275_recon,

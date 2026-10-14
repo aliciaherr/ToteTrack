@@ -1,6 +1,8 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { db } from '@/db'
 import { DatabaseError, OrderNotFoundError } from '@/lib/errors'
+import { loggableFailure } from '@/lib/loggable-failure'
+import type { InboundPoSourceKind } from './inbound-pos'
 
 export type PoStatus = 'scheduled' | 'completed' | 'cancelled' | 'invoiced'
 
@@ -63,6 +65,13 @@ export interface OrderDetail {
   backhaul: boolean
   document_url: string | null
   notes: string | null
+  /**
+   * How the PO approved into this order arrived (Task 121): `pdf` or `image`
+   * when `document_url` is its stored file, `email_body` when the PO was the
+   * email text and there is no file. `null` for an order not created from
+   * Review.
+   */
+  source_kind: InboundPoSourceKind | null
 }
 
 export interface GetOrdersResult {
@@ -161,7 +170,8 @@ export async function getOrders(filters: GetOrdersFilters = {}): Promise<GetOrde
 // Detail-query body. Joins `customers` onto `orders` so the panel can render
 // the company name alongside a link back to the customer detail view. Single
 // row expected — the caller enforces not-found as an application-level error
-// via `OrderNotFoundError`.
+// via `OrderNotFoundError`. `source_kind` comes from the approved inbound PO
+// linked to the order, if any (Task 121).
 function buildOrderDetailQuery(orderId: string): SQL {
   return sql`
     SELECT
@@ -188,7 +198,14 @@ function buildOrderDetailQuery(orderId: string): SQL {
       o.requested_delivery_date,
       o.backhaul,
       o.document_url,
-      o.notes
+      o.notes,
+      (
+        SELECT ip.source_kind
+        FROM inbound_pos ip
+        WHERE ip.order_id = o.id AND ip.status = 'approved'
+        ORDER BY ip.updated_at DESC
+        LIMIT 1
+      ) AS source_kind
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     WHERE o.id = ${orderId}
@@ -219,5 +236,26 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetail> {
       cause,
     })
     throw new DatabaseError('getOrderDetail', 'Failed to load order detail', { cause })
+  }
+}
+
+/**
+ * The stored PO document key of one order (Task 121), for signing. Unknown
+ * order and no document both read as `null`: the caller has nothing to sign
+ * either way.
+ *
+ * @throws {DatabaseError} when the query fails; only the order id is logged.
+ */
+export async function getOrderDocumentPath(orderId: string): Promise<string | null> {
+  try {
+    const result = await db.execute(sql`SELECT document_url FROM orders WHERE id = ${orderId} LIMIT 1`)
+    return (result as unknown as { document_url: string | null }[])[0]?.document_url ?? null
+  } catch (cause) {
+    console.error('getOrderDocumentPath: query failed', {
+      operation: 'getOrderDocumentPath',
+      orderId,
+      failure: loggableFailure(cause),
+    })
+    throw new DatabaseError('getOrderDocumentPath', 'Failed to load the order document path', { cause })
   }
 }

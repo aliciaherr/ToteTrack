@@ -85,6 +85,7 @@ const sampleDetail: OrderDetail = {
   requested_delivery_date: '2026-05-01',
   backhaul: true,
   document_url: null,
+  source_kind: null,
   notes: 'Deliver before noon.',
 }
 

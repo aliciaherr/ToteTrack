@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import OrderStatusActions from './OrderStatusActions'
 import OrderStatusBadge from './OrderStatusBadge'
+import { PODocumentSlot } from './PODocumentSlot'
 import {
-  PODocumentSlot,
   QuantitiesBlock,
   TotalPriceBlock,
   DetailMetaGrid,
