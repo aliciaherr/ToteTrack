@@ -1645,3 +1645,40 @@ up"), folded in so the queue never dead-ends after one PO.
 **Depends on:** Task 108.
 **Specialist:** @ui-totetrack
 **Status:** [x] Done (2026-10-14). `getOrderDocumentUrl` (`lib/actions/order-document.ts`) signs an `inbound/` path for 1 hour with the session client (shared `lib/storage/po-document-url.ts`, path guard `po-document-path.ts`); order detail gains `source_kind`. Slot moved to its own `components/orders/PODocumentSlot.tsx` (it now loads data), pre-signed on open so iPad Safari opens it. Builder opened a PDF/image order's document in a browser. Unit 2223, integration 45/45, tsc, eslint clean.
+
+## Task 122: Stop PDF table cells running together in the quote check
+
+**Planned 2026-10-14** (`@create-plan`). Go-live blocker (backlog, fix-review re-check
+2026-10-14): `readPageText` joins pdf.js text items with `''`, so adjacent cells run together
+("330"+"23.64" → "33023.64", "1"+"330" → "1330") and genuine quotes fail `boundedAt`.
+
+**Files:**
+- `lib/extraction/render-pdf.ts` — modify. `readPageText` joins items with a space.
+- `lib/checks/quotes.ts` — modify. Remove the "ends in cents" allowance from `boundedAt`.
+- `lib/extraction/__tests__/render-pdf*.test.ts`, `lib/checks/__tests__/quotes*.test.ts` — modify.
+
+**Functions to implement:**
+- `readPageText(page: PDFPageProxy): Promise<string>` — items joined with `' '`, keeping the
+  `'\n'` after an item with `hasEOL`. Rewrite its doc comment: the text layer is used only by
+  quote checks, which erase whitespace before matching, so a word split across items costs
+  nothing; the space only tells `boundedAt` where a number ends.
+- `boundedAt(page, start, needle): boolean` — drop `ENDS_IN_CENTS` / `afterCents` (the
+  run-together workaround); a number must be whole on the page on both sides. Update the
+  `boundedAt` and `verifyQuote` comments to match.
+
+**Acceptance criteria:**
+- [x] Items "330" and "23.64" in separate cells: quotes "330" and "23.64" both verify.
+- [x] Items "1" and "330": quote "330" verifies; quote "1" verifies.
+- [x] Still refused: "1067" against "10672", "7,800" against "7,800.18", "30" against "300".
+- [x] A word split across items ("Mans" "fi" "eld") still verifies as "Mansfield".
+- [x] The local real PDF (`1f0ed7f8-…`) re-run through extraction + checks raises no new
+      `quote_not_found` (compare before/after; record the result in the Status line).
+- [x] No document text in logs or failure details (SEC-05); `tsc`, `eslint`, full suite green.
+
+**Tests required:**
+- `readPageText` → space between items, newline on `hasEOL` (happy); an empty page → `''`.
+- `checkQuotes` → the two backlog cases verify (happy); a number inside a longer number still
+  `not_found` (error).
+
+**Depends on:** None.
+**Status:** [x] Done (2026-10-14). PDF text items joined with a space; `boundedAt` cents allowance removed. Real local PDF `1f0ed7f8-…`: 8/8 quotes verified before and after. 2366 tests passing.

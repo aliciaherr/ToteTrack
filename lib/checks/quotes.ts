@@ -20,8 +20,8 @@ function canonical(text: string): string {
 
 /**
  * `canonical`, with **all** whitespace erased. The text layer splits words
- * across items and runs table cells together, so spacing carries no signal
- * for matching; the characters do.
+ * across items ("Mans fi eld"), so spacing carries no signal for matching;
+ * the characters do.
  */
 function normalize(text: string): string {
   return canonical(text).replace(/\s+/g, '')
@@ -56,9 +56,6 @@ function preparePage(text: string): PreparedPage {
 
 const DIGIT = /\p{N}/u
 
-/** Ends in two decimal places: a money amount whose cents close it. */
-const ENDS_IN_CENTS = /\.\p{N}{2}$/u
-
 function isDigit(char: string | undefined): boolean {
   return char !== undefined && DIGIT.test(char)
 }
@@ -74,17 +71,15 @@ function continuesNumber(spaced: string, at: number, step: 1 | -1): boolean {
 
 /**
  * A number in the quote must be a whole number on the page: "7,800" is not in
- * "7,800.18", "1067" not in "10672", "30" not in "300". One allowance: the
- * text layer runs table cells together ("$7,800.00330 G Tote"), so an amount
- * ending in cents may touch a following digit, and a number may follow one.
+ * "7,800.18", "1067" not in "10672", "30" not in "300". Table cells are
+ * separate text items, which `render-pdf` joins with a space, so a cell edge
+ * is a number edge (Task 122).
  */
 function boundedAt(page: PreparedPage, start: number, needle: string): boolean {
   const first = page.toSpaced[start]
   const last = page.toSpaced[start + needle.length - 1]
-  const afterCents = ENDS_IN_CENTS.test(page.spaced.slice(Math.max(0, first - 3), first))
-  if (isDigit(needle[0]) && !afterCents && continuesNumber(page.spaced, first - 1, -1)) return false
-  const endsInCents = ENDS_IN_CENTS.test(needle)
-  return !(isDigit(needle[needle.length - 1]) && !endsInCents && continuesNumber(page.spaced, last + 1, 1))
+  if (isDigit(needle[0]) && continuesNumber(page.spaced, first - 1, -1)) return false
+  return !(isDigit(needle[needle.length - 1]) && continuesNumber(page.spaced, last + 1, 1))
 }
 
 /** `page.compact.includes(needle)`, with number boundaries when the needle starts or ends with a digit. */

@@ -238,17 +238,18 @@ async function renderPage(
 }
 
 /**
- * A page's embedded text, items joined with nothing between them and a newline
- * where pdfjs marks an end of line. pdfjs splits words across items (ligatures,
- * kerning runs: "Mans" "fi" "eld"), so a space between every item would break
- * words apart; the cost is that adjacent table cells can run together, which
- * quote matching tolerates by ignoring whitespace.
+ * A page's embedded text, items joined with a space and a newline where pdfjs
+ * marks an end of line. The text is only ever used by quote checks, which
+ * erase whitespace before matching, so a word pdfjs splits across items
+ * ("Mans" "fi" "eld") still matches. The space tells the number-boundary
+ * check where one table cell ends: joined with nothing, "330" and "23.64"
+ * read as one number "33023.64" (Task 122).
  */
 async function readPageText(page: PDFPageProxy): Promise<string> {
   const content = await page.getTextContent()
   return content.items
     .map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : '') : ''))
-    .join('')
+    .join(' ')
 }
 
 /** Draws one page onto a fresh canvas and encodes it as PNG. */

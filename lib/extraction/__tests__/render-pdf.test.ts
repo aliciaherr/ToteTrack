@@ -99,6 +99,13 @@ describe('renderPdfPages', () => {
     expect(text).toEqual(['Synthetic page 1', ''])
   })
 
+  it('separates two table cells with a space, so their numbers stay apart (Task 122)', async () => {
+    // Touching cells in two sizes: pdfjs gives two items and no whitespace item between them.
+    const content = 'BT /F1 12 Tf 72 700 Td (330) Tj /F1 10 Tf (23.64) Tj ET'
+    const { text } = await renderPdfPages(buildPdf(1, { page: 1, content }), 5)
+    expect(text[0]).toBe('330 23.64')
+  })
+
   it('renders exactly at the page limit', async () => {
     await expect(renderPdfPages(buildPdf(2), 2)).resolves.toMatchObject({ images: [expect.any(Buffer), expect.any(Buffer)] })
   })

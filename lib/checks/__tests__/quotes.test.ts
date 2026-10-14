@@ -37,7 +37,7 @@ describe('verifyQuote', () => {
   })
 
   it('verifies a table row whose cells the text layer lists in another order', () => {
-    const page = '60 1 E Tote\n330 Gallon Recon Tote\n$130.00 $7,800.00330 G Tote - Recon'
+    const page = '60 1 E Tote\n330 Gallon Recon Tote\n$130.00 $7,800.00 330 G Tote - Recon'
     expect(verifyQuote('60 1 E Tote 330 G Tote - Recon 330 Gallon Recon Tote $130.00 $7,800.00', [page])).toBe('verified')
   })
 
@@ -100,10 +100,20 @@ describe('verifyQuote — numbers match whole', () => {
     expect(verifyQuote('PO# 1067', ['PO#\n1067\n10672'])).toBe('verified')
   })
 
-  it('accepts cents run into the next table cell ($7,800.00330), but not a cut amount', () => {
-    expect(verifyQuote('$7,800.00', ['$7,800.00330 G Tote'])).toBe('verified')
-    expect(verifyQuote('330 G Tote', ['$7,800.00330 G Tote'])).toBe('verified')
-    expect(verifyQuote('$7,800', ['$7,800.00330 G Tote'])).toBe('not_found')
+  it('verifies numbers from adjacent table cells, which the text layer separates (Task 122)', () => {
+    expect(verifyQuote('330', ['330 23.64'])).toBe('verified')
+    expect(verifyQuote('23.64', ['330 23.64'])).toBe('verified')
+    expect(verifyQuote('1', ['1 330'])).toBe('verified')
+    expect(verifyQuote('330 G Tote', ['$7,800.00 330 G Tote'])).toBe('verified')
+  })
+
+  it('still verifies a word the text layer split across items', () => {
+    expect(verifyQuote('Mansfield, TX', ['Mans fi eld , TX'])).toBe('verified')
+  })
+
+  it('does not let a number touch cents with no separator between them', () => {
+    expect(verifyQuote('330', ['$7,800.00330'])).toBe('not_found')
+    expect(verifyQuote('$7,800', ['$7,800.00 330 G Tote'])).toBe('not_found')
   })
 })
 
@@ -175,6 +185,17 @@ describe('checkQuotes', () => {
     expect(lineStatuses[0]).toBe('verified')
     expect(lineStatuses.at(-1)).toBe('not_found')
     expect(elapsed).toBeLessThan(2_000)
+  })
+
+  it('verifies a line read from adjacent cells, and still flags a number cut from a longer one (Task 122)', () => {
+    const page = ['TOTAL $1,000.00', '1 330 G Tote 330 23.64 $7,801.20'].join(' ')
+    const source = [`${SOURCE_TEXT[0]}\n${page}`]
+    const clean = makePo({ lines: [toteLine(), toteLine({ quote: '330 G Tote 330 23.64' })] })
+    expect(checkQuotes(clean, source).failures).toEqual([])
+    const cut = makePo({ lines: [toteLine(), toteLine({ quote: '330 G Tote 7,801' })] })
+    expect(checkQuotes(cut, source).failures).toEqual([
+      { check: 'quote_not_found', field: 'lines[1]', detail: 'quoted text is not in the document' },
+    ])
   })
 
   it('never stores quote text in its results', () => {

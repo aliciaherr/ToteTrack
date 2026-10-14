@@ -28,16 +28,6 @@
 
 ## Code
 
-- **GO-LIVE BLOCKERS: false alarms from the new checks** (fix-review re-check, 2026-10-14):
-  - `lib/checks/quotes.ts` boundedAt: `render-pdf.ts` joins text items with `''`, so adjacent
-    cells run together ("330"+"23.64" → "33023.64", "1"+"330" → "1330") and genuine quotes now
-    fail. Check real PO text layers; prefer joining items with a separator over more exceptions.
-  - `lib/checks/dates.ts`: `leadingParts` reads only the first date in a quote; a quote with two
-    dates (order + ship, or a range) raises `date_order_mismatch`. Pass if any date matches.
-  - `lib/checks/value-in-quote.ts` writtenMatch requires a 4-digit year ("05-MAR-26",
-    "Mar 5, '26" fail). Accept 2-digit years.
-  - Nit: a line with no quantity is flagged "Quantity looks wrong"; give it its own wording.
-
 - **`useFocusTrap` / `useEscapeClose` live in `components/calendar/productionCardDialogHooks.ts`**
   but the review overlay now imports them too (Task 106). Move them to a shared hooks file.
 
@@ -67,14 +57,6 @@
     enlarged view covers the decision buttons).
 
 - **Feature 16 `@code-review` (2026-10-14), deferred:**
-  - **For Task 110 (docs):** `architecture.md` ~486 shows the claim as `WHERE id IN (… SKIP LOCKED)`
-    (the shape CONSTRAINT-40 forbids) and ~520/526 name the deleted `countPendingReview` /
-    `listPendingReview`; `data-model.md` has no Feature 16 tables, enums, 0020 functions or 0021
-    CHECK; the no-run-lock overlap costs should list duplicate-flag misses and double-counted UID
-    failures. Also record the fix batch: worker writes fenced to their claim (`LostClaimError`,
-    `lost` outcome); a UID failing on a live IMAP connection is a counted failed UID, not a run
-    abort; the IMAP timeouts (30/15/60 s); `toOrderQuantities` in `lib/extraction/quantities.ts`;
-    new checks `value_not_in_quote` and `date_order_mismatch`.
   - Needs a prod migration: CHECK `(source_kind = 'email_body') = (document_path IS NULL)`; add
     the 0021 CHECK to `db/schema/inbound.ts` so drizzle-kit never drops it.
   - `ingest-state` upsert can move `last_uid` / `last_run_at` backwards under overlapping runs
