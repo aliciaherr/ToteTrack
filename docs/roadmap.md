@@ -8,8 +8,8 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** **Feature 16 core done (94–123, 110).** Tasks 122–123 reviewed (PASS). Next: the go-live checklist below. 111–113 wait for real use.
-- **Feature 16 runs nothing in prod** until the go-live checklist below is done.
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** **Feature 16 core done (94–123, 110).** **Deployed to prod 2026-10-14** (`3422dea`); env vars + Fluid Compute done. Next: the remaining go-live checklist steps, done with the salesperson (sample POs out of Spam → Check mail → PDF render → live run → iPad). 111–113 wait for real use.
+- **Feature 16 is live in prod but unverified:** the daily cron (06:00–06:59 Chicago) reads the inbox from 2026-10-15. Finish the checklist below before telling the salesperson to rely on it.
 
 ---
 
