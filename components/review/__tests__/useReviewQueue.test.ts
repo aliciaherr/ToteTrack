@@ -75,3 +75,67 @@ describe('useReviewQueue advance', () => {
     expect(mockGetQueue).toHaveBeenCalledTimes(3)
   })
 })
+
+/** A promise the test settles by hand, to hold a reply in flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
+describe('useReviewQueue late replies', () => {
+  it('drops a retried source reply for the old PO once a decision moved on', async () => {
+    mockGetSource.mockResolvedValueOnce({ error: 'Something went wrong. Please try again.' })
+    const { result } = await renderReady()
+    await waitFor(() => expect(result.current.source.status).toBe('error'))
+
+    // Retry FIRST's source and hold its reply; then a decision moves on to SECOND.
+    const late = deferred<unknown>()
+    mockGetSource.mockReturnValueOnce(late.promise)
+    act(() => result.current.retry())
+    mockGetQueue.mockResolvedValue({ ids: [SECOND] })
+    mockGetSource.mockResolvedValue({ source: { kind: 'text', text: 'PO B' } })
+    act(() => result.current.advance())
+    await waitFor(() => expect(result.current.source).toEqual({ status: 'ready', source: { kind: 'text', text: 'PO B' } }))
+
+    await act(async () => late.resolve({ source: { kind: 'text', text: 'PO A' } }))
+
+    expect(mockGetSource).toHaveBeenCalledWith(FIRST)
+    expect(result.current.source).toEqual({ status: 'ready', source: { kind: 'text', text: 'PO B' } })
+  })
+
+  it('drops a retried fields reply for the old PO, even a failure, once a decision moved on', async () => {
+    mockGetFields.mockResolvedValueOnce({ error: 'Something went wrong. Please try again.' })
+    const { result } = renderHook(() => useReviewQueue())
+    await waitFor(() => expect(result.current.fields.status).toBe('error'))
+
+    const late = deferred<unknown>()
+    mockGetFields.mockReturnValueOnce(late.promise)
+    act(() => result.current.retryFields())
+    mockGetQueue.mockResolvedValue({ ids: [SECOND] })
+    act(() => result.current.advance())
+    await waitFor(() => expect(result.current.fields.status).toBe('ready'))
+
+    await act(async () => late.resolve({ error: 'Something went wrong. Please try again.' }))
+
+    expect(mockGetFields).toHaveBeenLastCalledWith(SECOND)
+    expect(result.current.fields.status).toBe('ready')
+  })
+
+  it('retries the PO on screen after a decision moved on', async () => {
+    const { result } = await renderReady()
+    mockGetQueue.mockResolvedValue({ ids: [SECOND] })
+    mockGetSource.mockResolvedValueOnce({ error: 'Something went wrong. Please try again.' })
+    act(() => result.current.advance())
+    await waitFor(() => expect(result.current.source.status).toBe('error'))
+
+    act(() => result.current.retry())
+    act(() => result.current.retryFields())
+
+    await waitFor(() => expect(result.current.source.status).toBe('ready'))
+    expect(mockGetSource).toHaveBeenLastCalledWith(SECOND)
+    expect(mockGetFields).toHaveBeenLastCalledWith(SECOND)
+  })
+})

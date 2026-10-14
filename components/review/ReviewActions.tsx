@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { formValuesToCreateInput, type OrderFormValues } from '@/components/orders/orderFormSchema'
 import DeleteReviewDialog from './DeleteReviewDialog'
@@ -14,6 +14,8 @@ interface ReviewActionsProps {
   values: OrderFormValues
   /** Asks the queue to reload and load its next PO. */
   onDecided: () => void
+  /** Told true while a decision is in flight, false when it ends or this unmounts. */
+  onBusyChange?: (busy: boolean) => void
 }
 
 const BUSY_LABEL: Record<ReviewDecision, string> = {
@@ -44,14 +46,28 @@ function ActionAlert({ problems, error }: { problems: string[]; error: string | 
 }
 
 /**
+ * Reports whether a decision is in flight, so the overlay can stay open until
+ * its outcome shows. Unmounting reports false, so a pane that goes away
+ * mid-call (the queue moved on) can never leave the overlay un-closable.
+ */
+function useReportBusy(busy: boolean, onBusyChange: ((busy: boolean) => void) | undefined) {
+  useEffect(() => {
+    onBusyChange?.(busy)
+  }, [busy, onBusyChange])
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange])
+}
+
+/**
  * Approve, Skip and Delete at the foot of the review pane (Task 120). Approve
  * with problems lists them and sends nothing; otherwise it sends
  * `formValuesToCreateInput(values)`. Delete asks first, in-app. All three are
  * disabled while any one runs, so one tap is one action. Errors stay inline
- * above the buttons and the reviewer's edits are kept.
+ * above the buttons and the reviewer's edits are kept. `onBusyChange` follows
+ * the in-flight decision, so the overlay cannot close over its outcome.
  */
-export default function ReviewActions({ poId, values, onDecided }: ReviewActionsProps) {
+export default function ReviewActions({ poId, values, onDecided, onBusyChange }: ReviewActionsProps) {
   const { busy, error, approve, skip, discard } = useReviewDecisions(poId, onDecided)
+  useReportBusy(busy !== null, onBusyChange)
   const [problems, setProblems] = useState<string[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const deleteRef = useRef<HTMLButtonElement>(null)

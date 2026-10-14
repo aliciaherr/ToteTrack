@@ -8,7 +8,7 @@ import { PENDING_REVIEW_ORDER_CLAUSE, REVIEW_QUEUE_STATUS_FILTER, type InboundPo
 /**
  * The review overlay's reads (Task 106): the queue as ids, and one row's
  * source joined to its email. The filter and sort are imported from
- * `inbound-pos.ts`, so this order can never drift from `listPendingReview`.
+ * `inbound-pos.ts`, so the queue and its badge count can never drift apart.
  */
 
 /** One PO's source as the review overlay shows it. Customer data: never log it (SEC-05). */

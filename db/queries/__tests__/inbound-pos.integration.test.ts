@@ -29,11 +29,13 @@ function sqlState(error: unknown): string | undefined {
 
 type Emails = typeof import('../inbound-emails')
 type Pos = typeof import('../inbound-pos')
+type ReviewSource = typeof import('../review-source')
 type Db = typeof import('@/db')['db']
 
 describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () => {
   let emails: Emails
   let pos: Pos
+  let reviewSource: ReviewSource
   let db: Db
   let sql: typeof import('drizzle-orm')['sql']
 
@@ -69,6 +71,7 @@ describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () =>
     sql = (await import('drizzle-orm')).sql
     emails = await import('../inbound-emails')
     pos = await import('../inbound-pos')
+    reviewSource = await import('../review-source')
     await removeTestRows()
   })
 
@@ -110,16 +113,14 @@ describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () =>
     expect(count).toBe(0)
   })
 
-  it('lists and counts extraction_failed rows in the review queue', async () => {
+  it('queues and counts extraction_failed rows in the review queue', async () => {
     const emailId = await stage(3, [
       { source_kind: 'pdf', document_path: `inbound/${'f'.repeat(64)}.pdf`, body_text: null, content_hash: 'f'.repeat(64), status: 'extraction_failed' },
     ])
     const [row] = await stagedRows(emailId)
 
-    const queue = await pos.listPendingReview()
-
-    expect(queue.find((item) => item.id === row.id)?.status).toBe('extraction_failed')
-    expect(await pos.countPendingReview()).toBeGreaterThanOrEqual(1)
+    expect(await reviewSource.listReviewQueueIds()).toContain(row.id)
+    expect((await pos.countUndecided()).toReview).toBeGreaterThanOrEqual(1)
   })
 
   it('counts every undecided status, skipped included, and never approved or discarded (Task 105)', async () => {
@@ -156,7 +157,7 @@ describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () =>
       WHERE id = ${failed.id}
     `)
 
-    const ids = (await pos.listPendingReview()).map((item) => item.id)
+    const ids = await reviewSource.listReviewQueueIds()
 
     expect(ids.indexOf(clean.id)).toBeGreaterThan(-1)
     expect(ids.indexOf(failed.id)).toBeGreaterThan(ids.indexOf(clean.id))
@@ -180,7 +181,7 @@ describe.skipIf(!process.env.DATABASE_URL)('inbound_pos (local Postgres)', () =>
       WHERE id = ${failed.id}
     `)
 
-    const ids = (await pos.listPendingReview()).map((item) => item.id)
+    const ids = await reviewSource.listReviewQueueIds()
 
     expect(ids.indexOf(clean.id)).toBeGreaterThan(-1)
     expect(ids.indexOf(failed.id)).toBeGreaterThan(ids.indexOf(clean.id))

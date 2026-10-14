@@ -3,7 +3,7 @@
 import { AlertTriangle, ClipboardCheck, Clock, Loader2, Mail, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { IngestStatus } from '@/lib/actions/ingest'
-import { formatLastChecked, isCheckStale } from '@/lib/ingest/ingest-status-display'
+import { formatLastChecked, isCheckStale, pendingTotal } from '@/lib/ingest/ingest-status-display'
 
 interface IngestStatusPanelProps {
   status: IngestStatus | null
@@ -19,7 +19,7 @@ interface IngestStatusPanelProps {
 
 /** The undecided total and its split: the number the menu badge shows. */
 function PendingSummary({ status }: { status: IngestStatus }) {
-  const total = status.toReview + status.beingRead
+  const total = pendingTotal(status)
   if (total === 0) return <p className="text-sm text-secondary">Nothing pending</p>
   return (
     <div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { badgeLabel, formatLastChecked, isCheckStale } from '../ingest-status-display'
+import { badgeLabel, formatLastChecked, isCheckStale, pendingTotal } from '../ingest-status-display'
 import { INGEST_STALE_AFTER_MS } from '../ingest-status.constants'
 
 // Local-time constructors, so "Today" and "Yesterday" hold in any time zone.
@@ -34,6 +34,16 @@ describe('formatLastChecked', () => {
   it('says "Never checked" for null and shows an unreadable value as itself', () => {
     expect(formatLastChecked(null, NOW)).toBe('Never checked')
     expect(formatLastChecked('not a date', NOW)).toBe('not a date')
+  })
+})
+
+describe('pendingTotal', () => {
+  it('adds the POs to review and the ones still being read', () => {
+    expect(pendingTotal({ toReview: 3, beingRead: 2 })).toBe(5)
+  })
+
+  it('is 0 when there is no status to trust', () => {
+    expect(pendingTotal(null)).toBe(0)
   })
 })
 

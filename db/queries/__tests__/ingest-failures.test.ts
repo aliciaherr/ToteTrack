@@ -128,7 +128,10 @@ describe('countFailingUids', () => {
     mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
 
     await expect(countFailingUids()).rejects.toThrow(DatabaseError)
-    expect(consoleError.mock.calls[0]?.[1]).toMatchObject({ operation: 'countFailingUids' })
+    const logged = consoleError.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(logged).toMatchObject({ operation: 'countFailingUids', failure: { error: 'Error' } })
+    // SEC-05: the raw error never reaches the log, only its safe summary.
+    expect(logged).not.toHaveProperty('cause')
     consoleError.mockRestore()
   })
 })

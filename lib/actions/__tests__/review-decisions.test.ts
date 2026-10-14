@@ -5,13 +5,14 @@ const mockTransaction = vi.hoisted(() => vi.fn())
 const mockAddressBelongs = vi.hoisted(() => vi.fn())
 const mockMarkSkipped = vi.hoisted(() => vi.fn())
 const mockMarkDiscarded = vi.hoisted(() => vi.fn())
+const mockRecordUsage = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { transaction: mockTransaction } }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: () => ({ auth: { getUser: mockGetUser } }) }))
 vi.mock('../orders.addresses', () => ({
   addressBelongsToCustomer: mockAddressBelongs,
-  recordDeliveryAddressUsage: vi.fn(),
+  recordDeliveryAddressUsage: mockRecordUsage,
 }))
 vi.mock('@/db/queries/review-decisions', () => ({
   lockReviewRow: vi.fn(),
@@ -106,6 +107,30 @@ describe('approveReviewPo', () => {
       'approveReviewPo: could not approve the PO',
       expect.objectContaining({ poId: PO_ID }),
     )
+  })
+})
+
+describe('approveReviewPo after the commit (EH-04)', () => {
+  beforeEach(() => {
+    mockAddressBelongs.mockResolvedValue(true)
+    mockTransaction.mockResolvedValue({ orderId: 'order-1', reactivated: true })
+  })
+
+  it('returns the approved order when the post-commit step succeeds', async () => {
+    mockRecordUsage.mockResolvedValue(false)
+    expect(await approveReviewPo(PO_ID, INPUT)).toEqual({ orderId: 'order-1', reactivated: true })
+    expect(console.error).not.toHaveBeenCalled()
+  })
+
+  it('still returns the approved order, and logs the failure, when the post-commit step throws', async () => {
+    mockRecordUsage.mockRejectedValue(new Error('connection reset'))
+
+    expect(await approveReviewPo(PO_ID, INPUT)).toEqual({ orderId: 'order-1', reactivated: true })
+    expect(console.error).toHaveBeenCalledWith('approveReviewPo: order created, but the post-commit step failed', {
+      poId: PO_ID,
+      orderId: 'order-1',
+      failure: expect.objectContaining({ error: 'Error' }),
+    })
   })
 })
 

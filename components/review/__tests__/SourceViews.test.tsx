@@ -1,3 +1,4 @@
+import { createRef } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import SourcePane from '../SourcePane'
@@ -115,7 +116,7 @@ describe('RefusalCard', () => {
 
 describe('ExpandedSource', () => {
   it('zooms within its bounds', () => {
-    render(<ExpandedSource source={{ kind: 'image', url: URL }} onClose={vi.fn()} />)
+    render(<ExpandedSource source={{ kind: 'image', url: URL }} onClose={vi.fn()} returnFocusRef={createRef()} />)
     const zoomIn = screen.getByRole('button', { name: 'Zoom in' })
     const zoomOut = screen.getByRole('button', { name: 'Zoom out' })
 
@@ -128,7 +129,7 @@ describe('ExpandedSource', () => {
 
   it('closes on the close button and on Esc', () => {
     const onClose = vi.fn()
-    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471', truncated: false }} onClose={onClose} />)
+    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471', truncated: false }} onClose={onClose} returnFocusRef={createRef()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Close expanded view' }))
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -138,10 +139,46 @@ describe('ExpandedSource', () => {
   it('keeps Esc from reaching handlers underneath', () => {
     const underneath = vi.fn()
     window.addEventListener('keydown', underneath)
-    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471', truncated: false }} onClose={vi.fn()} />)
+    render(<ExpandedSource source={{ kind: 'text', text: 'PO 4471', truncated: false }} onClose={vi.fn()} returnFocusRef={createRef()} />)
 
     fireEvent.keyDown(window, { key: 'Escape' })
     window.removeEventListener('keydown', underneath)
     expect(underneath).not.toHaveBeenCalled()
+  })
+
+  it('focuses its Close button on open and returns focus to the opener on close', () => {
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    const returnFocusRef = { current: opener }
+    const { unmount } = render(
+      <ExpandedSource source={{ kind: 'image', url: URL }} onClose={vi.fn()} returnFocusRef={returnFocusRef} />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Close expanded view' })).toHaveFocus()
+    unmount()
+    expect(opener).toHaveFocus()
+    opener.remove()
+  })
+})
+
+describe('SourcePane expanded view focus', () => {
+  it('moves focus into the expanded email and back to Expand on close', () => {
+    renderPane({ status: 'ready', source: { kind: 'text', text: 'PO 4471', truncated: false } })
+    const expand = screen.getByRole('button', { name: 'Expand' })
+    fireEvent.click(expand)
+
+    expect(screen.getByRole('button', { name: 'Close expanded view' })).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: 'Close expanded view' }))
+    expect(expand).toHaveFocus()
+  })
+
+  it('returns focus to the image after Esc closes it', () => {
+    renderPane({ status: 'ready', source: { kind: 'image', url: URL } })
+    const enlarge = screen.getByRole('button', { name: 'Enlarge PO image' })
+    fireEvent.click(enlarge)
+
+    expect(screen.getByRole('button', { name: 'Close expanded view' })).toHaveFocus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(enlarge).toHaveFocus()
   })
 })

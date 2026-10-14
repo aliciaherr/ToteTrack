@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { X, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useFocusOnOpen } from '@/components/shared/useFocusOnOpen'
 
 /** The two kinds of source that can be expanded. `truncated`: only the body's start was sent (LOW-T106-1). */
 export type ExpandableSource = { kind: 'image'; url: string } | { kind: 'text'; text: string; truncated: boolean }
@@ -13,6 +14,8 @@ export const TRUNCATED_BODY_NOTE = 'Only the start is shown; open it in Gmail fo
 interface ExpandedSourceProps {
   source: ExpandableSource
   onClose: () => void
+  /** The Enlarge button that opened this view; focus returns to it on close. */
+  returnFocusRef: RefObject<HTMLElement | null>
 }
 
 // Zoom bounds: 1× fits the screen; 4× is enough to read a phone photo's small print.
@@ -34,6 +37,18 @@ function useEscapeFirst(onClose: () => void) {
     window.addEventListener('keydown', handleKey, { capture: true })
     return () => window.removeEventListener('keydown', handleKey, { capture: true })
   }, [onClose])
+}
+
+/**
+ * Focus goes to the Close button on open and back to the opener on close, so a
+ * keyboard or VoiceOver user is never left on a button that no longer exists.
+ */
+function useFocusRoundTrip(closeRef: RefObject<HTMLButtonElement | null>, returnFocusRef: RefObject<HTMLElement | null>) {
+  useFocusOnOpen(true, closeRef)
+  useEffect(() => {
+    const opener = returnFocusRef.current
+    return () => opener?.focus()
+  }, [returnFocusRef])
 }
 
 function ZoomControls({ zoom, setZoom }: { zoom: number; setZoom: (zoom: number) => void }) {
@@ -69,17 +84,27 @@ function ZoomControls({ zoom, setZoom }: { zoom: number; setZoom: (zoom: number)
 /**
  * A PO image or email text, full screen, with zoom between `ZOOM_MIN` and
  * `ZOOM_MAX` (Task 106). Rendered inside the overlay, which narrows its focus
- * trap to this dialog while it is up.
+ * trap to this dialog while it is up. Opens with focus on Close; returns it to
+ * `returnFocusRef` on close.
  */
-export default function ExpandedSource({ source, onClose }: ExpandedSourceProps) {
+export default function ExpandedSource({ source, onClose, returnFocusRef }: ExpandedSourceProps) {
   const [zoom, setZoom] = useState(ZOOM_MIN)
+  const closeRef = useRef<HTMLButtonElement>(null)
   useEscapeFirst(onClose)
+  useFocusRoundTrip(closeRef, returnFocusRef)
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Expanded document" className="fixed inset-0 z-[60] flex flex-col bg-black/90">
       <div className="flex items-center justify-between gap-2 p-3">
         <ZoomControls zoom={zoom} setZoom={setZoom} />
-        <Button type="button" variant="outline" aria-label="Close expanded view" onClick={onClose} className="min-h-[44px] min-w-[44px]">
+        <Button
+          ref={closeRef}
+          type="button"
+          variant="outline"
+          aria-label="Close expanded view"
+          onClick={onClose}
+          className="min-h-[44px] min-w-[44px]"
+        >
           <X aria-hidden="true" />
         </Button>
       </div>

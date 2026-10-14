@@ -123,6 +123,31 @@ describe('ReviewActions', () => {
     expect(button('Skip')).toBeEnabled()
   })
 
+  it('reports busy while an action runs, and idle when it fails', async () => {
+    let resolve: (value: { error: string }) => void = () => {}
+    mockSkip.mockReturnValue(new Promise((r) => (resolve = r)))
+    const onBusyChange = vi.fn()
+    render(<ReviewActions poId={PO_ID} values={VALUES} onDecided={vi.fn()} onBusyChange={onBusyChange} />)
+    expect(onBusyChange).toHaveBeenLastCalledWith(false)
+
+    fireEvent.click(button('Skip'))
+    expect(onBusyChange).toHaveBeenLastCalledWith(true)
+
+    await act(async () => resolve({ error: 'Something went wrong. Please try again.' }))
+    expect(onBusyChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('reports idle when it unmounts mid-action, so the overlay never stays un-closable', () => {
+    mockSkip.mockReturnValue(new Promise(() => undefined))
+    const onBusyChange = vi.fn()
+    const { unmount } = render(<ReviewActions poId={PO_ID} values={VALUES} onDecided={vi.fn()} onBusyChange={onBusyChange} />)
+    fireEvent.click(button('Skip'))
+    expect(onBusyChange).toHaveBeenLastCalledWith(true)
+
+    unmount()
+    expect(onBusyChange).toHaveBeenLastCalledWith(false)
+  })
+
   it('deletes only after the in-app confirm', async () => {
     mockDiscard.mockResolvedValue({ success: true })
     const onDecided = renderActions()

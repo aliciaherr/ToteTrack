@@ -6,12 +6,12 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { buildPoByContentHashQuery, countPendingReview, countUndecided, listPendingReview } from '../inbound-pos'
+import { buildPoByContentHashQuery, countUndecided } from '../inbound-pos'
+// The queue's filter and order live here; the production reader is in review-source.ts.
+import { listReviewQueueIds } from '../review-source'
 import { DatabaseError } from '@/lib/errors'
 
 const dialect = new PgDialect()
-
-const PO_ID = '22222222-2222-2222-2222-222222222222'
 
 function compileCall(callIndex: number): { sql: string; params: unknown[] } {
   const sqlArg = mockExecute.mock.calls[callIndex]?.[0] as SQL | undefined
@@ -34,10 +34,10 @@ describe('buildPoByContentHashQuery', () => {
   })
 })
 
-describe('listPendingReview', () => {
+describe('review queue order (PENDING_REVIEW_ORDER_CLAUSE, via listReviewQueueIds)', () => {
   it('rotates skipped rows in skip order, failures first only among the unskipped (Task 120)', async () => {
     mockExecute.mockResolvedValueOnce([])
-    await listPendingReview()
+    await listReviewQueueIds()
     const { sql: compiled } = compileCall(0)
 
     const orderBy = compiled.slice(compiled.search(/ORDER BY/i))
@@ -56,7 +56,7 @@ describe('listPendingReview', () => {
 
   it('treats a failures array as a failure and never raises on another shape', async () => {
     mockExecute.mockResolvedValueOnce([])
-    await listPendingReview()
+    await listReviewQueueIds()
     const { sql: compiled } = compileCall(0)
     // jsonb_array_length raises on a non-array, so the type is tested first:
     // a NULL column, a missing key or an object must sort as "no failures"
@@ -68,58 +68,11 @@ describe('listPendingReview', () => {
 
   it('lists pending_review and extraction_failed rows, and never paginates', async () => {
     mockExecute.mockResolvedValueOnce([])
-    await listPendingReview()
+    await listReviewQueueIds()
     const { sql: compiled, params } = compileCall(0)
     expect(compiled).toMatch(/WHERE\s+p\.status IN \(\$1, \$2\)/i)
     expect(params).toEqual(['pending_review', 'extraction_failed'])
     expect(compiled).not.toMatch(/\bLIMIT\b|\bOFFSET\b/i)
-  })
-
-  it('returns the rows the driver gives back', async () => {
-    const row = { id: PO_ID, status: 'pending_review', skipped_at: null }
-    mockExecute.mockResolvedValueOnce([row])
-    await expect(listPendingReview()).resolves.toEqual([row])
-  })
-
-  it('a query failure is logged with context and rethrown as DatabaseError', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
-
-    await expect(listPendingReview()).rejects.toThrow(DatabaseError)
-
-    const logged = consoleError.mock.calls[0]?.[1] as Record<string, unknown>
-    expect(logged.operation).toBe('listPendingReview')
-    consoleError.mockRestore()
-  })
-})
-
-describe('countPendingReview', () => {
-  it('returns the count from a dedicated COUNT query, not the full rows', async () => {
-    mockExecute.mockResolvedValueOnce([{ count: 7 }])
-    await expect(countPendingReview()).resolves.toBe(7)
-
-    const { sql: compiled, params } = compileCall(0)
-    expect(compiled).toMatch(/COUNT\(\*\)::int AS count/i)
-    expect(compiled).not.toMatch(/p\.extracted/i)
-    // Same statuses as listPendingReview — the badge and the list cannot drift.
-    expect(compiled).toMatch(/WHERE\s+p\.status IN \(\$1, \$2\)/i)
-    expect(params).toEqual(['pending_review', 'extraction_failed'])
-  })
-
-  it('returns 0 when the queue is empty', async () => {
-    mockExecute.mockResolvedValueOnce([])
-    await expect(countPendingReview()).resolves.toBe(0)
-  })
-
-  it('a query failure is logged with context and rethrown as DatabaseError', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
-
-    await expect(countPendingReview()).rejects.toThrow(DatabaseError)
-
-    const logged = consoleError.mock.calls[0]?.[1] as Record<string, unknown>
-    expect(logged.operation).toBe('countPendingReview')
-    consoleError.mockRestore()
   })
 })
 
@@ -139,7 +92,11 @@ describe('countUndecided', () => {
     mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
 
     await expect(countUndecided()).rejects.toThrow(DatabaseError)
-    expect((consoleError.mock.calls[0]?.[1] as Record<string, unknown>).operation).toBe('countUndecided')
+    const logged = consoleError.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(logged.operation).toBe('countUndecided')
+    // SEC-05: the raw error never reaches the log, only its safe summary.
+    expect(logged).not.toHaveProperty('cause')
+    expect(logged.failure).toMatchObject({ error: 'Error' })
     consoleError.mockRestore()
   })
 

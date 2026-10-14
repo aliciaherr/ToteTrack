@@ -1,12 +1,18 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getOrderDocumentUrl } from '@/lib/actions/order-document'
+import { SIGNED_URL_EXPIRY_SECONDS } from '@/lib/storage/po-document-url.constants'
 
 /**
  * The order's PO document as a short-lived signed URL (Task 121), fetched when
  * the slot mounts rather than on tap: iPad Safari blocks a new tab opened after
  * an await, so the link must already hold the URL when it is tapped.
+ *
+ * The link is re-signed before it expires, and again when the page becomes
+ * visible after a long absence: a sleeping iPad suspends timers, so the
+ * scheduled re-sign alone can wake up too late. A re-sign keeps the current
+ * link on screen; only a failure replaces it (with the error and Retry).
  */
 
 export type OrderDocumentUrlState =
@@ -15,45 +21,101 @@ export type OrderDocumentUrlState =
   | { status: 'ready'; url: string }
 
 const FALLBACK_ERROR = "Couldn't load the PO document."
+const LOADING: OrderDocumentUrlState = { status: 'loading' }
 
+/**
+ * Re-sign this long before the link expires: covers the sign round trip and
+ * a slow network, so the link on screen never outlives its signature. Ages are
+ * measured on the client clock alone, so client/server clock skew is irrelevant.
+ */
+export const RESIGN_SAFETY_MARGIN_MS = 5 * 60 * 1000
+
+/** A link this old is re-signed: on its timer, or on the page becoming visible. */
+export const RESIGN_AFTER_MS = SIGNED_URL_EXPIRY_SECONDS * 1000 - RESIGN_SAFETY_MARGIN_MS
+
+type SetState = (state: OrderDocumentUrlState) => void
+
+/** One sign request; logs and returns the state to show. */
+async function signOnce(orderId: string): Promise<OrderDocumentUrlState> {
+  try {
+    const result = await getOrderDocumentUrl(orderId)
+    if ('error' in result) {
+      // The server logged its own cause; only the order id is logged here (SEC-05).
+      console.error('useOrderDocumentUrl: could not sign the PO document', { orderId })
+      return { status: 'error', message: result.error || FALLBACK_ERROR }
+    }
+    return { status: 'ready', url: result.url }
+  } catch (cause) {
+    // Transport failure: the server never answered (EH-01).
+    console.error('useOrderDocumentUrl: could not reach the server', { orderId, cause })
+    return { status: 'error', message: FALLBACK_ERROR }
+  }
+}
+
+/**
+ * Signs `orderId`'s link now and keeps it fresh until the returned cleanup
+ * runs. Each call owns its own `cancelled` flag, so a late reply for an
+ * earlier order or attempt can never overwrite the current one.
+ *
+ * @returns Cleanup: ignores in-flight replies, clears the timer and listener.
+ */
+function keepSigned(orderId: string, setState: SetState): () => void {
+  let cancelled = false
+  let inFlight = false
+  let signedAt: number | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const sign = async () => {
+    if (inFlight) return
+    inFlight = true
+    clearTimeout(timer)
+    const next = await signOnce(orderId)
+    inFlight = false
+    if (cancelled) return
+    setState(next)
+    if (next.status !== 'ready') return
+    signedAt = Date.now()
+    timer = setTimeout(() => void sign(), RESIGN_AFTER_MS)
+  }
+
+  const onVisibilityChange = () => {
+    if (document.visibilityState !== 'visible' || signedAt === null) return
+    if (Date.now() - signedAt >= RESIGN_AFTER_MS) void sign()
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  void sign()
+  return () => {
+    cancelled = true
+    clearTimeout(timer)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  }
+}
+
+/**
+ * The signed link for one order, kept fresh while the slot is mounted.
+ *
+ * @param orderId The order whose stored PO document to sign.
+ * @returns The link state, and `retry` to start again after an error.
+ */
 export function useOrderDocumentUrl(orderId: string): {
   state: OrderDocumentUrlState
   retry: () => void
 } {
-  const [state, setState] = useState<OrderDocumentUrlState>({ status: 'loading' })
-  const isMountedRef = useRef(true)
+  // Tagged with its order, so a new orderId shows loading, never the last order's link.
+  const [entry, setEntry] = useState<{ orderId: string; state: OrderDocumentUrlState }>({
+    orderId,
+    state: LOADING,
+  })
+  const [attempt, setAttempt] = useState(0)
 
-  const load = useCallback(async () => {
-    setState({ status: 'loading' })
-    try {
-      const result = await getOrderDocumentUrl(orderId)
-      if (!isMountedRef.current) return
-      if ('error' in result) {
-        // The server logged its own cause; only the order id is logged here (SEC-05).
-        console.error('useOrderDocumentUrl: could not sign the PO document', { orderId })
-        setState({ status: 'error', message: result.error || FALLBACK_ERROR })
-        return
-      }
-      setState({ status: 'ready', url: result.url })
-    } catch (cause) {
-      // Transport failure: the server never answered (EH-01).
-      console.error('useOrderDocumentUrl: could not reach the server', { orderId, cause })
-      if (isMountedRef.current) setState({ status: 'error', message: FALLBACK_ERROR })
-    }
-  }, [orderId])
-
-  useEffect(() => {
-    isMountedRef.current = true
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- signing on mount is the subscription to server state this effect exists for; state is set only after awaiting the action.
-    void load()
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [load])
+  useEffect(() => keepSigned(orderId, (next) => setEntry({ orderId, state: next })), [orderId, attempt])
 
   const retry = useCallback(() => {
-    void load()
-  }, [load])
+    setEntry({ orderId, state: LOADING })
+    setAttempt((n) => n + 1)
+  }, [orderId])
 
+  const state = entry.orderId === orderId ? entry.state : LOADING
   return { state, retry }
 }

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockGetQueue = vi.hoisted(() => vi.fn())
@@ -56,6 +56,41 @@ describe('ReviewOverlay', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     fireEvent.click(screen.getByRole('button', { name: 'Close review' }))
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('cannot be closed while a decision is saving, so its error stays in view', async () => {
+    let resolve: (value: { error: string }) => void = () => {}
+    mockSkip.mockReturnValue(new Promise((r) => (resolve = r)))
+    const onClose = vi.fn()
+    render(<ReviewOverlay onClose={onClose} />)
+    await screen.findByLabelText('PO Number')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(screen.getByRole('button', { name: 'Close review' })).toBeDisabled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => resolve({ error: 'Something went wrong. Please try again.' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong. Please try again.')
+    expect(screen.getByRole('button', { name: 'Close review' })).toBeEnabled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('can be closed again once a decision succeeds and the next PO loads', async () => {
+    mockSkip.mockResolvedValue({ success: true })
+    const onClose = vi.fn()
+    render(<ReviewOverlay onClose={onClose} />)
+    await screen.findByLabelText('PO Number')
+
+    mockGetQueue.mockResolvedValue({ ids: [SECOND] })
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    await waitFor(() => expect(mockGetFields).toHaveBeenLastCalledWith(SECOND))
+    await screen.findByLabelText('PO Number')
+
+    expect(screen.getByRole('button', { name: 'Close review' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Close review' }))
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('focuses inside the overlay when it opens', async () => {

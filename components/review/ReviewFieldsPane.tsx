@@ -23,9 +23,11 @@ interface ReviewFieldsPaneProps {
   onRetry: () => void
   /** After Approve, Skip or Delete: load the queue's next PO. */
   onDecided: () => void
+  /** True while Approve, Skip or Delete is in flight; the overlay stays open until it ends. */
+  onBusyChange?: (busy: boolean) => void
 }
 
-interface ReadyFieldsProps extends Pick<ReviewFieldsPaneProps, 'poId' | 'onDecided'> {
+interface ReadyFieldsProps extends Pick<ReviewFieldsPaneProps, 'poId' | 'onDecided' | 'onBusyChange'> {
   fields: ReviewFields
   customers: ReviewCustomer[]
 }
@@ -58,7 +60,7 @@ function inactiveCustomerName(customers: ReviewCustomer[], customerId: string): 
 }
 
 /** The pre-filled order form under its "To check" section, each field group in its status frame, the decisions at its foot. */
-function ReadyFields({ poId, fields, customers, onDecided }: ReadyFieldsProps) {
+function ReadyFields({ poId, fields, customers, onDecided, onBusyChange }: ReadyFieldsProps) {
   const review = useReviewForm(fields, customers)
   const { form } = review
   const { register, watch, setValue, formState } = form
@@ -109,7 +111,7 @@ function ReadyFields({ poId, fields, customers, onDecided }: ReadyFieldsProps) {
       </div>
       {/* Pinned below the scroll area so the decisions stay in reach (builder, 2026-10-13). */}
       <div className="border-t border-border bg-card p-4">
-        <ReviewActions poId={poId} values={values} onDecided={onDecided} />
+        <ReviewActions poId={poId} values={values} onDecided={onDecided} onBusyChange={onBusyChange} />
       </div>
     </div>
   )
@@ -123,8 +125,16 @@ function ReadyFields({ poId, fields, customers, onDecided }: ReadyFieldsProps) {
  * Skip and Delete sit at the foot (Task 120); edits are lost on close. Loads
  * beside the source with its own loading and error state, never blank (EH-01).
  */
-export default function ReviewFieldsPane({ poId, state, onRetry, onDecided }: ReviewFieldsPaneProps) {
+export default function ReviewFieldsPane({ poId, state, onRetry, onDecided, onBusyChange }: ReviewFieldsPaneProps) {
   if (state.status === 'loading') return <LoadingView />
   if (state.status === 'error') return <ErrorView onRetry={onRetry} />
-  return <ReadyFields poId={poId} fields={state.fields} customers={state.customers} onDecided={onDecided} />
+  return (
+    <ReadyFields
+      poId={poId}
+      fields={state.fields}
+      customers={state.customers}
+      onDecided={onDecided}
+      onBusyChange={onBusyChange}
+    />
+  )
 }

@@ -1,4 +1,5 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import type { IngestStatus } from '@/lib/actions/ingest'
 import { INGEST_STALE_AFTER_MS, MAX_BADGE_COUNT } from './ingest-status.constants'
 
 /**
@@ -40,6 +41,17 @@ export function formatLastChecked(lastRunAt: string | null, now: Date): string {
   if (daysAgo === 0) return `Today ${time}`
   if (daysAgo === 1) return `Yesterday ${time}`
   return `${format(checkedAt, 'MMM d')}, ${time}`
+}
+
+/**
+ * Undecided POs: the one count the menu badge, the drawer panel and the
+ * "Mail checked" toast all show.
+ *
+ * @param status The last status read, or `null` when there is none to trust.
+ * @returns `toReview + beingRead`, or `0` for `null`.
+ */
+export function pendingTotal(status: Pick<IngestStatus, 'toReview' | 'beingRead'> | null): number {
+  return status ? status.toReview + status.beingRead : 0
 }
 
 /**

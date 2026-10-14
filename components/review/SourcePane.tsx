@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Loader2, Maximize2, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ReviewSource } from '@/lib/review/review-source'
@@ -37,9 +37,12 @@ function ErrorView({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-function ImageView({ url, onExpand, onLoadError }: { url: string; onExpand: () => void; onLoadError: () => void }) {
+/** Opens the expanded view; `opener` is the button tapped, where focus returns on close. */
+type ExpandHandler = (opener: HTMLElement) => void
+
+function ImageView({ url, onExpand, onLoadError }: { url: string; onExpand: ExpandHandler; onLoadError: () => void }) {
   return (
-    <button type="button" onClick={onExpand} aria-label="Enlarge PO image" className="block w-full p-2 cursor-zoom-in">
+    <button type="button" onClick={(event) => onExpand(event.currentTarget)} aria-label="Enlarge PO image" className="block w-full p-2 cursor-zoom-in">
       {/* eslint-disable-next-line @next/next/no-img-element -- a short-lived signed Storage URL; next/image would need the host allow-listed and would cache it. */}
       <img src={url} alt="PO image" onError={onLoadError} className="w-full h-auto rounded-md" />
     </button>
@@ -50,11 +53,11 @@ function ImageView({ url, onExpand, onLoadError }: { url: string; onExpand: () =
  * Email text as plain text: React escapes it, so HTML shows as literal characters.
  * A capped body says so above the text (LOW-T106-1).
  */
-function TextView({ text, truncated, onExpand }: { text: string; truncated: boolean; onExpand: () => void }) {
+function TextView({ text, truncated, onExpand }: { text: string; truncated: boolean; onExpand: ExpandHandler }) {
   return (
     <div className="space-y-2 p-4">
       <div className="flex justify-end">
-        <Button type="button" variant="outline" onClick={onExpand} className="min-h-[44px]">
+        <Button type="button" variant="outline" onClick={(event) => onExpand(event.currentTarget)} className="min-h-[44px]">
           <Maximize2 aria-hidden="true" />
           Expand
         </Button>
@@ -65,7 +68,7 @@ function TextView({ text, truncated, onExpand }: { text: string; truncated: bool
   )
 }
 
-function ReadyView({ source, onExpand, onLoadError }: { source: ReviewSource; onExpand: () => void; onLoadError: () => void }) {
+function ReadyView({ source, onExpand, onLoadError }: { source: ReviewSource; onExpand: ExpandHandler; onLoadError: () => void }) {
   switch (source.kind) {
     case 'image':
       return <ImageView url={source.url} onExpand={onExpand} onLoadError={onLoadError} />
@@ -89,14 +92,22 @@ function expandableOf(state: SourceState): ExpandableSource | null {
 /** The review overlay's left pane: one PO's source, by kind (Task 106). */
 export default function SourcePane({ state, onRetry, onLoadError }: SourcePaneProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const openerRef = useRef<HTMLElement | null>(null)
   const expandable = expandableOf(state)
+
+  function handleExpand(opener: HTMLElement) {
+    openerRef.current = opener
+    setIsExpanded(true)
+  }
 
   if (state.status === 'loading') return <LoadingView />
   if (state.status === 'error') return <ErrorView onRetry={onRetry} />
   return (
     <>
-      <ReadyView source={state.source} onExpand={() => setIsExpanded(true)} onLoadError={onLoadError} />
-      {isExpanded && expandable && <ExpandedSource source={expandable} onClose={() => setIsExpanded(false)} />}
+      <ReadyView source={state.source} onExpand={handleExpand} onLoadError={onLoadError} />
+      {isExpanded && expandable && (
+        <ExpandedSource source={expandable} onClose={() => setIsExpanded(false)} returnFocusRef={openerRef} />
+      )}
     </>
   )
 }

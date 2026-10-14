@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { isCheckStale } from '@/lib/ingest/ingest-status-display'
+import { isCheckStale, pendingTotal } from '@/lib/ingest/ingest-status-display'
 import PillHamburger from './PillHamburger'
 import NavDrawer from './NavDrawer'
 import IngestStatusPanel from './IngestStatusPanel'
@@ -72,7 +72,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // A failed read hides the badge: a stale number would look trustworthy.
   const status = ingest.hasLoadError ? null : ingest.status
-  const pendingCount = status ? status.toReview + status.beingRead : 0
+  const pendingCount = pendingTotal(status)
   const needsAttention = status !== null && (status.failingCount > 0 || isCheckStale(status.lastRunAt, new Date()))
 
   return (

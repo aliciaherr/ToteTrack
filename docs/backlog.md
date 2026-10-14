@@ -38,6 +38,24 @@
   as a generic failure. Orders were fixed in Task 108 (`isUniqueViolation` in `orders.create.ts`
   checks `.cause` too); reuse it or copy the two-layer check.
 
+- **Review-flow tidy-ups (`@code-review` 2026-10-14, deferred nits):**
+  - one shared loading / error-with-Retry pane view (SourcePane, ReviewFieldsPane, ReviewOverlay,
+    PdfPages); one `useEscapeCapture` (DeleteReviewDialog, ExpandedSource); a generic mount-guarded
+    loader hook (useReviewQueue, useIngestStatus, useOrderDocumentUrl);
+  - `'Invalid PO id.'` defined in both `lib/actions/review.ts` and `review-decisions.ts`;
+    shared `toCount` (inbound-pos, ingest-failures); one exported `Tx` type (declared 8 times);
+  - `review-fields.ts` uses `in REVIEW_FLAG_WORDING` → `Object.hasOwn`;
+    `ReviewSourceShapeError` prefix says `reviewSourceOf:`; stale test name
+    "orders failed checks first" (`review-source.integration.test.ts`);
+  - JSDoc: `parseAddresses`, `RawCustomerSelectRow`, `storedCheckResultsOf` summary, AppShell's
+    doc block sits on `useReviewOverlayState`, `CheckMailButton`, `LoadError`;
+  - `RefusalCard` uses raw `text-amber-600`; `ReviewFieldsPane` calls `watch('customer_id')`
+    beside `useWatch`; "Fix these before approving" list stays until the next Approve;
+    focus drops to body after Delete; ingest status reads can land out of order;
+  - layering: `lib/review/review-fields.values.ts` imports `components/orders/orderFormSchema`.
+  - `SourcePane`'s expanded flag is not reset when the source changes (unreachable today: the
+    enlarged view covers the decision buttons).
+
 ## Operations
 
 - **pdfjs build warning (Task 117):** `next build` warns "Package pdfjs-dist can't be external" for the worker URL in `components/review/pdfjsClient.ts` (the server pass matches `serverExternalPackages`). Harmless at runtime (the worker is only created in the browser; verified in Chrome). Check the first Vercel preview renders a PDF in Review; if the warning matters, give the client a non-external path.

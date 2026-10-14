@@ -1,5 +1,6 @@
 import { PO_DOCUMENTS_BUCKET } from '@/lib/ingest/ingest.constants'
 import { createClient } from '@/lib/supabase/server'
+import { SIGNED_URL_EXPIRY_SECONDS } from './po-document-url.constants'
 
 /**
  * Signs a stored PO document for a signed-in user (Tasks 106 and 121). Uses
@@ -9,8 +10,8 @@ import { createClient } from '@/lib/supabase/server'
  * the path first.
  */
 
-/** How long a signed document URL works: 1 hour, as for support attachments. */
-export const SIGNED_URL_EXPIRY_SECONDS = 60 * 60
+// Re-exported for existing server callers; client code imports the constants file.
+export { SIGNED_URL_EXPIRY_SECONDS }
 
 /** The signed URL, or the Storage error's name (never its message) for the caller to log. */
 export type SignedDocumentResult = { url: string } | { storageError: string | null }

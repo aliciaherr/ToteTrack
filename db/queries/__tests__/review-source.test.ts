@@ -6,8 +6,7 @@ const mockExecute = vi.hoisted(() => vi.fn())
 
 vi.mock('@/db', () => ({ db: { execute: mockExecute } }))
 
-import { getReviewSourceRow, listReviewQueueIds } from '../review-source'
-import { listPendingReview } from '../inbound-pos'
+import { getCustomersForReview, getReviewSourceRow, listReviewQueueIds } from '../review-source'
 import { DatabaseError } from '@/lib/errors'
 
 const dialect = new PgDialect()
@@ -19,29 +18,23 @@ function compileCall(callIndex: number): { sql: string; params: unknown[] } {
   return dialect.sqlToQuery(sqlArg)
 }
 
-/** The SQL from `WHERE` on, so two queries' filters and sorts can be compared. */
-function whereOnwards(compiled: string): string {
-  return compiled.slice(compiled.search(/WHERE/i)).replace(/\s+/g, ' ').trim()
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
 describe('listReviewQueueIds', () => {
-  it('returns ids with the same filter and order as listPendingReview', async () => {
+  // The ORDER BY itself is pinned in inbound-pos.test.ts, where the clause lives.
+  it('returns ids from the review-queue filter, in the shared order', async () => {
     mockExecute.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }])
-    mockExecute.mockResolvedValueOnce([])
 
     expect(await listReviewQueueIds()).toEqual(['a', 'b'])
-    await listPendingReview()
 
-    const ids = compileCall(0)
-    const full = compileCall(1)
-    expect(ids.sql).toMatch(/SELECT\s+p\.id\s+FROM inbound_pos p/i)
-    expect(whereOnwards(ids.sql)).toBe(whereOnwards(full.sql))
-    expect(ids.params).toEqual(full.params)
+    const { sql: compiled, params } = compileCall(0)
+    expect(compiled).toMatch(/SELECT\s+p\.id\s+FROM inbound_pos p/i)
+    expect(compiled).toMatch(/WHERE\s+p\.status IN \(\$1, \$2\)/i)
+    expect(compiled).toMatch(/ORDER BY\s+p\.skipped_at ASC NULLS FIRST/i)
+    expect(params).toEqual(['pending_review', 'extraction_failed'])
   })
 
   it('throws a DatabaseError when the query fails', async () => {
@@ -98,6 +91,41 @@ describe('getReviewSourceRow', () => {
     expect(console.error).toHaveBeenCalledWith('getReviewSourceRow: query failed', {
       operation: 'getReviewSourceRow',
       poId: PO_ID,
+    })
+  })
+})
+
+describe('getCustomersForReview', () => {
+  const CUSTOMER_ID = '33333333-3333-3333-3333-333333333333'
+
+  it('returns [] without querying when there are no ids', async () => {
+    expect(await getCustomersForReview([])).toEqual([])
+    expect(mockExecute).not.toHaveBeenCalled()
+  })
+
+  it('loads the named customers, inactive included, with parsed addresses', async () => {
+    mockExecute.mockResolvedValueOnce([
+      { id: CUSTOMER_ID, company_name: 'Acme', status: 'inactive', addresses: [{ id: 'a1', address: '1 Main St' }] },
+    ])
+
+    const customers = await getCustomersForReview([CUSTOMER_ID])
+
+    const { sql: compiled, params } = compileCall(0)
+    expect(compiled).toMatch(/WHERE c\.id IN \(\$1::uuid\)/i)
+    expect(compiled).not.toMatch(/c\.status = /i)
+    expect(params).toEqual([CUSTOMER_ID])
+    expect(customers).toEqual([
+      { id: CUSTOMER_ID, company_name: 'Acme', status: 'inactive', addresses: [{ id: 'a1', address: '1 Main St' }] },
+    ])
+  })
+
+  it('throws a DatabaseError and logs only the id count', async () => {
+    mockExecute.mockRejectedValueOnce(new Error('connection refused'))
+
+    await expect(getCustomersForReview([CUSTOMER_ID, PO_ID])).rejects.toBeInstanceOf(DatabaseError)
+    expect(console.error).toHaveBeenCalledWith('getCustomersForReview: query failed', {
+      operation: 'getCustomersForReview',
+      idCount: 2,
     })
   })
 })

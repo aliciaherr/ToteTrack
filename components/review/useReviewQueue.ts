@@ -11,6 +11,8 @@ import type { ReviewSource } from '@/lib/review/review-source'
  * its own loading, error and retry. After a decision (Task 120), `advance`
  * reloads the queue and loads its first row: every decision removes the row or
  * sends it to the back, so the row on screen is always the queue's first.
+ * Replies are matched to the PO on screen: a late one for an earlier PO (a
+ * retry still in flight when a decision moved on) is dropped.
  */
 
 export type QueueState =
@@ -43,49 +45,83 @@ export interface ReviewQueueState {
 /** `open` shows the whole-queue spinner; `advance` keeps the header and blanks only the two panes. */
 type LoadMode = 'open' | 'advance'
 
-/** Loads the queue on mount, then the first row's source and fields in parallel. */
-export function useReviewQueue(): ReviewQueueState {
-  const [queue, setQueue] = useState<QueueState>({ status: 'loading' })
+/**
+ * The row on screen's two panes. `currentPoIdRef` names the PO they belong to:
+ * a source or fields reply for any other id arrived late, after a decision
+ * moved on, and is dropped so it cannot land beside the wrong PO.
+ */
+function usePoPanes(isMountedRef: React.RefObject<boolean>) {
   const [source, setSource] = useState<SourceState>({ status: 'loading' })
   const [fields, setFields] = useState<FieldsState>({ status: 'loading' })
-  const isMountedRef = useRef(true)
+  const currentPoIdRef = useRef<string | null>(null)
+  const isCurrent = useCallback((poId: string) => isMountedRef.current && currentPoIdRef.current === poId, [isMountedRef])
 
   const loadFields = useCallback(async (poId: string) => {
     setFields({ status: 'loading' })
     try {
       const result = await getReviewFields(poId)
-      if (!isMountedRef.current) return
+      if (!isCurrent(poId)) return
       if ('error' in result) throw new Error(result.error)
       setFields({ status: 'ready', fields: result.fields, customers: result.customers })
     } catch (cause) {
       // The server logged its own cause; this covers a transport failure too (EH-01).
       console.error('useReviewQueue: could not load the PO fields', { poId, cause })
-      if (isMountedRef.current) setFields({ status: 'error' })
+      if (isCurrent(poId)) setFields({ status: 'error' })
     }
-  }, [])
+  }, [isCurrent])
 
   const loadSource = useCallback(async (poId: string) => {
     setSource({ status: 'loading' })
     try {
       const result = await getReviewSource(poId)
-      if (!isMountedRef.current) return
+      if (!isCurrent(poId)) return
       if ('error' in result) throw new Error(result.error)
       setSource({ status: 'ready', source: result.source })
     } catch (cause) {
       // The server logged its own cause; this covers a transport failure too (EH-01).
       console.error('useReviewQueue: could not load the PO source', { poId, cause })
-      if (isMountedRef.current) setSource({ status: 'error' })
+      if (isCurrent(poId)) setSource({ status: 'error' })
     }
+  }, [isCurrent])
+
+  const blank = useCallback(() => {
+    setSource({ status: 'loading' })
+    setFields({ status: 'loading' })
   }, [])
 
+  return { source, fields, setSource, currentPoIdRef, loadSource, loadFields, blank }
+}
+
+/** The panes' own recovery: reload the current PO's fields, or mark its document undrawable. */
+function usePaneRecovery(
+  currentPoIdRef: React.RefObject<string | null>,
+  loadFields: (poId: string) => Promise<void>,
+  setSource: (state: SourceState) => void,
+) {
+  const retryFields = useCallback(() => {
+    if (currentPoIdRef.current) void loadFields(currentPoIdRef.current)
+  }, [currentPoIdRef, loadFields])
+
+  const markSourceFailed = useCallback(() => {
+    console.error('useReviewQueue: the browser could not draw the signed document')
+    setSource({ status: 'error' })
+  }, [setSource])
+
+  return { retryFields, markSourceFailed }
+}
+
+/** Loads the queue on mount, then the first row's source and fields in parallel. */
+export function useReviewQueue(): ReviewQueueState {
+  const [queue, setQueue] = useState<QueueState>({ status: 'loading' })
+  const isMountedRef = useRef(true)
+  const { source, fields, setSource, currentPoIdRef, loadSource, loadFields, blank } = usePoPanes(isMountedRef)
+
   const loadQueue = useCallback(async (mode: LoadMode = 'open') => {
-    if (mode === 'open') {
-      setQueue({ status: 'loading' })
-    } else {
-      // The decided row's form unmounts at once, so its buttons cannot be tapped again.
-      setSource({ status: 'loading' })
-      setFields({ status: 'loading' })
-    }
+    // No PO is current until the reloaded queue names one.
+    currentPoIdRef.current = null
+    // `advance` blanks the decided row's form at once, so its buttons cannot be tapped again.
+    if (mode === 'open') setQueue({ status: 'loading' })
+    else blank()
     try {
       const result = await getReviewQueue()
       if (!isMountedRef.current) return
@@ -94,13 +130,14 @@ export function useReviewQueue(): ReviewQueueState {
         setQueue({ status: 'empty' })
         return
       }
+      currentPoIdRef.current = result.ids[0]
       setQueue({ status: 'ready', ids: result.ids })
       await Promise.all([loadSource(result.ids[0]), loadFields(result.ids[0])])
     } catch (cause) {
       console.error('useReviewQueue: could not load the review queue', { cause })
       if (isMountedRef.current) setQueue({ status: 'error' })
     }
-  }, [loadSource, loadFields])
+  }, [currentPoIdRef, blank, loadSource, loadFields])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -112,18 +149,11 @@ export function useReviewQueue(): ReviewQueueState {
   }, [loadQueue])
 
   const retry = useCallback(() => {
-    if (queue.status === 'ready') void loadSource(queue.ids[0])
-    else void loadQueue('open')
-  }, [queue, loadQueue, loadSource])
+    if (queue.status !== 'ready') void loadQueue('open')
+    else if (currentPoIdRef.current) void loadSource(currentPoIdRef.current)
+  }, [queue.status, currentPoIdRef, loadQueue, loadSource])
 
-  const retryFields = useCallback(() => {
-    if (queue.status === 'ready') void loadFields(queue.ids[0])
-  }, [queue, loadFields])
-
-  const markSourceFailed = useCallback(() => {
-    console.error('useReviewQueue: the browser could not draw the signed document')
-    setSource({ status: 'error' })
-  }, [])
+  const { retryFields, markSourceFailed } = usePaneRecovery(currentPoIdRef, loadFields, setSource)
 
   const advance = useCallback(() => {
     void loadQueue('advance')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Loader2, RotateCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useEscapeClose, useFocusTrap } from '@/components/calendar/productionCardDialogHooks'
@@ -33,7 +33,14 @@ function QueueMessage({ queue, onRetry }: { queue: ReviewQueueState['queue']; on
   )
 }
 
-function Header({ position, onClose }: { position: string | null; onClose: () => void }) {
+interface HeaderProps {
+  position: string | null
+  onClose: () => void
+  /** True while a decision is saving: closing now would hide its outcome. */
+  closeDisabled: boolean
+}
+
+function Header({ position, onClose, closeDisabled }: HeaderProps) {
   return (
     <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-card">
       <div className="flex items-baseline gap-3">
@@ -42,7 +49,14 @@ function Header({ position, onClose }: { position: string | null; onClose: () =>
         </h2>
         {position && <p className="text-sm text-secondary">{position}</p>}
       </div>
-      <Button type="button" variant="outline" aria-label="Close review" onClick={onClose} className="min-h-[44px] min-w-[44px]">
+      <Button
+        type="button"
+        variant="outline"
+        aria-label="Close review"
+        onClick={onClose}
+        disabled={closeDisabled}
+        className="min-h-[44px] min-w-[44px]"
+      >
         <X aria-hidden="true" />
       </Button>
     </header>
@@ -56,13 +70,16 @@ function Header({ position, onClose }: { position: string | null; onClose: () =>
  * (Tasks 118, 119), with Approve, Skip and Delete at its foot (Task 120); each
  * decision reloads the queue and shows its new first PO, so the header always
  * reads "1 of N". Side by side from iPad landscape width up, stacked below it.
- * Esc and the close button leave the page underneath untouched; `AppShell`
+ * Esc and the close button leave the page underneath untouched, and do
+ * nothing while a decision is saving, so its error can never be hidden; `AppShell`
  * mounts this only while open and returns focus to the menu button.
  */
 export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const { queue, source, fields, retry, retryFields, markSourceFailed, advance } = useReviewQueue()
-  useEscapeClose(true, onClose, false)
+  // Set by the decision buttons while Approve, Skip or Delete is in flight.
+  const [decisionBusy, setDecisionBusy] = useState(false)
+  useEscapeClose(true, onClose, decisionBusy)
   useFocusTrap(true, panelRef)
 
   const position = queue.status === 'ready' ? `1 of ${queue.ids.length}` : null
@@ -75,7 +92,7 @@ export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
       aria-labelledby="review-overlay-title"
       className="fixed inset-0 z-50 flex flex-col bg-app-bg"
     >
-      <Header position={position} onClose={onClose} />
+      <Header position={position} onClose={onClose} closeDisabled={decisionBusy} />
       {queue.status === 'ready' ? (
         // Each pane scrolls on its own, never the page: halves stacked below
         // iPad landscape width, side by side above it. The right pane pins
@@ -85,7 +102,14 @@ export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
             <SourcePane state={source} onRetry={retry} onLoadError={markSourceFailed} />
           </section>
           <section aria-label="PO details" className="min-h-0 overflow-hidden rounded-lg bg-card shadow-sm">
-            <ReviewFieldsPane key={queue.ids[0]} poId={queue.ids[0]} state={fields} onRetry={retryFields} onDecided={advance} />
+            <ReviewFieldsPane
+              key={queue.ids[0]}
+              poId={queue.ids[0]}
+              state={fields}
+              onRetry={retryFields}
+              onDecided={advance}
+              onBusyChange={setDecisionBusy}
+            />
           </section>
         </div>
       ) : (

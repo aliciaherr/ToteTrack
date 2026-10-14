@@ -192,9 +192,9 @@
 
 ### After the core is in real use — re-evaluate before starting
 
-- [ ] 111 — Duplicate diff + update-existing-order path · *not specced yet*
-- [ ] 112 — Inline customer creation, pre-filled, secondary to the picker · *not specced yet*
-- [ ] 113 — Learned per-customer name aliases · *not specced yet*
+- [ ] 111 — Duplicate diff + update-existing-order path · *not specced yet* (`Ask the salesperson first: how often does a customer send a revised PO for an order already entered? Is deleting the duplicate and editing the order by hand a real pain, or fine?`)
+- [ ] 112 — Inline customer creation, pre-filled, secondary to the picker · *not specced yet* (`Ask the salesperson first: how often does a PO arrive from a customer not yet in ToteTrack? Is leaving Review to add them on the Customers page, then coming back, a problem?`)
+- [ ] 113 — Learned per-customer name aliases · *not specced yet* (`Ask the salesperson first: do you keep picking the same customer by hand because the PO names them differently, e.g. a legal name or a branch? Which customers, and how often?`)
 
 ---
 

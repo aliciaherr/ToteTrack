@@ -4,15 +4,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getIngestStatus, triggerIngestion, type IngestStatus } from '@/lib/actions/ingest'
 import { GENERIC_FAILURE_MESSAGE } from '@/lib/errors'
 import { useToast } from '@/lib/hooks/useToast'
+import { pendingTotal } from '@/lib/ingest/ingest-status-display'
 import { INGEST_RUN_WATCH_MS, INGEST_STATUS_POLL_MS } from '@/lib/ingest/ingest-status.constants'
 
 /**
  * The review-queue status behind the menu badge and its drawer panel (Task 105).
  *
  * Lives in `AppShell`, not the drawer, so a "Check mail now" keeps polling
- * after the drawer closes. A check is done when `lastRunAt` moves: a failed
- * run writes no state, so a check that never moves ends at
- * `INGEST_RUN_WATCH_MS` as an error rather than spinning forever.
+ * after the drawer closes. A check is done when `lastRunAt` moves away from a
+ * baseline read from the server just before the trigger: a failed run writes
+ * no state, so a check that never moves ends at `INGEST_RUN_WATCH_MS` as an
+ * error rather than spinning forever.
  */
 
 export interface IngestStatusState {
@@ -31,11 +33,25 @@ export interface IngestStatusState {
 const CHECK_TIMED_OUT_MESSAGE =
   "The mail check didn't finish. Look at the last-checked time, and try again if it hasn't moved."
 
+const BASELINE_FAILED_MESSAGE = "Couldn't read the mail status, so the check didn't start. Try again."
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-/** Pending total for the success toast. */
-function pendingTotal(status: IngestStatus): number {
-  return status.toReview + status.beingRead
+/**
+ * The `lastRunAt` a check is measured against, read fresh from the server.
+ * Comparing server timestamps with each other (not with the iPad's clock)
+ * makes client/server clock skew irrelevant, and a fresh read means neither a
+ * missing mount read nor an older cron run can pass for this check finishing.
+ *
+ * @returns `{ lastRunAt }` (`null` = never run), or `null` when no status can
+ *   be read at all, fresh or cached.
+ */
+async function readBaseline(
+  load: () => Promise<IngestStatus | null>,
+  cached: IngestStatus | null,
+): Promise<{ lastRunAt: string | null } | null> {
+  const baseline = (await load()) ?? cached
+  return baseline ? { lastRunAt: baseline.lastRunAt } : null
 }
 
 /**
@@ -105,13 +121,19 @@ function useCheckMail(loader: ReturnType<typeof useStatusLoader>) {
     isCheckingRef.current = true
     setIsChecking(true)
     try {
-      const before = statusRef.current?.lastRunAt ?? null
+      const baseline = await readBaseline(load, statusRef.current)
+      if (!baseline) {
+        toast(BASELINE_FAILED_MESSAGE, 'error')
+        return
+      }
       const started = await triggerIngestion()
       if ('error' in started) {
         toast(started.error, 'error')
         return
       }
-      const finished = await watchRun(before, load, () => isMountedRef.current)
+      const finished = await watchRun(baseline.lastRunAt, load, () => isMountedRef.current)
+      // Unmounted mid-check (e.g. signed out): the watch was abandoned, not timed out.
+      if (!isMountedRef.current) return
       if (finished) toast(`Mail checked. ${pendingTotal(finished)} pending.`, 'success')
       else toast(CHECK_TIMED_OUT_MESSAGE, 'error')
     } catch (cause) {

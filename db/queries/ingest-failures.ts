@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { DatabaseError } from '@/lib/errors'
+import { loggableFailure } from '@/lib/loggable-failure'
 
 /**
  * The give-up counter: failing runs per UID (Feature 16, Task 114;
@@ -93,7 +94,7 @@ export async function recordFailures(uidValidity: number, uids: number[], now: D
       RETURNING uid_validity, uid, attempts, first_failed_at, last_failed_at
     `)) as unknown as FailureRow[]
   } catch (cause) {
-    console.error('recordFailures: upsert failed', { operation: 'recordFailures', uidValidity, uids, cause })
+    console.error('recordFailures: upsert failed', { operation: 'recordFailures', uidValidity, uids, failure: loggableFailure(cause) })
     throw new DatabaseError('recordFailures', `Failed to count failing runs for UIDs ${uids.join(', ')}`, { cause })
   }
   return result.map(toRecord)
@@ -114,7 +115,7 @@ export async function clearFailures(uidValidity: number, uids: number[]): Promis
       WHERE uid_validity = ${uidValidity} AND uid IN (${uidList(uids)})
     `)
   } catch (cause) {
-    console.error('clearFailures: delete failed', { operation: 'clearFailures', uidValidity, uids, cause })
+    console.error('clearFailures: delete failed', { operation: 'clearFailures', uidValidity, uids, failure: loggableFailure(cause) })
     throw new DatabaseError('clearFailures', `Failed to clear the failure counter for UIDs ${uids.join(', ')}`, { cause })
   }
 }
@@ -134,7 +135,7 @@ export async function countFailingUids(): Promise<number> {
       count: unknown
     }[]
   } catch (cause) {
-    console.error('countFailingUids: query failed', { operation: 'countFailingUids', cause })
+    console.error('countFailingUids: query failed', { operation: 'countFailingUids', failure: loggableFailure(cause) })
     throw new DatabaseError('countFailingUids', 'Failed to count failing emails', { cause })
   }
   const count = Number(rows[0]?.count)
@@ -153,7 +154,7 @@ export async function clearOtherValidities(uidValidity: number): Promise<void> {
   try {
     await db.execute(sql`DELETE FROM ingest_uid_failures WHERE uid_validity <> ${uidValidity}`)
   } catch (cause) {
-    console.error('clearOtherValidities: delete failed', { operation: 'clearOtherValidities', uidValidity, cause })
+    console.error('clearOtherValidities: delete failed', { operation: 'clearOtherValidities', uidValidity, failure: loggableFailure(cause) })
     throw new DatabaseError('clearOtherValidities', `Failed to clear failure counters outside UIDVALIDITY ${uidValidity}`, { cause })
   }
 }

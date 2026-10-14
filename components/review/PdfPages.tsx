@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { MAX_PDF_PAGES } from '@/lib/extraction/extraction.constants'
 import ExpandedSource from './ExpandedSource'
+import { useEnlargedPage } from './useEnlargedPage'
 import { usePdfPages } from './usePdfPages'
 
 /** The file itself, in Safari's own viewer: on every PDF view (the A-15 fallback). */
@@ -31,14 +32,20 @@ function PageCanvas({ canvas }: { canvas: HTMLCanvasElement }) {
   )
 }
 
-function PageList({ canvases, onExpand }: { canvases: HTMLCanvasElement[]; onExpand: (canvas: HTMLCanvasElement) => void }) {
+interface PageListProps {
+  canvases: HTMLCanvasElement[]
+  /** `opener` is the page button tapped, where focus returns on close. */
+  onExpand: (canvas: HTMLCanvasElement, opener: HTMLElement) => void
+}
+
+function PageList({ canvases, onExpand }: PageListProps) {
   return (
     <ol className="space-y-2">
       {canvases.map((canvas, index) => (
         <li key={index}>
           <button
             type="button"
-            onClick={() => onExpand(canvas)}
+            onClick={(event) => onExpand(canvas, event.currentTarget)}
             aria-label={`Enlarge page ${index + 1}`}
             className="block w-full cursor-zoom-in"
           >
@@ -50,6 +57,39 @@ function PageList({ canvases, onExpand }: { canvases: HTMLCanvasElement[]; onExp
   )
 }
 
+/** The drawn pages, the file link, and the enlarged page while one is open. */
+function ReadyPages({ url, canvases, totalPages }: { url: string; canvases: HTMLCanvasElement[]; totalPages: number }) {
+  const enlarged = useEnlargedPage()
+  const openerRef = useRef<HTMLElement | null>(null)
+
+  function handleExpand(canvas: HTMLCanvasElement, opener: HTMLElement) {
+    openerRef.current = opener
+    enlarged.enlarge(canvas)
+  }
+
+  return (
+    <div className="space-y-3 p-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {totalPages > MAX_PDF_PAGES ? (
+          <p className="text-sm text-secondary">Only the first {MAX_PDF_PAGES} pages are shown.</p>
+        ) : (
+          <span />
+        )}
+        <OpenFileLink url={url} />
+      </div>
+      {enlarged.failed && (
+        <p role="alert" className="text-sm text-destructive">
+          Couldn&apos;t enlarge this page. Open the file to zoom in.
+        </p>
+      )}
+      <PageList canvases={canvases} onExpand={handleExpand} />
+      {enlarged.url && (
+        <ExpandedSource source={{ kind: 'image', url: enlarged.url }} onClose={enlarged.close} returnFocusRef={openerRef} />
+      )}
+    </div>
+  )
+}
+
 /**
  * A PDF PO drawn page by page with pdf.js (Task 117). Shows the first
  * `MAX_PDF_PAGES` pages; tapping one opens it full screen with zoom. Mount it
@@ -57,7 +97,6 @@ function PageList({ canvases, onExpand }: { canvases: HTMLCanvasElement[]; onExp
  */
 export default function PdfPages({ url }: { url: string }) {
   const state = usePdfPages(url)
-  const [expandedUrl, setExpandedUrl] = useState<string | null>(null)
 
   if (state.status === 'loading') {
     return (
@@ -75,18 +114,5 @@ export default function PdfPages({ url }: { url: string }) {
       </div>
     )
   }
-  return (
-    <div className="space-y-3 p-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {state.totalPages > MAX_PDF_PAGES ? (
-          <p className="text-sm text-secondary">Only the first {MAX_PDF_PAGES} pages are shown.</p>
-        ) : (
-          <span />
-        )}
-        <OpenFileLink url={url} />
-      </div>
-      <PageList canvases={state.canvases} onExpand={(canvas) => setExpandedUrl(canvas.toDataURL('image/png'))} />
-      {expandedUrl && <ExpandedSource source={{ kind: 'image', url: expandedUrl }} onClose={() => setExpandedUrl(null)} />}
-    </div>
-  )
+  return <ReadyPages url={url} canvases={state.canvases} totalPages={state.totalPages} />
 }

@@ -74,7 +74,11 @@ describe('useIngestStatus — loading', () => {
 describe('useIngestStatus — check mail', () => {
   it('spins until the last run moves, then refreshes and confirms', async () => {
     const { result } = await mounted()
-    mockGetIngestStatus.mockResolvedValueOnce(statusOf(BEFORE_RUN)).mockResolvedValue(statusOf(AFTER_RUN, 4))
+    // Baseline read, first poll (unchanged), then the finished run.
+    mockGetIngestStatus
+      .mockResolvedValueOnce(statusOf(BEFORE_RUN))
+      .mockResolvedValueOnce(statusOf(BEFORE_RUN))
+      .mockResolvedValue(statusOf(AFTER_RUN, 4))
 
     let check: Promise<void> = Promise.resolve()
     act(() => {
@@ -132,5 +136,60 @@ describe('useIngestStatus — check mail', () => {
     await act(async () => {})
 
     expect(mockTriggerIngestion).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useIngestStatus — check mail baseline and unmount', () => {
+  it('does not report done early when the mount read failed (no cached baseline)', async () => {
+    mockGetIngestStatus.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const { result } = await mounted()
+    expect(result.current.status).toBeNull()
+    // Baseline read and first poll both see the previous run; then the new one lands.
+    mockGetIngestStatus
+      .mockResolvedValueOnce(statusOf(BEFORE_RUN))
+      .mockResolvedValueOnce(statusOf(BEFORE_RUN))
+      .mockResolvedValue(statusOf(AFTER_RUN, 2))
+
+    let check: Promise<void> = Promise.resolve()
+    act(() => {
+      check = result.current.checkMail()
+    })
+    await advance(INGEST_STATUS_POLL_MS)
+    expect(result.current.isChecking).toBe(true)
+    expect(mockToast).not.toHaveBeenCalled()
+
+    await advance(INGEST_STATUS_POLL_MS)
+    await act(async () => {
+      await check
+    })
+    expect(mockToast).toHaveBeenCalledWith('Mail checked. 2 pending.', 'success')
+  })
+
+  it('does not start a check when no baseline status can be read', async () => {
+    mockGetIngestStatus.mockRejectedValue(new TypeError('Failed to fetch'))
+    const { result } = await mounted()
+
+    await act(async () => {
+      await result.current.checkMail()
+    })
+
+    expect(mockTriggerIngestion).not.toHaveBeenCalled()
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("didn't start"), 'error')
+    expect(result.current.isChecking).toBe(false)
+  })
+
+  it("shows no 'didn't finish' toast when unmounted mid-check", async () => {
+    const { result, unmount } = await mounted()
+
+    let check: Promise<void> = Promise.resolve()
+    act(() => {
+      check = result.current.checkMail()
+    })
+    await advance(INGEST_STATUS_POLL_MS)
+    unmount()
+    await advance(INGEST_RUN_WATCH_MS + INGEST_STATUS_POLL_MS)
+    await check
+
+    expect(mockToast).not.toHaveBeenCalled()
   })
 })
