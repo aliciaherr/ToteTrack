@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import ToastProvider from '../ToastProvider'
 import { useToast } from '@/lib/hooks/useToast'
@@ -131,5 +131,64 @@ describe('ToastProvider', () => {
     expect(screen.getByText('second')).toBeInTheDocument()
     expect(screen.getByText('third')).toBeInTheDocument()
     expect(screen.getByText('fourth')).toBeInTheDocument()
+  })
+
+  describe('never blocks the review overlay header (code-review fix)', () => {
+    function renderWithClose(onClose: () => void) {
+      render(
+        <ToastProvider>
+          <button type="button" aria-label="Close review" onClick={onClose} />
+          <ToastTrigger label="fire" message="PO approved." variant="success" />
+        </ToastProvider>,
+      )
+      act(() => {
+        screen.getByRole('button', { name: /fire/i }).click()
+      })
+    }
+
+    it('makes the stack and every card ignore taps', () => {
+      renderWithClose(vi.fn())
+
+      const stack = screen.getByTestId('toast-stack')
+      expect(stack.className).toContain('pointer-events-none')
+      expect(screen.getByTestId('toast-card').className).toContain('pointer-events-none')
+      expect(stack.innerHTML).not.toContain('pointer-events-auto')
+      // No toast carries an action, so nothing inside the stack is focusable or clickable.
+      expect(stack.querySelector('button, a, [tabindex]')).toBeNull()
+    })
+
+    it("sits below the overlay header's 69px, clear of Close in the top-right", () => {
+      renderWithClose(vi.fn())
+
+      const stack = screen.getByTestId('toast-stack')
+      expect(stack.className).toContain('top-20')
+      expect(stack.className).not.toContain('top-4')
+    })
+
+    it('leaves Close clickable while a toast is showing', () => {
+      const onClose = vi.fn()
+      renderWithClose(onClose)
+
+      expect(screen.getByText('PO approved.')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Close review' }))
+      expect(onClose).toHaveBeenCalledOnce()
+    })
+
+    it('still announces the toast: status for success, alert for an error, in a polite live region', () => {
+      render(
+        <ToastProvider>
+          <ToastTrigger label="ok" message="Saved." variant="success" />
+          <ToastTrigger label="bad" message="Failed." variant="error" />
+        </ToastProvider>,
+      )
+      act(() => {
+        screen.getByRole('button', { name: /ok/i }).click()
+        screen.getByRole('button', { name: /bad/i }).click()
+      })
+
+      expect(screen.getByRole('status')).toHaveTextContent('Saved.')
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed.')
+      expect(screen.getByTestId('toast-stack')).toHaveAttribute('aria-live', 'polite')
+    })
   })
 })

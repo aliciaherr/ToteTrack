@@ -1,5 +1,5 @@
 import type { ReviewSourceRow } from '@/db/queries/review-source'
-import { toOrderQuantities } from '@/lib/extraction/extract'
+import { computeFormTotal, type OrderFormValues } from '@/components/orders/orderFormSchema'
 import { extractedPoSchema } from '@/lib/extraction/schema'
 import type { ExtractedPo } from '@/lib/extraction/types'
 import { storedCheckResultsOf, type StoredCheckResults } from './review-fields.check-results'
@@ -120,11 +120,16 @@ function rowFlags(row: Pick<ReviewSourceRow, 'duplicate_of_id'>): DraftFlag[] {
   return row.duplicate_of_id ? [{ field: 'general', kind: 'duplicate_document', detail: '' }] : []
 }
 
-function totalsOf(extracted: ExtractedPo | null): ReviewTotals {
+/**
+ * The stated total beside the total of what the form shows. Computed from the
+ * pre-filled values, by the form's own formula, so a type the form left blank
+ * (bad quantity or price, two prices) never counts.
+ */
+function totalsOf(extracted: ExtractedPo | null, values: OrderFormValues): ReviewTotals {
   if (!extracted) return { stated: null, computed: 0, otherLines: [] }
   return {
     stated: extracted.statedTotal.value,
-    computed: toOrderQuantities(extracted).price,
+    computed: Number(computeFormTotal(values)),
     otherLines: extracted.lines
       .filter((line) => line.kind === 'other')
       .map((line) => ({ quote: capText(line.quote), amount: line.lineTotal })),
@@ -191,6 +196,6 @@ export function reviewFieldsOf(
     poNumberOptions,
     deliveryDateOptions,
     customerChoices: customer.choices,
-    totals: totalsOf(extracted),
+    totals: totalsOf(extracted, values),
   }
 }

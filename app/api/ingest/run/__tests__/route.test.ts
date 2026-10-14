@@ -6,6 +6,11 @@ const mockRunAndKick = vi.hoisted(() => vi.fn())
 vi.mock('next/server', () => ({ after: mockAfter }))
 vi.mock('@/lib/ingest/run-trigger', () => ({ runAndKick: mockRunAndKick }))
 
+import {
+  IMAP_CONNECTION_TIMEOUT_MS,
+  IMAP_GREETING_TIMEOUT_MS,
+  IMAP_SOCKET_TIMEOUT_MS,
+} from '@/lib/ingest/limits.constants'
 import { GET, POST, maxDuration } from '../route'
 import * as routeModule from '../route'
 
@@ -134,6 +139,13 @@ describe('worker poke target', () => {
 describe('route config', () => {
   it('stays within the Hobby + Fluid Compute ceiling of 300 seconds', () => {
     expect(maxDuration).toBeLessThanOrEqual(300)
+  })
+
+  // A stalled mailbox must fail inside the invocation, so the run still logs,
+  // writes no state and pokes the worker, instead of being killed silently.
+  it('keeps a connect, a greeting and one idle read, each timing out, well inside maxDuration', () => {
+    const worstStall = IMAP_CONNECTION_TIMEOUT_MS + IMAP_GREETING_TIMEOUT_MS + IMAP_SOCKET_TIMEOUT_MS
+    expect(worstStall).toBeLessThanOrEqual((maxDuration * 1000) / 2)
   })
 
   it('exports only route handlers and segment config', () => {

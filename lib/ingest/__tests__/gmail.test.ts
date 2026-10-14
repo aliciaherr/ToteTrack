@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ImapConnectionError, IngestConfigError, MimeParseError } from '@/lib/errors'
 import { closeMailbox, collectUnprocessed, openMailbox, readGmailImapConfig } from '../gmail'
 import { boundDate, boundHeader, parseMessage } from '../message'
+import { UidFetchError } from '../imap-errors'
 import { createImapSession } from '../imap-session'
 import {
   MAX_HEADER_BYTES,
@@ -585,6 +586,47 @@ describe('collectUnprocessed', () => {
       }
 
       await expect(collectUnprocessed(session, windowOf())).rejects.toThrow(ImapConnectionError)
+    })
+  })
+
+  // CONSTRAINT-37: one UID the server will not hand over must not stop the
+  // run. It is rejected (counted toward giving up), and later UIDs still ingest.
+  describe('a UID that will not download on a live connection', () => {
+    it('is rejected, not staged as unparseable, and the messages behind it are still collected', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const { session, fetchedUids } = sessionOf(
+        { uid: 1, source: Buffer.from(PDF_MESSAGE) },
+        { uid: 2, source: Buffer.from(PDF_MESSAGE) },
+        { uid: 3, source: Buffer.from(PDF_MESSAGE) }
+      )
+      const fetchSource = session.fetchSource
+      session.fetchSource = async (uid) => {
+        if (uid === 2) throw new UidFetchError(2, 'download failed (Error)')
+        return fetchSource(uid)
+      }
+
+      const result = await collectUnprocessed(session, windowOf())
+
+      expect(result.messages.map((message) => message.uid)).toEqual([1, 3])
+      expect(result.rejectedUids).toEqual([2])
+      expect(fetchedUids).toEqual([1, 3])
+      const logged = consoleError.mock.calls.find(([text]) => String(text).includes('would not download'))
+      expect(logged?.[1]).toMatchObject({ uid: 2 })
+    })
+
+    it('rejects an unsized listing without downloading it', async () => {
+      const { session, fetchedUids } = sessionOf({ uid: 2, source: Buffer.from(PDF_MESSAGE) })
+      session.listFrom = async function* () {
+        yield { uid: 1, arrivedAt: null, unsized: true as const }
+        yield { uid: 2, declaredSize: 2048, messageId: null, from: null, subject: null, receivedAt: null, arrivedAt: null }
+      }
+
+      const result = await collectUnprocessed(session, windowOf())
+
+      expect(result.rejectedUids).toEqual([1])
+      expect(result.arrivals.has(1)).toBe(true)
+      expect(result.messages.map((message) => message.uid)).toEqual([2])
+      expect(fetchedUids).toEqual([2])
     })
   })
 

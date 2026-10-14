@@ -15,7 +15,8 @@ import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
  * The review overlay's actions (Tasks 106 and 107). PDF and image rows get a
  * signed URL from the **session** client: the `po-documents` bucket lets any
  * signed-in user read it (migration 0003), so no secret key is needed here
- * (CONSTRAINT-38). Only a PO id is ever logged (SEC-05).
+ * (CONSTRAINT-38), and only for a key under `inbound/` (SEC-02, enforced by
+ * `signPoDocument`). Only a PO id is ever logged (SEC-05).
  */
 
 const NOT_FOUND_MESSAGE = 'This PO is no longer in the review queue.'
@@ -37,7 +38,10 @@ export async function getReviewQueue(): Promise<{ ids: string[] } | { error: str
   }
 }
 
-/** A 1-hour signed URL for a stored PO document, or `null` when Storage refuses. */
+/**
+ * A 1-hour signed URL for a stored PO document, or `null` when the path is not
+ * an `inbound/` key (refused by `signPoDocument`, SEC-02) or Storage refuses.
+ */
 async function signDocument(row: ReviewSourceRow & { document_path: string }): Promise<string | null> {
   const signed = await signPoDocument(row.document_path)
   if ('url' in signed) return signed.url

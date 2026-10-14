@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FetchMessageObject } from 'imapflow'
 import { ImapConnectionError, IngestConfigError } from '@/lib/errors'
+import { UidFetchError } from '../imap-errors'
 import {
   assertUsableWatermark,
   FIRST_IMAP_UID,
@@ -54,11 +55,13 @@ describe('toDeclaredMessage', () => {
   // L-13. `typeof NaN === 'number'`, so the original guard let it through —
   // and one NaN made `bytesAdmitted` NaN, after which every comparison is
   // false and every remaining message in the run was admitted unconditionally.
+  // A per-UID failure, not a connection one: the listing goes on and the UID
+  // is counted toward giving up (CONSTRAINT-37).
   it('refuses a size that is not a usable number rather than guessing one', () => {
     for (const size of [Number.NaN, -1, 1.5, Number.POSITIVE_INFINITY, undefined]) {
       const bad = listing({ size } as Partial<FetchMessageObject>)
 
-      expect(() => toDeclaredMessage(bad, FAKE_CONFIG)).toThrow(ImapConnectionError)
+      expect(() => toDeclaredMessage(bad, FAKE_CONFIG)).toThrow(UidFetchError)
       expect(() => toDeclaredMessage(bad, FAKE_CONFIG)).toThrow(/RFC822\.SIZE/)
     }
   })

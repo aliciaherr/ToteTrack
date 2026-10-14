@@ -69,12 +69,17 @@ function uidList(uids: number[]) {
  * conflict, so the give-up age runs from the first failure.
  *
  * @param uidValidity The UIDVALIDITY every UID belongs to.
- * @param uids The UIDs that failed this run. An empty list writes nothing.
+ * @param failedUids The UIDs that failed this run. A UID listed twice is
+ *   counted once; an empty list writes nothing.
  * @param now The run's clock.
- * @returns Each UID's row after the increment.
+ * @returns Each distinct UID's row after the increment.
  * @throws {DatabaseError} when the upsert fails, naming the UIDs only.
  */
-export async function recordFailures(uidValidity: number, uids: number[], now: Date): Promise<FailureRecord[]> {
+export async function recordFailures(uidValidity: number, failedUids: number[], now: Date): Promise<FailureRecord[]> {
+  // One VALUES row per UID: a repeated UID makes ON CONFLICT DO UPDATE touch
+  // the same row twice in one statement, which Postgres refuses (21000), and
+  // would count one failing run twice.
+  const uids = [...new Set(failedUids)]
   if (uids.length === 0) return []
   // ISO text, not a Date: postgres-js cannot serialise a Date bound into a raw
   // `sql` template (see `writeIngestState`).

@@ -10,7 +10,7 @@ const SELF_URL = 'http://localhost:3000/api/ingest/extract'
 const SECRET = 'test-trigger-secret-value'
 
 function summary(overrides: Partial<BatchSummary> = {}): BatchSummary {
-  return { claimed: 1, rowsMayRemain: false, completed: 1, failed: 0, released: 0, stranded: 0, ...overrides }
+  return { claimed: 1, rowsMayRemain: false, completed: 1, failed: 0, released: 0, stranded: 0, lost: 0, ...overrides }
 }
 
 function makeDeps(drained: BatchSummary | Error, fetchResult: Response | Error = new Response(null, { status: 202 })) {

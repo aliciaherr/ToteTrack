@@ -30,4 +30,7 @@ export const REVIEW_FLAG_WORDING: Record<ReviewFlagKind, string> = {
   no_tote_lines: 'No tote lines found: enter quantities',
   wording_unchecked: "Read from a scan or photo: wording couldn't be checked against the document",
   duplicate_document: 'Same document as a PO already received',
+  unit_price_too_precise: 'A unit price has more than 2 decimal places: enter it',
+  value_not_in_quote: "A value doesn't match the words it was read from: check it",
+  date_order_mismatch: 'Date may have month and day swapped: check it',
 }

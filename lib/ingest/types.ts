@@ -197,6 +197,17 @@ export interface DeclaredMessage {
 }
 
 /**
+ * A listed UID with no usable `RFC822.SIZE`. The byte budget cannot measure
+ * it, so it is never downloaded; it halts the watermark as a failed UID and
+ * the give-up rule turns it into a visible row (CONSTRAINT-34/37).
+ */
+export interface UnsizedListing {
+  uid: number
+  arrivedAt: Date | null
+  unsized: true
+}
+
+/**
  * IMAP credentials, resolved from the environment by `readGmailImapConfig`.
  * Passed in rather than read inside the fetch so that no test can reach the
  * real mailbox by forgetting to stub something (SEC-01).
@@ -235,11 +246,13 @@ export interface ImapSession {
    * never read or written, so opening the inbox in Gmail cannot change what
    * ingestion sees.
    */
-  listFrom(sinceUid: number): AsyncIterable<DeclaredMessage>
+  listFrom(sinceUid: number): AsyncIterable<DeclaredMessage | UnsizedListing>
   /**
    * The full RFC822 source of one message. Called only for a message the byte
    * budget has already admitted — this is the only call that transfers
-   * attachment bytes, so it is the one the caps exist to gate.
+   * attachment bytes, so it is the one the caps exist to gate. Throws
+   * `UidFetchError` when this UID failed on a live connection, and
+   * `ImapConnectionError` when the connection is gone.
    */
   fetchSource(uid: number): Promise<Buffer>
   /** Releases the mailbox lock and logs out. Called even when the read throws. */
@@ -288,8 +301,10 @@ export interface CollectedMail {
    */
   deferredUids: number[]
   /**
-   * Downloaded, but the post-parse UID re-check refused them (architecture
-   * rule 3). Never staged, so they halt the watermark — loudly.
+   * Never staged, so they halt the watermark — loudly — and the give-up rule
+   * counts them: the post-parse UID re-check refused them (architecture rule
+   * 3), or the UID could not be sized or downloaded while the connection
+   * stayed usable (`UnsizedListing`, `UidFetchError`).
    */
   rejectedUids: number[]
   /**

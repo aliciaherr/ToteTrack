@@ -1,13 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { TOTE_TYPES } from '../extraction.constants'
-import { toOrderQuantities } from '../extract'
+import { emptySlots, toOrderQuantities } from '../quantities'
 import type { ExtractedLine, ExtractedPo } from '../types'
-
-// extract.ts imports these; mocked so the pure function is tested without the
-// native renderer or network module loading.
-vi.mock('../render-pdf', () => ({ renderPdfPages: vi.fn() }))
-vi.mock('../openrouter', () => ({ callOpenRouter: vi.fn() }))
 
 function tote(toteType: ExtractedLine['toteType'], quantity: number | null, unitPrice: number | null): ExtractedLine {
   return { kind: 'tote', toteType, quantity, unitPrice, lineTotal: null, quote: 'synthetic tote line' }
@@ -90,5 +85,29 @@ describe('toOrderQuantities', () => {
     const result = toOrderQuantities(po([tote('275_recon', 3, 0.1), tote('330_rebot', 1, 0.2)]))
 
     expect(result.price).toBe(0.5)
+  })
+})
+
+describe('emptySlots', () => {
+  it('returns all six types at quantity 0 with no unit price', () => {
+    const slots = emptySlots()
+    expect(Object.keys(slots).sort()).toEqual([...TOTE_TYPES].sort())
+    for (const type of TOTE_TYPES) expect(slots[type]).toEqual({ quantity: 0, unitPrice: null })
+  })
+
+  it('returns a fresh object each call, so one caller cannot corrupt another', () => {
+    const first = emptySlots()
+    first[TOTE_TYPES[0]].quantity = 99
+    expect(emptySlots()[TOTE_TYPES[0]].quantity).toBe(0)
+  })
+})
+
+describe('quantities module boundary', () => {
+  it('imports only constants and types — never the PDF renderer or network client', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const source = readFileSync(join(__dirname, '..', 'quantities.ts'), 'utf-8')
+    const specifiers = [...source.matchAll(/from '([^']+)'/g)].map((match) => match[1])
+    expect(specifiers.sort()).toEqual(['./extraction.constants', './types'])
   })
 })

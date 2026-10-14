@@ -1,6 +1,7 @@
 import { revalidatePath } from 'next/cache'
 import { db } from '@/db'
 import { orders } from '@/db/schema'
+import { loggableFailure } from '@/lib/loggable-failure'
 import type { ValidatedCreate } from './orders.validation'
 import { normalizeCreate } from './orders.internal'
 import {
@@ -102,26 +103,51 @@ export async function insertOrderRow(
 }
 
 /**
+ * Who called {@link afterOrderCreated}, for its failure log: the action name,
+ * plus the review PO id on the approve path. Ids only (SEC-05).
+ */
+export interface AfterOrderContext {
+  operation: string
+  poId?: string
+  /** True when the create also changed the customers list (a dormant customer came back). */
+  customersChanged?: boolean
+}
+
+/**
  * Post-insert bookkeeping for a new PO. Call it once the order row is
  * committed — after the transaction, when the insert ran inside one — since
  * it writes on `db` and revalidates screens that must see the new row.
+ *
+ * Never throws: the order already exists, so a failure here is logged (EH-04)
+ * and the caller still reports success. An error result would tell the user
+ * the create failed and push them into a duplicate-PO retry.
+ *
  * @param data Validated create payload.
- * @param orderId The new order's id, for the address-book failure log.
+ * @param orderId The new order's id, for the address-book and failure logs.
+ * @param context The caller, for the failure log, and whether `/customers` must refresh.
  */
 export async function afterOrderCreated(
   data: ValidatedCreate,
   orderId: string,
+  context: AfterOrderContext,
 ): Promise<void> {
-  // Feature 14 MRU bookkeeping (outside any transaction, on `db`): bump the
-  // picked address, or dedupe/insert typed text. Contains its own
-  // failures (see its JSDoc); true means the address book changed, which the
-  // /customers detail panel renders.
-  if (await recordDeliveryAddressUsage(data, orderId)) {
-    revalidatePath('/customers')
+  try {
+    // Feature 14 MRU bookkeeping (outside any transaction, on `db`): bump the
+    // picked address, or dedupe/insert typed text. Contains its own
+    // failures (see its JSDoc); true means the address book changed, which the
+    // /customers detail panel renders.
+    const addressBookChanged = await recordDeliveryAddressUsage(data, orderId)
+    if (addressBookChanged || context.customersChanged) revalidatePath('/customers')
+    // A new PO lands on three screens at once: the orders list, the calendar
+    // column its `production_date` names, and the dashboard production widget
+    // when that day is inside the widget's window. Revalidate all three or the
+    // salesperson has to reload to see the card they just created.
+    for (const path of ORDER_REVALIDATE_PATHS) revalidatePath(path)
+  } catch (error) {
+    console.error(`${context.operation}: order created, but the post-commit step failed`, {
+      ...(context.poId ? { poId: context.poId } : {}),
+      orderId,
+      failure: loggableFailure(error),
+    })
   }
-  // A new PO lands on three screens at once: the orders list, the calendar
-  // column its `production_date` names, and the dashboard production widget
-  // when that day is inside the widget's window. Revalidate all three or the
-  // salesperson has to reload to see the card they just created.
-  for (const path of ORDER_REVALIDATE_PATHS) revalidatePath(path)
 }

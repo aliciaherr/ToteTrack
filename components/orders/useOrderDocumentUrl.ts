@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { getOrderDocumentUrl } from '@/lib/actions/order-document'
-import { SIGNED_URL_EXPIRY_SECONDS } from '@/lib/storage/po-document-url.constants'
+import { RESIGN_AFTER_MS } from '@/components/shared/signedUrlResign.constants'
 
 /**
  * The order's PO document as a short-lived signed URL (Task 121), fetched when
@@ -23,15 +23,8 @@ export type OrderDocumentUrlState =
 const FALLBACK_ERROR = "Couldn't load the PO document."
 const LOADING: OrderDocumentUrlState = { status: 'loading' }
 
-/**
- * Re-sign this long before the link expires: covers the sign round trip and
- * a slow network, so the link on screen never outlives its signature. Ages are
- * measured on the client clock alone, so client/server clock skew is irrelevant.
- */
-export const RESIGN_SAFETY_MARGIN_MS = 5 * 60 * 1000
-
-/** A link this old is re-signed: on its timer, or on the page becoming visible. */
-export const RESIGN_AFTER_MS = SIGNED_URL_EXPIRY_SECONDS * 1000 - RESIGN_SAFETY_MARGIN_MS
+// Re-exported so existing callers and tests keep one import site.
+export { RESIGN_AFTER_MS, RESIGN_SAFETY_MARGIN_MS } from '@/components/shared/signedUrlResign.constants'
 
 type SetState = (state: OrderDocumentUrlState) => void
 

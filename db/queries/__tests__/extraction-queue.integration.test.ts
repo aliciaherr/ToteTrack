@@ -137,28 +137,67 @@ describe.skipIf(!process.env.DATABASE_URL)('extraction queue (local Postgres)', 
 
   it('complete, fail and release each land the row where the worker expects', async () => {
     const [done, failed, released] = await stage(3)
-    await queue.claimBatch(4, TIMING, new Date())
+    const claims = await queue.claimBatch(4, TIMING, new Date())
+    const claimOf = (id: string) => claims.find((claim) => claim.id === id)!
     const results = { version: 1 as const, failures: [], quotes: [] }
+    const releasedAt = new Date()
 
-    await queue.completeExtraction(done, makePo(), results)
-    await queue.failExtraction(failed, results)
-    await queue.releaseForRetry(released)
+    await queue.completeExtraction(claimOf(done), makePo(), results)
+    await queue.failExtraction(claimOf(failed), results)
+    await queue.releaseForRetry(claimOf(released), releasedAt)
 
     expect(await row(done)).toMatchObject({ status: 'pending_review', extraction_started_at: null, check_results: results })
     expect(await row(failed)).toMatchObject({ status: 'extraction_failed', extraction_started_at: null })
     expect(await row(released)).toMatchObject({ status: 'pending_extraction', attempt_count: 1 })
-    expect((await row(released)).extraction_started_at).not.toBeNull()
+    expect(new Date((await row(released)).extraction_started_at as string).getTime()).toBe(releasedAt.getTime())
   })
 
   it('a released row is skipped until the retry delay passes (MEDIUM-10)', async () => {
     const [id] = await stage(1)
-    await queue.claimBatch(1, TIMING, new Date())
-    await queue.releaseForRetry(id)
+    const [claim] = await queue.claimBatch(1, TIMING, new Date())
+    await queue.releaseForRetry(claim, new Date())
     const releasedAt = new Date((await row(id)).extraction_started_at as string).getTime()
 
     expect(await queue.claimBatch(1, TIMING, new Date(releasedAt + RETRY_DELAY_MS - 1000))).toEqual([])
     const [again] = await queue.claimBatch(1, TIMING, new Date(releasedAt + RETRY_DELAY_MS + 1000))
     expect(again).toMatchObject({ id, attempt_count: 2 })
+  })
+
+  // A worker that outlived its lease: another worker reclaimed the row and
+  // completed it, and a reviewer approved it. The stale worker's writes must
+  // change nothing, or the approved PO goes back into the queue.
+  it('a stale worker write after the row moved on changes nothing and is reported', async () => {
+    const [id] = await stage(1)
+    const firstClaimAt = new Date(Date.now() - LEASE_MS - 60_000)
+    const [stale] = await queue.claimBatch(1, TIMING, firstClaimAt)
+    const [fresh] = await queue.claimBatch(1, TIMING, new Date())
+    expect(fresh).toMatchObject({ id, attempt_count: 2 })
+    const results = { version: 1 as const, failures: [], quotes: [] }
+    await queue.completeExtraction(fresh, makePo(), results)
+    await db.execute(sql`UPDATE inbound_pos SET status = 'approved' WHERE id = ${id}`)
+    const before = await row(id)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(queue.releaseForRetry(stale, new Date())).rejects.toBeInstanceOf(queue.LostClaimError)
+    await expect(queue.failExtraction(stale, results)).rejects.toBeInstanceOf(queue.LostClaimError)
+    await expect(queue.completeExtraction(stale, makePo(), results)).rejects.toBeInstanceOf(queue.LostClaimError)
+
+    expect(await row(id)).toEqual(before)
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('lost the claim'), expect.objectContaining({ rowId: id }))
+    vi.restoreAllMocks()
+  })
+
+  it('a stale worker cannot release a row another worker still holds', async () => {
+    const [id] = await stage(1)
+    const [stale] = await queue.claimBatch(1, TIMING, new Date(Date.now() - LEASE_MS - 60_000))
+    await queue.claimBatch(1, TIMING, new Date())
+    const before = await row(id)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(queue.releaseForRetry(stale, new Date())).rejects.toBeInstanceOf(queue.LostClaimError)
+
+    expect(await row(id)).toEqual(before)
+    vi.restoreAllMocks()
   })
 
   it('a run stopped on its first row charges no other row an attempt (MEDIUM-09)', async () => {

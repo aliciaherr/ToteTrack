@@ -146,9 +146,11 @@ describe('insertOrderRow', () => {
 })
 
 describe('afterOrderCreated', () => {
+  const CONTEXT = { operation: 'createOrder' }
+
   it('revalidates /customers and every order path when the address book changed', async () => {
     mockRecordUsage.mockResolvedValueOnce(true)
-    await afterOrderCreated(DATA, ORDER_ID)
+    await afterOrderCreated(DATA, ORDER_ID, CONTEXT)
     expect(mockRecordUsage).toHaveBeenCalledWith(DATA, ORDER_ID)
     expect(mockRevalidatePath.mock.calls.map(([path]) => path)).toEqual([
       '/customers',
@@ -158,17 +160,46 @@ describe('afterOrderCreated', () => {
 
   it('skips /customers when the address book was not written', async () => {
     mockRecordUsage.mockResolvedValueOnce(false)
-    await afterOrderCreated(DATA, ORDER_ID)
+    await afterOrderCreated(DATA, ORDER_ID, CONTEXT)
     expect(mockRevalidatePath.mock.calls.map(([path]) => path)).toEqual([
       ...ORDER_REVALIDATE_PATHS,
     ])
   })
 
-  it('propagates a revalidation failure to the caller', async () => {
+  it('revalidates /customers when the caller changed the customers list', async () => {
+    mockRecordUsage.mockResolvedValueOnce(false)
+    await afterOrderCreated(DATA, ORDER_ID, { ...CONTEXT, customersChanged: true })
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/customers')
+  })
+
+  // The contract changed: the order row already exists, so a post-commit
+  // failure is logged here (EH-04) and never reaches the caller, which would
+  // otherwise report a failed create for a PO that was saved.
+  it('logs a revalidation failure with the caller and ids, and does not throw', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockRecordUsage.mockResolvedValueOnce(false)
     mockRevalidatePath.mockImplementationOnce(() => {
       throw new Error('revalidate failed')
     })
-    await expect(afterOrderCreated(DATA, ORDER_ID)).rejects.toThrow('revalidate failed')
+    await expect(
+      afterOrderCreated(DATA, ORDER_ID, { operation: 'approveReviewPo', poId: 'po-1' }),
+    ).resolves.toBeUndefined()
+    expect(consoleSpy).toHaveBeenCalledWith('approveReviewPo: order created, but the post-commit step failed', {
+      poId: 'po-1',
+      orderId: ORDER_ID,
+      failure: expect.objectContaining({ error: 'Error' }),
+    })
+    consoleSpy.mockRestore()
+  })
+
+  it('logs no PO id when the caller has none', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockRecordUsage.mockRejectedValueOnce(new Error('connection reset'))
+    await afterOrderCreated(DATA, ORDER_ID, CONTEXT)
+    expect(consoleSpy).toHaveBeenCalledWith('createOrder: order created, but the post-commit step failed', {
+      orderId: ORDER_ID,
+      failure: expect.objectContaining({ error: 'Error' }),
+    })
+    consoleSpy.mockRestore()
   })
 })

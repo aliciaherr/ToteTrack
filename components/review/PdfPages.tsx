@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { MAX_PDF_PAGES } from '@/lib/extraction/extraction.constants'
 import ExpandedSource from './ExpandedSource'
@@ -93,10 +93,15 @@ function ReadyPages({ url, canvases, totalPages }: { url: string; canvases: HTML
 /**
  * A PDF PO drawn page by page with pdf.js (Task 117). Shows the first
  * `MAX_PDF_PAGES` pages; tapping one opens it full screen with zoom. Mount it
- * with `key={url}`.
+ * once per document (the review overlay keys its source pane by PO).
+ *
+ * The pages are drawn from the URL it mounted with; a later `url` is the same
+ * file re-signed (`useSourceResign`), so it only refreshes the "Open the file"
+ * link and never redraws the pages.
  */
 export default function PdfPages({ url }: { url: string }) {
-  const state = usePdfPages(url)
+  const [drawUrl] = useState(url)
+  const state = usePdfPages(drawUrl)
 
   if (state.status === 'loading') {
     return (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_LINE_QUANTITY, MAX_UNIT_PRICE } from '../checks.constants'
-import { checkFields } from '../fields'
+import { checkFields, quantityProblem, unitPriceProblem } from '../fields'
 import type { CheckName } from '../types'
 import { makePo, otherLine, toteLine } from './fixtures'
 
@@ -59,6 +59,7 @@ describe('checkFields — tote lines', () => {
 
   it.each([
     ['negative', -1],
+    ['zero ($0 is never a real tote price)', 0],
     ['over the limit', MAX_UNIT_PRICE + 1],
   ])('flags a %s unit price', (_, unitPrice) => {
     expect(checksOf(makePo({ lines: [toteLine({ unitPrice })] }))).toEqual(['unit_price_out_of_bounds'])
@@ -66,5 +67,33 @@ describe('checkFields — tote lines', () => {
 
   it('does not gate other lines', () => {
     expect(checkFields(makePo({ lines: [toteLine(), otherLine({ quantity: 0, unitPrice: -5 })] }))).toEqual([])
+  })
+})
+
+describe('quantityProblem (shared with the review screen)', () => {
+  it('returns null for a whole quantity within bounds', () => {
+    expect(quantityProblem(1)).toBeNull()
+    expect(quantityProblem(MAX_LINE_QUANTITY)).toBeNull()
+  })
+
+  it('names the problem for a missing, zero, fractional or over-limit quantity', () => {
+    expect(quantityProblem(null)).toBe('no quantity stated')
+    expect(quantityProblem(0)).toMatch(/not a whole number above 0/)
+    expect(quantityProblem(2.5)).toMatch(/not a whole number above 0/)
+    expect(quantityProblem(MAX_LINE_QUANTITY + 1)).toMatch(/over the/)
+  })
+})
+
+describe('unitPriceProblem (shared with the review screen)', () => {
+  it('returns null for an unstated price, a cent, and the limit', () => {
+    expect(unitPriceProblem(null)).toBeNull()
+    expect(unitPriceProblem(0.01)).toBeNull()
+    expect(unitPriceProblem(MAX_UNIT_PRICE)).toBeNull()
+  })
+
+  it('names the problem for $0, a negative or an over-limit price', () => {
+    expect(unitPriceProblem(0)).toBe('unit price 0 is not above $0')
+    expect(unitPriceProblem(-5)).toMatch(/not above \$0/)
+    expect(unitPriceProblem(MAX_UNIT_PRICE + 1)).toMatch(/over the/)
   })
 })

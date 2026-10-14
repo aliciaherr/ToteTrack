@@ -10,6 +10,7 @@ export type CheckName =
   | 'quote_not_found'
   | 'quote_too_long'
   | 'source_text_too_long'
+  | 'value_not_in_quote'
   // Arithmetic
   | 'total_mismatch'
   | 'line_total_mismatch'
@@ -17,6 +18,7 @@ export type CheckName =
   // Dates
   | 'ambiguous_date'
   | 'multiple_delivery_dates'
+  | 'date_order_mismatch'
   // Fields
   | 'not_purchase_order'
   | 'missing_po_number'

@@ -1,21 +1,17 @@
 import { ExtractionResponseError, TextInputTooLongError } from './errors'
-import { MAX_PDF_PAGES, MAX_TEXT_INPUT_CHARS, TOTE_TYPES } from './extraction.constants'
+import { MAX_PDF_PAGES, MAX_TEXT_INPUT_CHARS } from './extraction.constants'
 import { callOpenRouter } from './openrouter'
-import { buildSystemPrompt } from './prompt'
+import { buildSystemPrompt, fenceEmailBody } from './prompt'
 import { renderPdfPages } from './render-pdf'
 import { extractedPoSchema } from './schema'
 import type {
   ChatContentPart,
-  ExtractedPo,
   ExtractionConfig,
   ExtractionDeps,
   ExtractionInput,
   ExtractionRequest,
   ExtractionResult,
   ImageDataUrl,
-  OrderQuantities,
-  ToteSlot,
-  ToteType,
 } from './types'
 
 /** Issue paths listed in a schema-mismatch error before the rest are counted. */
@@ -28,7 +24,8 @@ export const defaultExtractionDeps: ExtractionDeps = { fetchImpl: fetch, renderP
  * Reads one purchase-order document with the model (Task 98).
  *
  * A PDF is rendered to page images first (CONSTRAINT-35/36), an image is sent
- * unmodified, and an email body is sent as text. An email body longer than
+ * unmodified, and an email body is sent as text between fixed markers
+ * (`fenceEmailBody`). An email body longer than
  * `MAX_TEXT_INPUT_CHARS` throws `TextInputTooLongError` before any network
  * call — it is never truncated (@security M-05). Renderer errors — including
  * `PdfTooManyPagesError` — propagate unchanged. The model's answer is
@@ -88,7 +85,10 @@ async function prepareDocument(input: ExtractionInput, deps: ExtractionDeps): Pr
         throw new TextInputTooLongError(input.text.length, MAX_TEXT_INPUT_CHARS)
       }
       return {
-        content: [textPart('The purchase order is the email body below.'), textPart(input.text)],
+        content: [
+          textPart('The purchase order is the email body below, between its markers.'),
+          textPart(fenceEmailBody(input.text)),
+        ],
         sourceText: [input.text],
       }
   }
@@ -110,56 +110,4 @@ function summarizeIssues(issues: ReadonlyArray<{ path: PropertyKey[]; code: stri
     .map((issue) => `${issue.path.map(String).join('.') || '(root)'} (${issue.code})`)
   const more = issues.length - listed.length
   return `schema mismatch at ${listed.join(', ')}${more > 0 ? ` and ${more} more` : ''}`
-}
-
-/**
- * Folds an extraction into the six `qty_*` / `unit_price_*` order slots.
- *
- * Only `tote` lines with a known type and a stated quantity contribute.
- * Quantities sum per type; the unit price is the first stated one, and a type
- * seen at two different unit prices is listed in `conflicts` — reported, never
- * averaged. Tote lines with an `unknown` or null type are counted in
- * `unknownLines`. `price` is Σ(quantity × unit price) over contributing lines
- * that state a unit price, rounded to cents. `other` lines never contribute.
- *
- * @param extracted - A validated extraction.
- * @returns All six slots (quantity 0 / unit price null when absent), the
- *   derived price, the conflicting types and the unknown-line count.
- */
-export function toOrderQuantities(extracted: ExtractedPo): OrderQuantities {
-  const slots = emptySlots()
-  const conflicts: ToteType[] = []
-  const priced = new Set<ToteType>()
-  let unknownLines = 0
-  let price = 0
-
-  for (const line of extracted.lines) {
-    if (line.kind !== 'tote') continue
-    if (line.toteType === null || line.toteType === 'unknown') {
-      unknownLines += 1
-      continue
-    }
-    if (line.quantity === null) continue
-
-    const slot = slots[line.toteType]
-    slot.quantity += line.quantity
-    if (line.unitPrice === null) continue
-
-    price += line.quantity * line.unitPrice
-    if (!priced.has(line.toteType)) {
-      priced.add(line.toteType)
-      slot.unitPrice = line.unitPrice
-    } else if (slot.unitPrice !== line.unitPrice && !conflicts.includes(line.toteType)) {
-      conflicts.push(line.toteType)
-    }
-  }
-
-  return { slots, price: Math.round(price * 100) / 100, conflicts, unknownLines }
-}
-
-function emptySlots(): Record<ToteType, ToteSlot> {
-  return Object.fromEntries(TOTE_TYPES.map((type) => [type, { quantity: 0, unitPrice: null }])) as Record<
-    ToteType,
-    ToteSlot
-  >
 }

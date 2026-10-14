@@ -55,6 +55,15 @@ describe.skipIf(!process.env.DATABASE_URL)('ingest-failures (local Postgres)', (
     })
   })
 
+  it('counts a UID listed twice in one call once, instead of failing the upsert', async () => {
+    const at = new Date('2026-10-12T06:00:00.000Z')
+
+    const rows = await queries.recordFailures(TEST_VALIDITY, [21, 21], at)
+
+    expect(rows.map(({ uid, attempts }) => ({ uid, attempts }))).toEqual([{ uid: 21, attempts: 1 }])
+    await queries.clearFailures(TEST_VALIDITY, [21])
+  })
+
   it('clears listed UIDs only', async () => {
     await queries.clearFailures(TEST_VALIDITY, [11])
 

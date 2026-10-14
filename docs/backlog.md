@@ -56,6 +56,36 @@
   - `SourcePane`'s expanded flag is not reset when the source changes (unreachable today: the
     enlarged view covers the decision buttons).
 
+- **Feature 16 `@code-review` (2026-10-14), deferred:**
+  - **For Task 110 (docs):** `architecture.md` ~486 shows the claim as `WHERE id IN (… SKIP LOCKED)`
+    (the shape CONSTRAINT-40 forbids) and ~520/526 name the deleted `countPendingReview` /
+    `listPendingReview`; `data-model.md` has no Feature 16 tables, enums, 0020 functions or 0021
+    CHECK; the no-run-lock overlap costs should list duplicate-flag misses and double-counted UID
+    failures. Also record the fix batch: worker writes fenced to their claim (`LostClaimError`,
+    `lost` outcome); a UID failing on a live IMAP connection is a counted failed UID, not a run
+    abort; the IMAP timeouts (30/15/60 s); `toOrderQuantities` in `lib/extraction/quantities.ts`;
+    new checks `value_not_in_quote` and `date_order_mismatch`.
+  - Needs a prod migration: CHECK `(source_kind = 'email_body') = (document_path IS NULL)`; add
+    the 0021 CHECK to `db/schema/inbound.ts` so drizzle-kit never drops it.
+  - `ingest-state` upsert can move `last_uid` / `last_run_at` backwards under overlapping runs
+    (use GREATEST); `proxy.ts` matcher still runs Supabase auth on `/api/ingest/*`;
+    `releaseForRetry` uses DB `now()` while the claim uses the app clock;
+    `supabase/config.toml` `enable_signup = true` locally.
+  - `pipeline.ts` spreads `loggableFailure` instead of nesting under `failure:`;
+    `migrate-local.ts` "newly applied" count; `verifyQuote` duplicates `checkQuotes`' guards.
+  - Review: computed total includes lines the form blanked; Enlarge race when two pages are
+    tapped quickly (no "Preparing page…" state); lightbox uses raw `bg-black/90` / `text-white`;
+    two panes on a 12.9" iPad in portrait (`lg` = 1024px); focus drops to body after Approve and
+    Skip too (widen the Delete item).
+  - Quote checks allow an amount ending in 2-digit cents to touch a following digit (PDF text
+    layers run table cells together), so "$7,800.00" + "330" is accepted as a boundary.
+  - An email body containing the fence markers is sent unescaped (escaping would break quote
+    matching against the raw body).
+  - Review's "Open the file" link re-signs on wake only, not on a timer like the order page.
+  - No `--warning` colour token; the attention badge uses Tailwind `amber-700`.
+  - `lib/ingest/types.ts` is 316 lines (types only, over the 300 cap): split it.
+  - IMAP: a throw from `connect()` itself does no explicit cleanup.
+
 ## Operations
 
 - **pdfjs build warning (Task 117):** `next build` warns "Package pdfjs-dist can't be external" for the worker URL in `components/review/pdfjsClient.ts` (the server pass matches `serverExternalPackages`). Harmless at runtime (the worker is only created in the browser; verified in Chrome). Check the first Vercel preview renders a PDF in Review; if the warning matters, give the client a non-external path.

@@ -181,3 +181,23 @@ export const GIVE_UP_MIN_ATTEMPTS = 3
  * thresholds must hold. Not an env var, for the same reason as the count.
  */
 export const GIVE_UP_MIN_AGE_MS = 60 * 60 * 1000
+
+/**
+ * IMAP timeouts, passed to `imapflow` by `createImapSession`. imapflow's own
+ * defaults (90 s to connect, 16 s for the greeting, **5 minutes** of socket
+ * inactivity) let one stalled server use the whole of `/api/ingest/run`'s
+ * `maxDuration` (300 s), so the platform kills the run mid-read and nothing is
+ * logged. These keep every stall well inside it: even a connect, greeting and
+ * one idle read that each run to their limit (105 s) leave the run time to fail
+ * loudly, write no state and still poke the worker. A test in the run route
+ * keeps their sum under `maxDuration`.
+ *
+ * Constants, not env vars: they bound one function invocation, which is fixed
+ * by the route, not by the deployment.
+ */
+/** TCP + TLS handshake budget, DNS included. */
+export const IMAP_CONNECTION_TIMEOUT_MS = 30_000
+/** Wait for the server's greeting once connected. */
+export const IMAP_GREETING_TIMEOUT_MS = 15_000
+/** Longest silence on an open socket, e.g. mid-download, before it is dropped. */
+export const IMAP_SOCKET_TIMEOUT_MS = 60_000

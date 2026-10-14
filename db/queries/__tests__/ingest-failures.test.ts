@@ -42,6 +42,25 @@ describe('recordFailures', () => {
     expect(query.params).toEqual([7, 4, NOW.toISOString(), NOW.toISOString()])
   })
 
+  // A repeated UID would make ON CONFLICT DO UPDATE hit one row twice (21000).
+  it('sends each UID once when the list repeats one', async () => {
+    mockExecute.mockResolvedValueOnce([])
+
+    await recordFailures(7, [4, 5, 4], NOW)
+
+    const { params } = compiled()
+    expect(params.filter((param) => param === 4)).toHaveLength(1)
+    expect(params.filter((param) => param === 5)).toHaveLength(1)
+  })
+
+  it('names each UID once when a deduplicated upsert fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockExecute.mockRejectedValueOnce(new Error('connection terminated'))
+
+    await expect(recordFailures(7, [4, 4], NOW)).rejects.toThrow(/UIDs 4$/)
+    consoleError.mockRestore()
+  })
+
   it('writes nothing for an empty list', async () => {
     await expect(recordFailures(7, [], NOW)).resolves.toEqual([])
     expect(mockExecute).not.toHaveBeenCalled()

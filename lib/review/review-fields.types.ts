@@ -27,6 +27,7 @@ export type ReviewOnlyFlag =
   | 'no_tote_lines'
   | 'wording_unchecked'
   | 'duplicate_document'
+  | 'unit_price_too_precise'
 
 export type ReviewFlagKind = CheckName | ReviewOnlyFlag
 
@@ -66,7 +67,10 @@ export interface CustomerChoice {
 export interface ReviewTotals {
   /** The document's grand total as printed, or `null`. */
   stated: number | null
-  /** Σ(qty × unit price) over the extracted tote lines. */
+  /**
+   * Σ(qty × unit price) over the pre-filled form values, by the order form's
+   * own formula: a type the form left blank never counts.
+   */
   computed: number
   /** Non-tote lines (fees, freight): for the arithmetic only, never saved. */
   otherLines: { quote: string; amount: number | null }[]

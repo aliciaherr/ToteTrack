@@ -655,6 +655,24 @@ describe('createOrder', () => {
     expect(mockRevalidatePath).not.toHaveBeenCalledWith('/customers')
     consoleSpy.mockRestore()
   })
+
+  it('still returns the order id, and logs, when revalidation throws after the insert', async () => {
+    // One post-commit contract with approveReviewPo: afterOrderCreated logs
+    // and never throws once the order row exists.
+    stubInsertReturning(ORDER_ID)
+    stubAddressUpsert()
+    mockRevalidatePath.mockImplementationOnce(() => {
+      throw new Error('revalidate failed')
+    })
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const result = await createOrder(VALID_CREATE)
+    expect(result).toEqual({ id: ORDER_ID })
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'createOrder: order created, but the post-commit step failed',
+      expect.objectContaining({ orderId: ORDER_ID }),
+    )
+    consoleSpy.mockRestore()
+  })
 })
 
 describe('updateOrder', () => {

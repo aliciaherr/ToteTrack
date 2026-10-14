@@ -23,6 +23,7 @@ export function claimed(overrides: Partial<ClaimedPo> = {}): ClaimedPo {
     document_path: `inbound/${'a'.repeat(64)}.pdf`,
     body_text: null,
     attempt_count: 1,
+    extraction_started_at: new Date('2026-10-12T11:59:00.000Z'),
     ...overrides,
   }
 }

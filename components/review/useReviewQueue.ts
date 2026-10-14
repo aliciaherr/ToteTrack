@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getReviewFields, getReviewQueue, getReviewSource } from '@/lib/actions/review'
 import type { ReviewCustomer, ReviewFields } from '@/lib/review/review-fields.types'
 import type { ReviewSource } from '@/lib/review/review-source'
+import { useSourceResign, type LoadSource } from './useSourceResign'
 
 /**
  * The review overlay's data (Tasks 106 and 118): the queue, loaded on open,
@@ -12,7 +13,9 @@ import type { ReviewSource } from '@/lib/review/review-source'
  * reloads the queue and loads its first row: every decision removes the row or
  * sends it to the back, so the row on screen is always the queue's first.
  * Replies are matched to the PO on screen: a late one for an earlier PO (a
- * retry still in flight when a decision moved on) is dropped.
+ * retry still in flight when a decision moved on) is dropped. A signed source
+ * is re-signed quietly when the page becomes visible after its link has gone
+ * stale (`useSourceResign`).
  */
 
 export type QueueState =
@@ -49,11 +52,13 @@ type LoadMode = 'open' | 'advance'
  * The row on screen's two panes. `currentPoIdRef` names the PO they belong to:
  * a source or fields reply for any other id arrived late, after a decision
  * moved on, and is dropped so it cannot land beside the wrong PO.
+ * `signedAtRef` is when the source on screen was signed, for its re-sign.
  */
 function usePoPanes(isMountedRef: React.RefObject<boolean>) {
   const [source, setSource] = useState<SourceState>({ status: 'loading' })
   const [fields, setFields] = useState<FieldsState>({ status: 'loading' })
   const currentPoIdRef = useRef<string | null>(null)
+  const signedAtRef = useRef<number | null>(null)
   const isCurrent = useCallback((poId: string) => isMountedRef.current && currentPoIdRef.current === poId, [isMountedRef])
 
   const loadFields = useCallback(async (poId: string) => {
@@ -70,16 +75,20 @@ function usePoPanes(isMountedRef: React.RefObject<boolean>) {
     }
   }, [isCurrent])
 
-  const loadSource = useCallback(async (poId: string) => {
-    setSource({ status: 'loading' })
+  // `quiet` (a re-sign) keeps the current view until the reply lands; only a failure replaces it.
+  const loadSource = useCallback<LoadSource>(async (poId, { quiet = false } = {}) => {
+    signedAtRef.current = null
+    if (!quiet) setSource({ status: 'loading' })
     try {
       const result = await getReviewSource(poId)
       if (!isCurrent(poId)) return
       if ('error' in result) throw new Error(result.error)
-      setSource({ status: 'ready', source: result.source })
+      const { source: next } = result
+      signedAtRef.current = next.kind === 'pdf' || next.kind === 'image' ? Date.now() : null
+      setSource({ status: 'ready', source: next })
     } catch (cause) {
       // The server logged its own cause; this covers a transport failure too (EH-01).
-      console.error('useReviewQueue: could not load the PO source', { poId, cause })
+      console.error('useReviewQueue: could not load the PO source', { poId, quiet, cause })
       if (isCurrent(poId)) setSource({ status: 'error' })
     }
   }, [isCurrent])
@@ -88,6 +97,8 @@ function usePoPanes(isMountedRef: React.RefObject<boolean>) {
     setSource({ status: 'loading' })
     setFields({ status: 'loading' })
   }, [])
+
+  useSourceResign(currentPoIdRef, signedAtRef, loadSource)
 
   return { source, fields, setSource, currentPoIdRef, loadSource, loadFields, blank }
 }

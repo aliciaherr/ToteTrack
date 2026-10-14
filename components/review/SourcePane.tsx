@@ -75,7 +75,8 @@ function ReadyView({ source, onExpand, onLoadError }: { source: ReviewSource; on
     case 'text':
       return <TextView text={source.text} truncated={source.truncated} onExpand={onExpand} />
     case 'pdf':
-      return <PdfPages key={source.url} url={source.url} />
+      // No `key` by URL: a re-signed link must not redraw the pages (see PdfPages).
+      return <PdfPages url={source.url} />
     case 'refused':
       return <RefusalCard refusal={source.refusal} email={source.email} />
   }

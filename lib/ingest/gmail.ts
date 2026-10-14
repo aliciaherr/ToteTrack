@@ -2,6 +2,7 @@ import { ImapConnectionError, IngestConfigError } from '@/lib/errors'
 import { loggableFailure } from '@/lib/loggable-failure'
 import { requireEnv, type EnvLookup } from '@/lib/required-env'
 import { scrubSecret } from '@/lib/scrub-secret'
+import { UidFetchError } from './imap-errors'
 import { assertUsableWatermark } from './imap-session'
 import { admitMessage, exceedsMessageCount } from './limits'
 import { MAX_MESSAGES_PER_RUN } from './limits.constants'
@@ -159,18 +160,28 @@ function reportBudgetReached(declared: DeclaredMessage, remainingBytes: number):
  * `ImapConnectionError` is deliberate and load-bearing: if the socket has
  * gone, that is not this message's fault, and swallowing it would stage every
  * remaining message in the listing as unparseable.
+ *
+ * A `UidFetchError` (this UID would not download, the connection is fine)
+ * returns `null`: the UID is not staged as unparseable, because a download
+ * failure may clear on the next run. It halts the watermark and the give-up
+ * rule counts it, so it cannot pin ingestion forever (CONSTRAINT-37).
  */
 async function readOne(
   declared: DeclaredMessage,
   session: ImapSession,
   parseRaw: (raw: Buffer, uid: number) => Promise<InboundMessage>
-): Promise<InboundMessage> {
+): Promise<InboundMessage | null> {
   try {
     const message = await parseRaw(await session.fetchSource(declared.uid), declared.uid)
     return { ...message, arrivedAt: declared.arrivedAt }
   } catch (cause) {
     if (cause instanceof ImapConnectionError) throw cause
-    return unreadableMessage(declared, cause)
+    if (!(cause instanceof UidFetchError)) return unreadableMessage(declared, cause)
+    console.error('collectUnprocessed: a message would not download on a live connection; counted as a failed UID', {
+      uid: declared.uid,
+      failure: loggableFailure(cause),
+    })
+    return null
   }
 }
 
@@ -198,6 +209,22 @@ function passesRecheck(
   return false
 }
 
+/**
+ * Downloads one admitted message into `result`: staged when it reads and
+ * passes the re-check, otherwise a rejected UID the give-up rule counts.
+ */
+async function collectAdmitted(
+  declared: DeclaredMessage,
+  session: ImapSession,
+  parseRaw: (raw: Buffer, uid: number) => Promise<InboundMessage>,
+  window: AdmissionWindow,
+  result: CollectedMail
+): Promise<void> {
+  const message = await readOne(declared, session, parseRaw)
+  if (message !== null && passesRecheck(message, declared, window)) result.messages.push(message)
+  else result.rejectedUids.push(declared.uid)
+}
+
 function emptyCollection(): CollectedMail {
   return { messages: [], alreadyStagedUids: [], deferredUids: [], rejectedUids: [], arrivals: new Map() }
 }
@@ -215,6 +242,8 @@ function emptyCollection(): CollectedMail {
  *
  * Throws `ImapConnectionError` on a lost connection. **A parse failure does
  * not abort the read** — that one message is staged as unparseable (H-02).
+ * Nor does one UID that cannot be sized or downloaded while the connection
+ * stays usable: it lands in `rejectedUids`, and later UIDs are still read.
  *
  * @param session An open mailbox, from `openMailbox`.
  * @param window The watermark and the UIDs already staged above it.
@@ -241,6 +270,10 @@ export async function collectUnprocessed(
       result.alreadyStagedUids.push(declared.uid)
       continue
     }
+    if ('unsized' in declared) {
+      result.rejectedUids.push(declared.uid)
+      continue
+    }
     if (exceedsMessageCount(result.messages.length)) {
       reportMessageCapReached(declared.uid, result.messages.length)
       result.deferredUids.push(declared.uid)
@@ -257,9 +290,7 @@ export async function collectUnprocessed(
       continue
     }
     bytesAdmitted += declared.declaredSize
-    const message = await readOne(declared, session, parseRaw)
-    if (passesRecheck(message, declared, window)) result.messages.push(message)
-    else result.rejectedUids.push(declared.uid)
+    await collectAdmitted(declared, session, parseRaw, window, result)
   }
   return result
 }

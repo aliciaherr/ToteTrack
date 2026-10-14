@@ -27,13 +27,25 @@ function capToVisibleCount(queue: ToastEntry[]): ToastEntry[] {
   return queue.slice(queue.length - MAX_VISIBLE_TOASTS)
 }
 
+/**
+ * Where the stack sits: top-right, 80px down. That clears the review overlay's
+ * header (69px tall, Close at its right end) and every page's top chrome, so a
+ * toast never covers a control; and the stack takes no taps at all.
+ */
+const TOAST_STACK_CLASS =
+  'pointer-events-none fixed top-20 right-4 z-50 flex flex-col gap-2 w-[320px] max-w-[90vw]'
+
+/**
+ * One toast. Read-only (no toast carries an action), so it ignores taps: a
+ * tap on it reaches whatever is underneath, e.g. the review overlay's Close.
+ */
 function ToastCard({ entry }: { entry: ToastEntry }) {
   const shouldReduceMotion = useReducedMotion()
   return (
     <motion.div
       {...buildToastMotionProps(Boolean(shouldReduceMotion))}
       role={entry.variant === 'error' ? 'alert' : 'status'}
-      className={`pointer-events-auto rounded-md shadow-lg px-4 py-3 text-sm font-medium ${toastClasses(entry.variant)}`}
+      className={`pointer-events-none rounded-md shadow-lg px-4 py-3 text-sm font-medium ${toastClasses(entry.variant)}`}
     >
       {entry.message}
     </motion.div>
@@ -42,8 +54,8 @@ function ToastCard({ entry }: { entry: ToastEntry }) {
 
 /**
  * Provides the toast queue API to every descendant via React context and
- * renders the toast stack as a fixed-position portal in the top-right
- * corner. Caps the visible queue at `MAX_VISIBLE_TOASTS` — a fourth toast
+ * renders the toast stack fixed in the top-right corner, below any header
+ * (`TOAST_STACK_CLASS`); toasts never take taps. Caps the visible queue at `MAX_VISIBLE_TOASTS` — a fourth toast
  * dismisses the oldest — and auto-dismisses each toast after the
  * variant-specific timeout. Honours `useReducedMotion()` at the card level
  * (instant appear/disappear) while preserving the auto-dismiss lifecycle.
@@ -89,7 +101,8 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
       <div
         aria-live="polite"
         aria-atomic="false"
-        className="pointer-events-none fixed top-4 right-4 z-50 flex flex-col gap-2 w-[320px] max-w-[90vw]"
+        data-testid="toast-stack"
+        className={TOAST_STACK_CLASS}
       >
         <AnimatePresence initial={false}>
           {entries.map((entry) => (

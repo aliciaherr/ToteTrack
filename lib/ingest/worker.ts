@@ -2,6 +2,7 @@ import {
   claimBatch,
   completeExtraction,
   failExtraction,
+  LostClaimError,
   releaseForRetry,
   type ClaimedPo,
 } from '@/db/queries/extraction-queue'
@@ -63,9 +64,11 @@ export const defaultWorkerDeps: WorkerDeps = {
 
 /**
  * Where each row ended. `stranded` means even the failure write failed: the
- * row stays `extracting` and the lease returns it to a later run.
+ * row stays `extracting` and the lease returns it to a later run. `lost`
+ * means this worker outlived its lease and another worker reclaimed the row:
+ * the fenced write changed nothing, and the row is the other worker's now.
  */
-export type RowOutcome = 'completed' | 'failed' | 'released' | 'stranded'
+export type RowOutcome = 'completed' | 'failed' | 'released' | 'stranded' | 'lost'
 
 /** What one run did, for the route (Task 116) and its log line. */
 export interface BatchSummary extends Record<RowOutcome, number> {
@@ -133,7 +136,7 @@ async function extractRow(context: RowContext): Promise<void> {
   const { extracted, sourceText } = await deps.extractPo(input, config, countingDeps(context))
   const checks = runChecks(extracted, sourceText)
   const customerMatch = await deps.matchCustomer(extracted)
-  await deps.completeExtraction(row.id, extracted, {
+  await deps.completeExtraction(row, extracted, {
     ...checks,
     failures: [...checks.failures, ...customerMatchFailures(customerMatch)],
     customerMatch,
@@ -151,9 +154,10 @@ async function settleFailure(context: RowContext, error: unknown): Promise<RowOu
   const errorName = error instanceof Error ? error.name : typeof error
   let outcome: RowOutcome = giveUp ? 'failed' : 'released'
   try {
-    if (giveUp) await deps.failExtraction(row.id, failedCheckResults(errorName))
-    else await deps.releaseForRetry(row.id)
+    if (giveUp) await deps.failExtraction(row, failedCheckResults(errorName))
+    else await deps.releaseForRetry(row, deps.now())
   } catch (writeError) {
+    if (writeError instanceof LostClaimError) return reportLostClaim(context, writeError)
     outcome = 'stranded'
     console.error('extractionWorker: could not record the failure; the lease will reclaim the row', {
       rowId: row.id,
@@ -162,6 +166,20 @@ async function settleFailure(context: RowContext, error: unknown): Promise<RowOu
   }
   logOutcome(context, outcome, error)
   return outcome
+}
+
+/**
+ * The row was reclaimed by another worker while this one held it past its
+ * lease. The fenced write changed nothing; this worker must not touch the row
+ * again. Loud, because it means a run outlived `EXTRACTION_LEASE_MS`.
+ */
+function reportLostClaim(context: RowContext, error: LostClaimError): RowOutcome {
+  console.error('extractionWorker: lost the claim on a row; another worker owns it, so it was left alone', {
+    rowId: context.row.id,
+    operation: error.operation,
+  })
+  logOutcome(context, 'lost', error)
+  return 'lost'
 }
 
 /** One row, start to finish. Throws only a batch-stopping error. */
@@ -175,6 +193,7 @@ async function processRow(row: ClaimedPo, config: ExtractionConfig, deps: Worker
     await extractRow(context)
   } catch (error) {
     if (isBatchStoppingError(error)) throw error
+    if (error instanceof LostClaimError) return reportLostClaim(context, error)
     return settleFailure(context, error)
   }
   logOutcome(context, 'completed')
@@ -187,7 +206,9 @@ async function releaseOnStop(row: ClaimedPo, error: unknown, deps: WorkerDeps): 
     rowId: row.id,
     failure: loggableFailure(error),
   })
-  await deps.releaseForRetry(row.id).catch((writeError: unknown) => {
+  await deps.releaseForRetry(row, deps.now()).catch((writeError: unknown) => {
+    // A lost claim was already logged by the query; the row is another worker's.
+    if (writeError instanceof LostClaimError) return
     console.error('extractionWorker: could not release a row; the lease will reclaim it', {
       rowId: row.id,
       failure: loggableFailure(writeError),
@@ -224,7 +245,15 @@ async function claimNext(deps: WorkerDeps): Promise<ClaimedPo | null> {
 export async function drainExtractionBatch(deps: WorkerDeps = defaultWorkerDeps): Promise<BatchSummary> {
   const config = deps.readConfig()
   const cutoff = deps.now().getTime() + EXTRACTION_CLAIM_CUTOFF_MS
-  const summary: BatchSummary = { claimed: 0, rowsMayRemain: true, completed: 0, failed: 0, released: 0, stranded: 0 }
+  const summary: BatchSummary = {
+    claimed: 0,
+    rowsMayRemain: true,
+    completed: 0,
+    failed: 0,
+    released: 0,
+    stranded: 0,
+    lost: 0,
+  }
   while (summary.claimed < INGEST_BATCH_SIZE && deps.now().getTime() < cutoff) {
     const row = await claimNext(deps)
     if (!row) {

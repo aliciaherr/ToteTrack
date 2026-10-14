@@ -5,6 +5,7 @@ import { checkDates } from './dates'
 import { checkFields } from './fields'
 import { checkQuotes } from './quotes'
 import type { CheckResults } from './types'
+import { checkValuesInQuotes } from './value-in-quote'
 
 /**
  * Runs the whole check suite on one extraction (Task 101). Pure: no DB writes,
@@ -24,6 +25,7 @@ export function runChecks(extracted: ExtractedPo, sourceText: string[] | null): 
     version: CHECK_RESULTS_VERSION,
     failures: [
       ...quoteCheck.failures,
+      ...checkValuesInQuotes(extracted),
       ...checkArithmetic(extracted),
       ...checkDates(extracted),
       ...checkFields(extracted),

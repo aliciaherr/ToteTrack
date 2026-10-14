@@ -1,6 +1,5 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { db } from '@/db'
 import {
   lockReviewRow,
@@ -61,33 +60,11 @@ function approveInTransaction(
 }
 
 /**
- * The post-commit bookkeeping: MRU address, order-screen revalidation, and
- * `/customers` when a dormant customer came back. The order already exists,
- * so a failure here is logged (EH-04) and never turned into an error result —
- * that would tell the reviewer the approve failed when it did not.
- */
-async function afterApproveCommitted(
-  poId: string,
-  data: ValidatedCreate,
-  approved: { orderId: string; reactivated: boolean },
-): Promise<void> {
-  try {
-    await afterOrderCreated(data, approved.orderId)
-    if (approved.reactivated) revalidatePath('/customers')
-  } catch (error) {
-    console.error('approveReviewPo: order created, but the post-commit step failed', {
-      poId,
-      orderId: approved.orderId,
-      failure: loggableFailure(error),
-    })
-  }
-}
-
-/**
  * Approves a queued PO into a new order, validated exactly as `createOrder`
  * (SEC-02, SEC-03), in one transaction (see `approveInTransaction`). After the
  * commit, the MRU address bookkeeping and order-screen revalidation run as in
- * `createOrder`; a failure there is logged, not returned (`afterApproveCommitted`).
+ * `createOrder`, plus `/customers` when a dormant customer came back; a failure
+ * there is logged, not returned (`afterOrderCreated` never throws).
  *
  * @param poId The `inbound_pos.id` being approved.
  * @param input The order form as the reviewer submitted it; stored verbatim as `confirmed`.
@@ -110,7 +87,11 @@ export async function approveReviewPo(poId: string, input: CreateOrderInput): Pr
     const approved = await approveInTransaction(poId, input, parsed.data)
     if (!approved) return { error: ALREADY_HANDLED_MESSAGE }
 
-    await afterApproveCommitted(poId, parsed.data, approved)
+    await afterOrderCreated(parsed.data, approved.orderId, {
+      operation: 'approveReviewPo',
+      poId,
+      customersChanged: approved.reactivated,
+    })
     return approved
   } catch (error) {
     if (isUniqueViolation(error)) return { error: DUPLICATE_PO_MESSAGE }

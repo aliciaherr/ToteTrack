@@ -146,6 +146,20 @@ describe('getReviewSource', () => {
     })
   })
 
+  it.each([
+    ['a non-inbound key', 'outbound/a.pdf'],
+    ['a traversal out of inbound/', 'inbound/../secret.pdf'],
+  ])('never signs %s, logging only the id (SEC-02, SEC-05)', async (_label, stored) => {
+    mockGetRow.mockResolvedValue(row({ document_path: stored }))
+    expect(await getReviewSource(PO_ID)).toEqual({ error: GENERIC_FAILURE_MESSAGE })
+    expect(mockCreateSignedUrl).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith('getReviewSource: signing the document failed', {
+      poId: PO_ID,
+      storageError: 'not_inbound_path',
+    })
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(stored)
+  })
+
   it('returns the generic error for a file row with no path', async () => {
     mockGetRow.mockResolvedValue(row({ document_path: null }))
     expect(await getReviewSource(PO_ID)).toEqual({ error: GENERIC_FAILURE_MESSAGE })

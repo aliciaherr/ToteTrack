@@ -70,7 +70,8 @@ export async function createOrder(
 
     const row = await insertOrderRow(db, parsed.data)
     // Address-book MRU bump + revalidation of every screen the PO lands on.
-    await afterOrderCreated(parsed.data, row.id)
+    // Never throws: a failure there is logged, and the order still exists.
+    await afterOrderCreated(parsed.data, row.id, { operation: 'createOrder' })
     return { id: row.id }
   } catch (cause) {
     if (isUniqueViolation(cause)) return { error: DUPLICATE_PO_MESSAGE }

@@ -3,6 +3,7 @@ import type { InsertInboundEmailInput } from '@/db/queries/inbound-emails'
 import type { FailureRecord } from '@/db/queries/ingest-failures'
 import type { IngestState } from '@/db/queries/ingest-state'
 import { ImapConnectionError } from '@/lib/errors'
+import { UidFetchError } from '../imap-errors'
 import { advanceWatermark, runIngestion, type IngestRunDeps, type UidOutcome } from '../run'
 import { GIVE_UP_MIN_AGE_MS, MAX_TOTAL_INGEST_BYTES } from '../limits.constants'
 import type { DeclaredMessage, ImapSession } from '../types'
@@ -478,6 +479,42 @@ describe('runIngestion — give-up rule', () => {
 
     await runIngestion(env.deps)
 
+    expect(env.failures.size).toBe(0)
+  })
+
+  // A UID whose download always fails while the connection stays alive is a
+  // failed UID like any other: counted, then given up, never pinning the run.
+  it('counts a UID that never downloads, gives it up after the thresholds, and ingests the rest', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const env = world([
+      { uid: 1, source: rawMessage('PO 1') },
+      { uid: 2, source: rawMessage('PO 2'), arrivedAt: ARRIVED },
+      { uid: 3, source: rawMessage('PO 3') },
+    ])
+    const fetchSource = env.session.fetchSource
+    env.session.fetchSource = async (uid) => {
+      if (uid === 2) throw new UidFetchError(2, 'download failed (Error)')
+      return fetchSource(uid)
+    }
+
+    const [first, second, third] = await runAt(env, 0, HOUR / 2, HOUR)
+
+    expect(first).toMatchObject({ watermark: 1, haltedAtUid: 2, failedUids: [2], gaveUpUids: [] })
+    expect(env.emails.map((row) => row.uid)).toContain(3)
+    expect(second).toMatchObject({ failedUids: [2] })
+    expect(third).toMatchObject({ watermark: 3, haltedAtUid: null, failedUids: [], gaveUpUids: [2] })
+    expect(env.emails.find((row) => row.uid === 2)).toMatchObject({ classification: 'failed', received_at: ARRIVED })
+    expect(env.failures.size).toBe(0)
+  })
+
+  it('still aborts the run, writing no state, when the connection itself is gone', async () => {
+    const env = world([{ uid: 1, source: rawMessage('PO 1') }])
+    env.session.fetchSource = async () => {
+      throw new ImapConnectionError('imap.invalid.test', 'ingest-fixture@invalid.test', 'connection is no longer usable')
+    }
+
+    await expect(runIngestion(env.deps)).rejects.toThrow(ImapConnectionError)
+    expect(env.writes).toEqual([])
     expect(env.failures.size).toBe(0)
   })
 

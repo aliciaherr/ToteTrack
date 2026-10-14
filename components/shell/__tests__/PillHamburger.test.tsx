@@ -71,7 +71,18 @@ describe('PillHamburger', () => {
 
       const badge = screen.getByTestId('pending-badge')
       expect(badge).toHaveAttribute('data-attention', 'true')
-      expect(badge.className).toContain('bg-amber-500')
+      // amber-700 under white text clears 4.5:1; amber-500 (~2.1:1) did not.
+      expect(badge.className).toContain('bg-amber-700')
+      expect(badge.className).toContain('text-white')
+      expect(badge.className).not.toContain('bg-amber-500')
+    })
+
+    it('keeps the white-on-teal colouring when nothing needs attention', () => {
+      render(<PillHamburger onClick={vi.fn()} pendingCount={2} />)
+
+      const badge = screen.getByTestId('pending-badge')
+      expect(badge.className).toContain('bg-primary')
+      expect(badge.className).not.toContain('bg-amber')
     })
   })
 })

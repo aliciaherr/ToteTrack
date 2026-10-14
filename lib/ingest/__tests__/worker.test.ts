@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@/db', () => ({ db: {} }))
 
+import { LostClaimError } from '@/db/queries/extraction-queue'
 import { DatabaseError } from '@/lib/errors'
 import {
   ExtractionConfigError,
@@ -48,11 +49,11 @@ describe('drainExtractionBatch — happy path', () => {
     )
     expect(deps.downloadPoDocument).toHaveBeenCalledWith(row.document_path)
     expect(deps.completeExtraction).toHaveBeenCalledWith(
-      row.id,
+      row,
       expect.objectContaining({ isPurchaseOrder: true }),
       expect.objectContaining({ version: 1, customerMatch: expect.objectContaining({ prefillCustomerId: CUSTOMER_ID }) }),
     )
-    expect(summary).toEqual({ claimed: 1, rowsMayRemain: false, completed: 1, failed: 0, released: 0, stranded: 0 })
+    expect(summary).toEqual({ claimed: 1, rowsMayRemain: false, completed: 1, failed: 0, released: 0, stranded: 0, lost: 0 })
   })
 
   it('reads an email body from body_text and never downloads', async () => {
@@ -104,7 +105,7 @@ describe('drainExtractionBatch — failures', () => {
 
     expect(deps.downloadPoDocument).not.toHaveBeenCalled()
     expect(deps.extractPo).not.toHaveBeenCalled()
-    expect(deps.failExtraction).toHaveBeenCalledWith(expect.any(String), failureOf('ExtractionAttemptsExhaustedError'))
+    expect(deps.failExtraction).toHaveBeenCalledWith(expect.objectContaining({ id: expect.any(String) }), failureOf('ExtractionAttemptsExhaustedError'))
     expect(summary.failed).toBe(1)
   })
 
@@ -116,14 +117,14 @@ describe('drainExtractionBatch — failures', () => {
 
     await drainExtractionBatch(deps)
 
-    expect(deps.failExtraction).toHaveBeenCalledWith(expect.any(String), failureOf(name))
+    expect(deps.failExtraction).toHaveBeenCalledWith(expect.objectContaining({ id: expect.any(String) }), failureOf(name))
     expect(deps.releaseForRetry).not.toHaveBeenCalled()
   })
 
   it('parks a row with nothing to read as permanent', async () => {
     const deps = makeDeps([claimed({ source_kind: 'email_body', document_path: null, body_text: null })])
     await drainExtractionBatch(deps)
-    expect(deps.failExtraction).toHaveBeenCalledWith(expect.any(String), failureOf('MissingExtractionInputError'))
+    expect(deps.failExtraction).toHaveBeenCalledWith(expect.objectContaining({ id: expect.any(String) }), failureOf('MissingExtractionInputError'))
   })
 
   it('releases a transient error for retry while attempts remain', async () => {
@@ -145,7 +146,7 @@ describe('drainExtractionBatch — failures', () => {
 
     await drainExtractionBatch(deps)
 
-    expect(deps.failExtraction).toHaveBeenCalledWith(expect.any(String), failureOf('DatabaseError'))
+    expect(deps.failExtraction).toHaveBeenCalledWith(expect.objectContaining({ id: expect.any(String) }), failureOf('DatabaseError'))
     expect(deps.releaseForRetry).not.toHaveBeenCalled()
   })
 
@@ -192,7 +193,7 @@ describe('drainExtractionBatch — configuration errors stop the batch', () => {
     await expect(drainExtractionBatch(deps)).rejects.toBeInstanceOf(StorageConfigError)
 
     expect(deps.completeExtraction).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(deps.releaseForRetry).mock.calls.map(([id]) => id)).toEqual(['two'])
+    expect(vi.mocked(deps.releaseForRetry).mock.calls.map(([claim]) => claim.id)).toEqual(['two'])
     expect(deps.claimBatch).toHaveBeenCalledTimes(2)
   })
 
@@ -205,7 +206,45 @@ describe('drainExtractionBatch — configuration errors stop the batch', () => {
     await expect(drainExtractionBatch(deps)).rejects.toBeInstanceOf(OpenRouterHttpError)
 
     expect(deps.failExtraction).not.toHaveBeenCalled()
-    expect(vi.mocked(deps.releaseForRetry).mock.calls.map(([id]) => id)).toEqual(['one'])
+    expect(vi.mocked(deps.releaseForRetry).mock.calls.map(([claim]) => claim.id)).toEqual(['one'])
     expect(deps.claimBatch).toHaveBeenCalledTimes(1)
+  })
+})
+
+// A worker that outlived its lease: the row was reclaimed by another worker,
+// so every fenced write matches nothing and throws LostClaimError.
+describe('drainExtractionBatch — a lost claim', () => {
+  it('fences each write on the claim and releases with the worker clock', async () => {
+    const row = claimed({ attempt_count: 1 })
+    const deps = makeDeps([row], { extractPo: vi.fn().mockRejectedValue(new OpenRouterTimeoutError('test/model', 1000)) })
+
+    await drainExtractionBatch(deps)
+
+    expect(deps.releaseForRetry).toHaveBeenCalledWith(row, deps.now())
+  })
+
+  it('reports a lost completion as lost, writes nothing more and keeps the batch going', async () => {
+    const consoleError = vi.mocked(console.error)
+    const deps = makeDeps([claimed({ id: 'stale' }), claimed({ id: 'fresh' })], {
+      completeExtraction: vi.fn()
+        .mockRejectedValueOnce(new LostClaimError('completeExtraction', 'stale'))
+        .mockResolvedValue(undefined),
+    })
+
+    const summary = await drainExtractionBatch(deps)
+
+    expect(summary).toMatchObject({ claimed: 2, lost: 1, completed: 1, released: 0, failed: 0, stranded: 0 })
+    expect(deps.releaseForRetry).not.toHaveBeenCalled()
+    expect(deps.failExtraction).not.toHaveBeenCalled()
+    expect(JSON.stringify(consoleError.mock.calls)).toContain('lost the claim')
+  })
+
+  it('reports a lost release as lost, not stranded', async () => {
+    const deps = makeDeps([claimed({ id: 'stale' })], {
+      extractPo: vi.fn().mockRejectedValue(new OpenRouterTimeoutError('test/model', 1000)),
+      releaseForRetry: vi.fn().mockRejectedValue(new LostClaimError('releaseForRetry', 'stale')),
+    })
+
+    expect(await drainExtractionBatch(deps)).toMatchObject({ lost: 1, stranded: 0, released: 0 })
   })
 })

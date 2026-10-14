@@ -42,6 +42,18 @@ afterEach(() => {
 })
 
 describe('PdfPages', () => {
+  it('keeps the drawn pages when the link is re-signed, and refreshes only "Open the file"', () => {
+    const resigned = `${PDF_URL}2`
+    const { container, rerender } = renderWith({ status: 'ready', canvases: canvases(2), totalPages: 2 })
+
+    rerender(<PdfPages url={resigned} />)
+
+    // Every draw call still names the URL it mounted with, so nothing reloads.
+    expect(vi.mocked(usePdfPages).mock.calls.every(([url]) => url === PDF_URL)).toBe(true)
+    expect(container.querySelectorAll('canvas')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: /open the file/i })).toHaveAttribute('href', resigned)
+  })
+
   it('shows a loading state', () => {
     renderWith({ status: 'loading' })
     expect(screen.getByText('Loading PDF…')).toBeInTheDocument()

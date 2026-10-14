@@ -68,6 +68,45 @@ describe('verifyQuote', () => {
   })
 })
 
+describe('verifyQuote — numbers match whole', () => {
+  it('does not verify $7,800 against $7,800.18', () => {
+    expect(verifyQuote('$7,800', ['TOTAL $7,800.18'])).toBe('not_found')
+    expect(verifyQuote('TOTAL $7,800', ['TOTAL $7,800.18'])).toBe('not_found')
+  })
+
+  it('does not verify PO# 1067 against PO# 10672', () => {
+    expect(verifyQuote('PO# 1067', ['PO# 10672'])).toBe('not_found')
+    expect(verifyQuote('1067 PO#', ['PO# 10672'])).toBe('not_found')
+  })
+
+  it('does not let a fallback number token 30 match inside 300', () => {
+    expect(verifyQuote('Tote 30', ['Tote 300'])).toBe('not_found')
+    expect(verifyQuote('30 Tote', ['Tote 300'])).toBe('not_found')
+  })
+
+  it('does not match a number inside the tail of a longer one (800 in 7,800)', () => {
+    expect(verifyQuote('800 Tote', ['Tote 7,800'])).toBe('not_found')
+  })
+
+  it('still verifies exact numbers, whole quote or token by token', () => {
+    expect(verifyQuote('$7,800.18', ['TOTAL $7,800.18'])).toBe('verified')
+    expect(verifyQuote('PO# 10672', ['PO# 10672'])).toBe('verified')
+    expect(verifyQuote('30 Tote', ['Tote 30'])).toBe('verified')
+    expect(verifyQuote('Total $7,800.', ['Total $7,800.'])).toBe('verified')
+  })
+
+  it('treats whitespace on the page as a separator, not part of a number', () => {
+    expect(verifyQuote('PO# 1067', ['PO# 1067 2026-01-20'])).toBe('verified')
+    expect(verifyQuote('PO# 1067', ['PO#\n1067\n10672'])).toBe('verified')
+  })
+
+  it('accepts cents run into the next table cell ($7,800.00330), but not a cut amount', () => {
+    expect(verifyQuote('$7,800.00', ['$7,800.00330 G Tote'])).toBe('verified')
+    expect(verifyQuote('330 G Tote', ['$7,800.00330 G Tote'])).toBe('verified')
+    expect(verifyQuote('$7,800', ['$7,800.00330 G Tote'])).toBe('not_found')
+  })
+})
+
 describe('checkQuotes', () => {
   it('verifies every quote of a clean PO with no failures', () => {
     const { failures, quotes } = checkQuotes(makePo(), SOURCE_TEXT)

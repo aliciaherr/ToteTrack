@@ -1,4 +1,4 @@
-import { toOrderQuantities } from '@/lib/extraction/extract'
+import { toOrderQuantities } from '@/lib/extraction/quantities'
 import type { ExtractedLine, ExtractedPo } from '@/lib/extraction/types'
 import { MAX_LINE_QUANTITY, MAX_UNIT_PRICE } from './checks.constants'
 import type { CheckFailure } from './types'
@@ -18,18 +18,31 @@ function checkDocument(extracted: ExtractedPo): CheckFailure[] {
   return failures
 }
 
-/** Quantity must be a whole number from 1 to `MAX_LINE_QUANTITY`. */
-function quantityProblem(quantity: number | null): string | null {
+/**
+ * Quantity must be a whole number from 1 to `MAX_LINE_QUANTITY`. Shared with
+ * the review screen, so a typed correction is held to the same rule.
+ *
+ * @param quantity - A tote line's quantity, `null` when not stated.
+ * @returns Why it is out of bounds (no document text), or `null` when fine.
+ */
+export function quantityProblem(quantity: number | null): string | null {
   if (quantity === null) return 'no quantity stated'
   if (!Number.isInteger(quantity) || quantity <= 0) return `quantity ${quantity} is not a whole number above 0`
   if (quantity > MAX_LINE_QUANTITY) return `quantity ${quantity} is over the ${MAX_LINE_QUANTITY} limit`
   return null
 }
 
-/** Unit price, when stated, must be from $0 to `MAX_UNIT_PRICE`. */
-function unitPriceProblem(unitPrice: number | null): string | null {
+/**
+ * Unit price, when stated, must be above $0 and at most `MAX_UNIT_PRICE`.
+ * A $0 tote price is never real (builder decision 2026-10-14) — it is a
+ * misread or an empty template row. Shared with the review screen.
+ *
+ * @param unitPrice - A tote line's unit price in dollars, `null` when not stated.
+ * @returns Why it is out of bounds (no document text), or `null` when fine.
+ */
+export function unitPriceProblem(unitPrice: number | null): string | null {
   if (unitPrice === null) return null
-  if (unitPrice < 0) return `unit price ${unitPrice} is negative`
+  if (unitPrice <= 0) return `unit price ${unitPrice} is not above $0`
   if (unitPrice > MAX_UNIT_PRICE) return `unit price ${unitPrice} is over the ${MAX_UNIT_PRICE} limit`
   return null
 }

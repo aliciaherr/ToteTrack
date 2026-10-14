@@ -2,8 +2,7 @@
 
 import { getOrderDocumentPath } from '@/db/queries/orders'
 import { loggableFailure } from '@/lib/loggable-failure'
-import { isInboundDocumentPath } from '@/lib/storage/po-document-path'
-import { signPoDocument } from '@/lib/storage/po-document-url'
+import { NOT_INBOUND_PATH, signPoDocument } from '@/lib/storage/po-document-url'
 import { isUuid } from '@/lib/validators/uuid'
 import { assertAuthenticated, GENERIC_FAILURE_MESSAGE } from './auth.guard'
 
@@ -32,13 +31,14 @@ export async function getOrderDocumentUrl(orderId: string): Promise<{ url: strin
 
     const documentPath = await getOrderDocumentPath(orderId)
     if (documentPath === null) return { error: NO_DOCUMENT_MESSAGE }
-    if (!isInboundDocumentPath(documentPath)) {
+
+    // signPoDocument refuses anything outside inbound/ before Storage (SEC-02).
+    const signed = await signPoDocument(documentPath)
+    if ('url' in signed) return { url: signed.url }
+    if (signed.storageError === NOT_INBOUND_PATH) {
       console.error('getOrderDocumentUrl: stored document is not an inbound/ key; not signed', { orderId })
       return { error: NO_DOCUMENT_MESSAGE }
     }
-
-    const signed = await signPoDocument(documentPath)
-    if ('url' in signed) return { url: signed.url }
     console.error('getOrderDocumentUrl: signing the document failed', { orderId, storageError: signed.storageError })
     return { error: GENERIC_FAILURE_MESSAGE }
   } catch (error) {

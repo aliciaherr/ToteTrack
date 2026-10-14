@@ -99,7 +99,8 @@ export default function ReviewOverlay({ onClose }: ReviewOverlayProps) {
         // its decision buttons below its own scroll area.
         <div className="flex-1 min-h-0 grid grid-rows-2 gap-4 overflow-hidden p-4 lg:grid-cols-2 lg:grid-rows-1">
           <section aria-label="PO document" className="min-h-0 overflow-auto rounded-lg bg-card shadow-sm">
-            <SourcePane state={source} onRetry={retry} onLoadError={markSourceFailed} />
+            {/* Keyed by PO: a new PO starts fresh, while its re-signed link keeps the drawn view. */}
+            <SourcePane key={queue.ids[0]} state={source} onRetry={retry} onLoadError={markSourceFailed} />
           </section>
           <section aria-label="PO details" className="min-h-0 overflow-hidden rounded-lg bg-card shadow-sm">
             <ReviewFieldsPane
