@@ -49,6 +49,18 @@ describe('dateInQuote', () => {
     expect(dateInQuote('2026-03-05', 'March 5')).toBe(false)
     expect(dateInQuote('2026-03-05', 'March 5 - April 5, 2026')).toBe(false)
   })
+
+  it('reads a written date with a 2-digit year (Task 123)', () => {
+    expect(dateInQuote('2026-03-05', '05-MAR-26')).toBe(true)
+    expect(dateInQuote('2026-03-05', "Mar 5, '26")).toBe(true)
+    expect(dateInQuote('2026-03-26', 'Mar 26, 26')).toBe(true)
+  })
+
+  it('does not read the day as the year, or accept a wrong 2-digit year', () => {
+    expect(dateInQuote('2026-03-26', 'Mar 26')).toBe(false)
+    expect(dateInQuote('2026-03-05', '05-MAR-25')).toBe(false)
+    expect(dateInQuote('2026-03-05', 'Mar 5, 126')).toBe(false)
+  })
 })
 
 describe('checkValuesInQuotes', () => {

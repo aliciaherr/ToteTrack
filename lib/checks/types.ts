@@ -25,6 +25,7 @@ export type CheckName =
   | 'missing_ship_to'
   | 'unknown_tote_type'
   | 'conflicting_unit_price'
+  | 'quantity_missing'
   | 'quantity_out_of_bounds'
   | 'unit_price_out_of_bounds'
   // Customer (Task 102, `customerMatchFailures`)

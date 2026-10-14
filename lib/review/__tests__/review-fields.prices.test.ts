@@ -72,7 +72,14 @@ describe('reviewFieldsOf: quantities', () => {
   it('blanks a type when one of its lines states no quantity, and flags it', () => {
     const po = makePo({ lines: [toteLine({ quantity: 10 }), toteLine({ quantity: null, lineTotal: null })] })
     expect(fieldsFor(po).values.qty_275_recon).toBe(0)
-    expect(flagsOf(po)).toEqual([['qty_275_recon', 'quantity_out_of_bounds']])
+    expect(flagsOf(po)).toEqual([['qty_275_recon', 'quantity_missing']])
+    expect(fieldsFor(po).flags[0].message).toBe('No quantity found: enter it')
+  })
+
+  it('flags a missing and a bad quantity of one type separately', () => {
+    const po = makePo({ lines: [toteLine({ quantity: 0, lineTotal: null }), toteLine({ quantity: null, lineTotal: null })] })
+    expect(fieldsFor(po).values.qty_275_recon).toBe(0)
+    expect(flagsOf(po)).toEqual([['qty_275_recon', 'quantity_missing'], ['qty_275_recon', 'quantity_out_of_bounds']])
   })
 
   it('blanks a fractional quantity', () => {

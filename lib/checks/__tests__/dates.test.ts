@@ -85,3 +85,34 @@ describe('checkDates — day-first safety net', () => {
     ])
   })
 })
+
+describe('checkDates — a quote with two dates (Task 123)', () => {
+  it('judges the value against the date it was read from, not the first one', () => {
+    const quote = 'Order 10/14/26 Ship 10/20/26'
+    expect(checkDates(makePo({ dates: [date(quote, 'delivery', '2026-10-20')] }))).toEqual([])
+  })
+
+  it('passes either end of a date range', () => {
+    const quote = '10/20/26 - 10/24/26'
+    expect(checkDates(makePo({ dates: [date(quote, 'delivery', '2026-10-20')] }))).toEqual([])
+    expect(checkDates(makePo({ dates: [date(quote, 'delivery', '2026-10-24')] }))).toEqual([])
+  })
+
+  it('takes order proof from a later date in the quote, settling an ambiguous one', () => {
+    const quote = 'Order 03/05/26 Ship 03/20/26'
+    expect(checkDates(makePo({ dates: [date(quote, 'order', '2026-03-05')] }))).toEqual([])
+  })
+
+  it('still flags a value that matches none of the dates in the quote', () => {
+    const quote = 'Order 10/14/26 Ship 10/20/26'
+    expect(checkDates(makePo({ dates: [date(quote, 'delivery', '2026-10-25')] }))).toEqual([
+      { check: 'date_order_mismatch', field: 'dates[0]', detail: expect.stringContaining('10/14') },
+    ])
+  })
+
+  it('still flags a day-first date anywhere in the quote (CONSTRAINT-41)', () => {
+    const quote = 'Order 10/14/26 Ship 20/10/26'
+    const failures = checkDates(makePo({ dates: [date(quote, 'delivery', '2026-10-20')] }))
+    expect(failures).toContainEqual({ check: 'date_order_mismatch', field: 'dates', detail: expect.stringContaining('can only be day-first') })
+  })
+})

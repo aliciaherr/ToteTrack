@@ -18,6 +18,7 @@ export const REVIEW_FLAG_WORDING: Record<ReviewFlagKind, string> = {
   missing_ship_to: 'No delivery address on the PO',
   unknown_tote_type: "A line's tote size or condition couldn't be read",
   conflicting_unit_price: 'Same tote type at two different prices',
+  quantity_missing: 'No quantity found: enter it',
   quantity_out_of_bounds: 'Quantity looks wrong: left blank',
   unit_price_out_of_bounds: 'Unit price looks wrong: left blank',
   no_customer_match: 'No existing customer matched: choose one',

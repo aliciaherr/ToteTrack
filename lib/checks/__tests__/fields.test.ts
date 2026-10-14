@@ -46,8 +46,12 @@ describe('checkFields — tote lines', () => {
     expect(checkFields(makePo({ lines: [line] }))).toEqual([])
   })
 
+  it('flags a missing quantity with its own check, not as out of bounds (Task 123)', () => {
+    const po = makePo({ lines: [toteLine({ quantity: null, lineTotal: null })] })
+    expect(checkFields(po)).toEqual([{ check: 'quantity_missing', field: 'lines[0]', detail: 'no quantity stated' }])
+  })
+
   it.each([
-    ['missing', null],
     ['zero', 0],
     ['fractional', 2.5],
     ['over the limit', MAX_LINE_QUANTITY + 1],

@@ -87,9 +87,10 @@ function linesOf(extracted: ExtractedPo, type: ToteType): ExtractedLine[] {
   return extracted.lines.filter((line) => line.kind === 'tote' && line.toteType === type)
 }
 
-// One rule with the checks (lib/checks/fields.ts). A null quantity counts too:
-// a line of this type with no stated quantity makes the type's sum uncertain.
-const badQuantity = (line: ExtractedLine) => quantityProblem(line.quantity) !== null
+// One rule with the checks (lib/checks/fields.ts). A null quantity blanks the
+// type too (its sum is uncertain) but has its own flag, as in the checks.
+const missingQuantity = (line: ExtractedLine) => line.quantity === null
+const badQuantity = (line: ExtractedLine) => !missingQuantity(line) && quantityProblem(line.quantity) !== null
 const badUnitPrice = (line: ExtractedLine) => unitPriceProblem(line.unitPrice) !== null
 
 // How far `price × 100` may sit from a whole number and still be whole cents:
@@ -108,6 +109,7 @@ const tooPrecise = (line: ExtractedLine) =>
   line.unitPrice !== null && !badUnitPrice(line) && !isWholeCents(line.unitPrice)
 
 interface TypeState {
+  quantityIsMissing: boolean
   quantityIsBad: boolean
   priceIsBad: boolean
   priceIsTooPrecise: boolean
@@ -119,6 +121,7 @@ function typeFlags(type: ToteType, state: TypeState): DraftFlag[] {
   const qtyKey = `qty_${type}` as const
   const priceKey = `unit_price_${type}` as const
   const flags: DraftFlag[] = []
+  if (state.quantityIsMissing) flags.push({ field: qtyKey, kind: 'quantity_missing', detail: `a ${type} line has no quantity` })
   if (state.quantityIsBad) flags.push({ field: qtyKey, kind: 'quantity_out_of_bounds', detail: `a ${type} line has an unusable quantity` })
   if (state.priceIsBad) flags.push({ field: priceKey, kind: 'unit_price_out_of_bounds', detail: `a ${type} line has an unusable unit price` })
   if (state.priceIsTooPrecise) flags.push({ field: priceKey, kind: 'unit_price_too_precise', detail: `a ${type} line has a unit price with more than 2 decimals` })
@@ -138,6 +141,7 @@ export function quantityValues(extracted: ExtractedPo): { values: Partial<OrderF
   for (const type of TOTE_TYPES) {
     const lines = linesOf(extracted, type)
     const state: TypeState = {
+      quantityIsMissing: lines.some(missingQuantity),
       quantityIsBad: lines.some(badQuantity),
       priceIsBad: lines.some(badUnitPrice),
       priceIsTooPrecise: lines.some(tooPrecise),
@@ -145,7 +149,7 @@ export function quantityValues(extracted: ExtractedPo): { values: Partial<OrderF
     }
     const unitPrice = slots[type].unitPrice
     const priceIsBlank = state.priceIsBad || state.priceIsTooPrecise || state.isConflict || unitPrice === null
-    values[`qty_${type}`] = state.quantityIsBad ? 0 : slots[type].quantity
+    values[`qty_${type}`] = state.quantityIsMissing || state.quantityIsBad ? 0 : slots[type].quantity
     values[`unit_price_${type}`] = priceIsBlank ? null : unitPrice.toFixed(2)
     flags.push(...typeFlags(type, state))
   }

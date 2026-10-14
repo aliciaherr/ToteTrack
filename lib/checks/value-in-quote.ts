@@ -70,15 +70,19 @@ function yearFirstMatch(date: IsoDate, quote: string): boolean {
   return yearFirstDates(quote).some(({ year, month, day }) => year === date.year && month === date.month && day === date.day)
 }
 
-/** "January 20, 2026", "20 Jan 2026": one month name, plus the day and a four-digit year as numbers. */
+/**
+ * "January 20, 2026", "20 Jan 2026", "05-MAR-26", "Mar 5, '26": one month
+ * name, plus the day and the year (four digits, or two as its last two) as
+ * two different numbers, so "Mar 26" alone is not 2026-03-26 (Task 123).
+ */
 function writtenMatch(date: IsoDate, quote: string): boolean {
   const text = canonical(quote)
   const months = [...text.matchAll(MONTH_NAME)].map((match) => MONTH_ABBREVIATIONS.indexOf(match[1]) + 1)
   if (months.length !== 1 || months[0] !== date.month) return false
   const numbers = text.match(/\p{N}+/gu) ?? []
-  const hasDay = numbers.some((number) => number.length <= 2 && Number(number) === date.day)
-  const hasYear = numbers.some((number) => number.length === 4 && Number(number) === date.year)
-  return hasDay && hasYear
+  const isDay = (number: string) => number.length <= 2 && Number(number) === date.day
+  const isYear = (number: string) => (number.length === 2 || number.length === 4) && yearMatches(number, date.year)
+  return numbers.some((day, dayAt) => isDay(day) && numbers.some((year, yearAt) => yearAt !== dayAt && isYear(year)))
 }
 
 /** The `YYYY-MM-DD` value is a date printed in the quote, in any form we can read. */

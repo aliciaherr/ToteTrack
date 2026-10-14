@@ -17,6 +17,10 @@
 - **Flaky integration run (2026-10-13):** `lib/ingest/__tests__/run-deps.integration.test.ts` failed once
   while another integration run was likely using the same local DB; two reruns passed 39/39. If it
   recurs alone, investigate shared-row interference.
+- **Flaky UI tests in `npm test` (2026-10-14, Task 123):** one full run failed 4 component tests
+  (`CalendarLayout` view cycle, `CalendarSearch` arrival highlight, `OrderStatusActions` cancel
+  recovery, `AppShell` hamburger) and loaded 199 of 204 files; alone they pass 106/106 and the
+  rerun passed 2374. Likely timing under load. If it recurs, look at those tests' waits.
 
 - **Task 106 in a browser:** stage a few POs locally (image, body text, a refusal, a PDF), open
   "Review", and check the layout, zoom, Esc and focus on the iPad width.

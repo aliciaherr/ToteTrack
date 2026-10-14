@@ -1,12 +1,33 @@
 import type { ExtractedPo } from '@/lib/extraction/types'
 import { MONTHS_IN_YEAR } from './checks.constants'
-import { numericDates, parseIsoDate } from './date-parts'
+import { type NumericDate, numericDates, parseIsoDate, yearMatches } from './date-parts'
 import type { CheckFailure } from './types'
 
-/** The first two numbers of a date quote's first numeric date, or `null` for any other form. */
-function leadingParts(quote: string): [number, number] | null {
-  const [first] = numericDates(quote)
-  return first ? [first.first, first.second] : null
+type Pair = [number, number]
+
+function pairOf(date: NumericDate): Pair {
+  return [date.first, date.second]
+}
+
+/**
+ * The two leading numbers of the quote's date that the value was read from: a
+ * quote may print two dates (order + ship, a range), and only one is the
+ * value. That is the first numeric date whose year matches and whose numbers
+ * are the value's month and day in either order; failing that, the first
+ * numeric date (so a wrong value is still judged); `null` when there is none.
+ */
+function datePair(value: string, quote: string): Pair | null {
+  const dates = numericDates(quote)
+  const iso = parseIsoDate(value)
+  const read = iso
+    ? dates.find(
+        ({ first, second, year }) =>
+          yearMatches(year, iso.year) &&
+          ((first === iso.month && second === iso.day) || (first === iso.day && second === iso.month)),
+      )
+    : undefined
+  const chosen = read ?? dates[0]
+  return chosen ? pairOf(chosen) : null
 }
 
 type DateOrder = 'month_first' | 'day_first'
@@ -15,7 +36,7 @@ type DateOrder = 'month_first' | 'day_first'
  * What one numeric date proves about the document's order. A component over
  * 12 can only be a day; both over 12 is no valid date in either order.
  */
-function proofOf(pair: [number, number] | null): DateOrder | 'impossible' | null {
+function proofOf(pair: Pair | null): DateOrder | 'impossible' | null {
   if (pair === null) return null
   const [first, second] = pair
   if (first > MONTHS_IN_YEAR && second > MONTHS_IN_YEAR) return 'impossible'
@@ -28,8 +49,18 @@ function orderName(order: DateOrder): string {
   return order === 'month_first' ? 'month-first' : 'day-first'
 }
 
-function checkAmbiguous(parts: Array<[number, number] | null>): CheckFailure[] {
-  if (parts.some((pair) => proofOf(pair) !== null)) return []
+/** Every numeric date in each quote, each one evidence of the document's order. */
+function evidenceOf(extracted: ExtractedPo): Pair[][] {
+  return extracted.dates.map((date) => numericDates(date.quote).map(pairOf))
+}
+
+/** Index of the first date whose quote holds a date proving `order`, or -1. */
+function firstProving(evidence: Pair[][], order: DateOrder): number {
+  return evidence.findIndex((pairs) => pairs.some((pair) => proofOf(pair) === order))
+}
+
+function checkAmbiguous(parts: Array<Pair | null>, evidence: Pair[][]): CheckFailure[] {
+  if (evidence.some((pairs) => pairs.some((pair) => proofOf(pair) !== null))) return []
   const failures: CheckFailure[] = []
   parts.forEach((pair, index) => {
     if (pair === null || pair[0] === pair[1]) return
@@ -45,7 +76,7 @@ function checkAmbiguous(parts: Array<[number, number] | null>): CheckFailure[] {
 /** Each numeric date's value must be its quote read in the proven order. */
 function checkValuesInOrder(
   extracted: ExtractedPo,
-  parts: Array<[number, number] | null>,
+  parts: Array<Pair | null>,
   order: DateOrder,
 ): CheckFailure[] {
   const failures: CheckFailure[] = []
@@ -66,7 +97,7 @@ function checkValuesInOrder(
 }
 
 /** Dates no order can make valid (both leading numbers over 12). */
-function impossibleDates(parts: Array<[number, number] | null>): CheckFailure[] {
+function impossibleDates(parts: Array<Pair | null>): CheckFailure[] {
   return parts.flatMap((pair, index): CheckFailure[] =>
     pair !== null && proofOf(pair) === 'impossible'
       ? [{ check: 'date_order_mismatch', field: `dates[${index}]`, detail: `${pair[0]}/${pair[1]} is not a valid date in either order` }]
@@ -79,10 +110,9 @@ function impossibleDates(parts: Array<[number, number] | null>): CheckFailure[] 
  * Flags a document that proves day-first, one whose dates prove both orders,
  * and any date whose value disagrees with its quote under the proven order.
  */
-function checkOrder(extracted: ExtractedPo, parts: Array<[number, number] | null>): CheckFailure[] {
-  const proofs = parts.map(proofOf)
-  const monthFirst = proofs.indexOf('month_first')
-  const dayFirst = proofs.indexOf('day_first')
+function checkOrder(extracted: ExtractedPo, parts: Array<Pair | null>, evidence: Pair[][]): CheckFailure[] {
+  const monthFirst = firstProving(evidence, 'month_first')
+  const dayFirst = firstProving(evidence, 'day_first')
   const failures = impossibleDates(parts)
   if (monthFirst !== -1 && dayFirst !== -1) {
     const detail = `dates[${monthFirst}] can only be month-first but dates[${dayFirst}] can only be day-first; check every date`
@@ -125,9 +155,14 @@ function checkDeliveryCount(extracted: ExtractedPo): CheckFailure[] {
  * - **Multiple delivery dates:** more than one *different* `delivery` date.
  *   The same date printed twice is not ambiguous.
  *
+ * A quote may print several dates (order + ship, a range). Every one of them
+ * is evidence of the order; each value is judged against the one it was read
+ * from (`datePair`), not the first (Task 123).
+ *
  * @param extracted - A validated extraction.
  */
 export function checkDates(extracted: ExtractedPo): CheckFailure[] {
-  const parts = extracted.dates.map((date) => leadingParts(date.quote))
-  return [...checkAmbiguous(parts), ...checkOrder(extracted, parts), ...checkDeliveryCount(extracted)]
+  const parts = extracted.dates.map((date) => datePair(date.value, date.quote))
+  const evidence = evidenceOf(extracted)
+  return [...checkAmbiguous(parts, evidence), ...checkOrder(extracted, parts, evidence), ...checkDeliveryCount(extracted)]
 }

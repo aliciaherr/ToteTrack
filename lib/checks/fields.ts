@@ -55,7 +55,8 @@ function checkToteLine(line: ExtractedLine, index: number): CheckFailure[] {
     failures.push({ check: 'unknown_tote_type', field, detail: 'tote size or condition could not be determined' })
   }
   const quantity = quantityProblem(line.quantity)
-  if (quantity) failures.push({ check: 'quantity_out_of_bounds', field, detail: quantity })
+  // A missing quantity is its own flag: "looks wrong" misleads when there is nothing to look at (Task 123).
+  if (quantity) failures.push({ check: line.quantity === null ? 'quantity_missing' : 'quantity_out_of_bounds', field, detail: quantity })
   const unitPrice = unitPriceProblem(line.unitPrice)
   if (unitPrice) failures.push({ check: 'unit_price_out_of_bounds', field, detail: unitPrice })
   return failures

@@ -8,7 +8,7 @@
 ## Where we are
 
 - **App:** live, in daily use by the salesperson on real data.
-- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** Task 122 done. Next: Task 123 (go-live blocker), then 110.
+- **Active:** Milestone 3, Feature 16 (Email PO ingestion). **Review UI core done (121), reviewed.** Go-live blocker fixes done (122, 123). Next: Task 110 (docs).
 - **Feature 16 runs nothing in prod** until the go-live checklist below is done.
 
 ---
@@ -189,7 +189,7 @@
 - [~] 109 — Auto-advance and "You are all caught up" — folded into 120 (2026-10-13), so the queue never dead-ends
 - [x] 121 — View the source PO document from the order
 - [x] 122 — Stop PDF table cells running together in the quote check (go-live blocker)
-- [ ] 123 — Fix the date false alarms; a missing quantity gets its own flag (go-live blocker)
+- [x] 123 — Fix the date false alarms; a missing quantity gets its own flag (go-live blocker)
 - [ ] 110 — Bring the architecture docs up to date and remove `document-extraction.md`
 
 ### After the core is in real use — re-evaluate before starting
@@ -208,7 +208,7 @@
 - [ ] Check preview deployment protection does not block the internal calls.
 - [ ] Move the 4 sample POs from Gmail Spam to the inbox.
 - [ ] Check the review overlay draws PDFs on the real iPad (A-15; deferred from Task 117). If it fails, "Open the file" becomes the PDF view.
-- [ ] Before the live run: Tasks 122 and 123 (check false alarms) are done (dev work).
+- [x] Before the live run: Tasks 122 and 123 (check false alarms) are done (dev work).
 - [ ] One live end-to-end run on real mail.
 
 ---
