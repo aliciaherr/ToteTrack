@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ImapConnectionError } from '@/lib/errors'
 import { UidFetchError } from '../imap-errors'
@@ -18,15 +19,19 @@ import type { GmailImapConfig } from '../types'
 
 const LISTED_UIDS = [7, 8, 9]
 
-class FakeImapFlow {
+class FakeImapFlow extends EventEmitter {
   /** The options the session was constructed with, for the timeout test. */
   static lastOptions: Record<string, unknown> | null = null
+  /** The last constructed client, for the error-event test. */
+  static lastInstance: FakeImapFlow | null = null
   mailbox: { uidValidity: bigint } | false = { uidValidity: BigInt(4242) }
   usable = true
   private listingOpen = false
 
   constructor(options: Record<string, unknown>) {
+    super()
     FakeImapFlow.lastOptions = options
+    FakeImapFlow.lastInstance = this
   }
 
   async connect(): Promise<void> {}
@@ -183,5 +188,17 @@ describe('createImapSession — a listed row with no usable size', () => {
     await expect(async () => {
       for await (const entry of session.listFrom(7)) void entry
     }).rejects.toThrow(/Connection closed/)
+  })
+})
+
+describe('connection errors', () => {
+  it("logs an imapflow 'error' event instead of crashing the run", async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await openSession()
+    const client = FakeImapFlow.lastInstance
+    expect(client?.listenerCount('error')).toBe(1)
+    expect(() => client?.emit('error', new Error('Socket timeout'))).not.toThrow()
+    expect(consoleError).toHaveBeenCalledWith('imap-session: connection error', expect.objectContaining({ failure: expect.anything() }))
+    consoleError.mockRestore()
   })
 })

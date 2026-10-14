@@ -57,7 +57,8 @@ function closeAndLog(opened: OpenedPdf) {
 /**
  * Opens the PDF at `url` and draws its first `MAX_PDF_PAGES` pages, one canvas
  * each (Task 117). Unmounting destroys the document and its worker, and frees
- * the canvases. Mount it with `key={url}` so a new URL starts from `loading`.
+ * the canvases. Mount it once per document: the URL is read once, so a re-signed
+ * URL for the same PO never redraws (SourcePane is keyed by PO id instead).
  *
  * @param url - A signed Storage URL for the PDF. Never logged: it carries a token,
  *   so failures are logged through `errorSummary`.

@@ -28,6 +28,16 @@
 
 ## Code
 
+- **GO-LIVE BLOCKERS: false alarms from the new checks** (fix-review re-check, 2026-10-14):
+  - `lib/checks/quotes.ts` boundedAt: `render-pdf.ts` joins text items with `''`, so adjacent
+    cells run together ("330"+"23.64" → "33023.64", "1"+"330" → "1330") and genuine quotes now
+    fail. Check real PO text layers; prefer joining items with a separator over more exceptions.
+  - `lib/checks/dates.ts`: `leadingParts` reads only the first date in a quote; a quote with two
+    dates (order + ship, or a range) raises `date_order_mismatch`. Pass if any date matches.
+  - `lib/checks/value-in-quote.ts` writtenMatch requires a 4-digit year ("05-MAR-26",
+    "Mar 5, '26" fail). Accept 2-digit years.
+  - Nit: a line with no quantity is flagged "Quantity looks wrong"; give it its own wording.
+
 - **`useFocusTrap` / `useEscapeClose` live in `components/calendar/productionCardDialogHooks.ts`**
   but the review overlay now imports them too (Task 106). Move them to a shared hooks file.
 
@@ -73,7 +83,7 @@
     `supabase/config.toml` `enable_signup = true` locally.
   - `pipeline.ts` spreads `loggableFailure` instead of nesting under `failure:`;
     `migrate-local.ts` "newly applied" count; `verifyQuote` duplicates `checkQuotes`' guards.
-  - Review: computed total includes lines the form blanked; Enlarge race when two pages are
+  - Review: Enlarge race when two pages are
     tapped quickly (no "Preparing page…" state); lightbox uses raw `bg-black/90` / `text-white`;
     two panes on a 12.9" iPad in portrait (`lg` = 1024px); focus drops to body after Approve and
     Skip too (widen the Delete item).

@@ -43,14 +43,15 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
  * makes client/server clock skew irrelevant, and a fresh read means neither a
  * missing mount read nor an older cron run can pass for this check finishing.
  *
- * @returns `{ lastRunAt }` (`null` = never run), or `null` when no status can
- *   be read at all, fresh or cached.
+ * No cached fallback: a stale cached value is exactly what lets an older run
+ * pass for this one, so without a fresh read the check does not start.
+ *
+ * @returns `{ lastRunAt }` (`null` = never run), or `null` when the fresh read fails.
  */
 async function readBaseline(
   load: () => Promise<IngestStatus | null>,
-  cached: IngestStatus | null,
 ): Promise<{ lastRunAt: string | null } | null> {
-  const baseline = (await load()) ?? cached
+  const baseline = await load()
   return baseline ? { lastRunAt: baseline.lastRunAt } : null
 }
 
@@ -77,7 +78,6 @@ async function watchRun(
 function useStatusLoader() {
   const [status, setStatus] = useState<IngestStatus | null>(null)
   const [hasLoadError, setHasLoadError] = useState(false)
-  const statusRef = useRef<IngestStatus | null>(null)
   const isMountedRef = useRef(true)
 
   const load = useCallback(async (): Promise<IngestStatus | null> => {
@@ -85,7 +85,6 @@ function useStatusLoader() {
       const result = await getIngestStatus()
       if ('error' in result) throw new Error(result.error)
       if (!isMountedRef.current) return result
-      statusRef.current = result
       setStatus(result)
       setHasLoadError(false)
       return result
@@ -106,13 +105,13 @@ function useStatusLoader() {
     }
   }, [load])
 
-  return { status, hasLoadError, load, statusRef, isMountedRef }
+  return { status, hasLoadError, load, isMountedRef }
 }
 
 /** "Check mail now": trigger, then watch `lastRunAt`, one check at a time. */
 function useCheckMail(loader: ReturnType<typeof useStatusLoader>) {
   const { toast } = useToast()
-  const { load, statusRef, isMountedRef } = loader
+  const { load, isMountedRef } = loader
   const [isChecking, setIsChecking] = useState(false)
   const isCheckingRef = useRef(false)
 
@@ -121,7 +120,7 @@ function useCheckMail(loader: ReturnType<typeof useStatusLoader>) {
     isCheckingRef.current = true
     setIsChecking(true)
     try {
-      const baseline = await readBaseline(load, statusRef.current)
+      const baseline = await readBaseline(load)
       if (!baseline) {
         toast(BASELINE_FAILED_MESSAGE, 'error')
         return
@@ -143,7 +142,7 @@ function useCheckMail(loader: ReturnType<typeof useStatusLoader>) {
       isCheckingRef.current = false
       if (isMountedRef.current) setIsChecking(false)
     }
-  }, [load, statusRef, isMountedRef, toast])
+  }, [load, isMountedRef, toast])
 
   return { isChecking, checkMail }
 }

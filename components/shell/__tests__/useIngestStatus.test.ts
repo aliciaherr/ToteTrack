@@ -178,6 +178,18 @@ describe('useIngestStatus — check mail baseline and unmount', () => {
     expect(result.current.isChecking).toBe(false)
   })
 
+  it('does not fall back to the cached status when the fresh baseline read fails', async () => {
+    const { result } = await mounted()
+    mockGetIngestStatus.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await act(async () => {
+      await result.current.checkMail()
+    })
+
+    expect(mockTriggerIngestion).not.toHaveBeenCalled()
+    expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("didn't start"), 'error')
+  })
+
   it("shows no 'didn't finish' toast when unmounted mid-check", async () => {
     const { result, unmount } = await mounted()
 

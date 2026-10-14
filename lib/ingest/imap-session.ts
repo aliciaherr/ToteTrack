@@ -84,6 +84,13 @@ interface OpenInbox {
  */
 async function openInbox(config: GmailImapConfig): Promise<OpenInbox> {
   const client = new ImapFlow(clientOptions(config))
+  // imapflow reports a socket timeout or drop as an 'error' event. With no
+  // listener Node rethrows it as an uncaught exception and the whole run
+  // crashes. Log it here: the pending command rejects on its own and the
+  // session sees `usable === false`, so the run fails through its normal path.
+  client.on('error', (error: unknown) => {
+    console.error('imap-session: connection error', { failure: loggableFailure(error) })
+  })
   await client.connect()
   let lock: MailboxLockObject | undefined
   try {

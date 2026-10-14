@@ -206,6 +206,7 @@
 - [ ] Check preview deployment protection does not block the internal calls.
 - [ ] Move the 4 sample POs from Gmail Spam to the inbox.
 - [ ] Check the review overlay draws PDFs on the real iPad (A-15; deferred from Task 117). If it fails, "Open the file" becomes the PDF view.
+- [ ] Before the live run: the "GO-LIVE BLOCKERS" checks fixes in `docs/backlog.md` are done (dev work).
 - [ ] One live end-to-end run on real mail.
 
 ---
